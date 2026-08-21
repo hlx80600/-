@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from .live_grabber import LiveGrabber
 
 
-class visualizeModule:
+class VisualizeModule:
     """可视化门面：惰性激活，未用到的子能力不加载。"""
 
     def __init__(self) -> None:
@@ -80,4 +80,6 @@ class visualizeModule:
 
 
 # 单例：业务侧可 `from visualize_module import viz`
-viz = visualizeModule()
+viz = VisualizeModule()
+# 兼容旧类名
+visualizeModule = VisualizeModule

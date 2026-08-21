@@ -1,0 +1,76 @@
+---
+description: 组内 Python 编码规范：文明写码、禁 C++、命名与类型 hint
+alwaysApply: true
+---
+
+# 编码规范（本组）
+
+## 语言
+
+- **默认只用 Python**。非必要禁止 C++（含新增 `.cpp/.h`、pybind 扩展、把逻辑迁到 C++）。
+- 仅当现有依赖/SDK 强制（如厂商闭源库）才可触及 C++，并先说明原因。
+
+## 命名（必须遵守）
+
+| 种类 | 规范 | 示例 |
+|------|------|------|
+| 模块文件 | `snake_case.py` | `vision_service.py` |
+| 函数 / 方法 / 变量 | `snake_case` | `grab_raw`、`image_bgr`、`cam_id` |
+| 类 | `PascalCase` | `VisionService`、`AlgorithmModule` |
+| 模块级常量 | `UPPER_SNAKE` | `CAM_IDS`、`SEQ_FORWARD` |
+| 私有 | 前缀 `_` | `_production`、`_loop` |
+| 布尔 | `is_` / `has_` / `ok` / `enabled` | `is_left_shoe`、`has_material` |
+
+- 名字要达意；避免拼音乱拼与明显拼写错误（新代码禁止 `allign`/`postion` 一类）。
+- 避免单字母（循环 `i/j`、坐标 `x/y/z` 除外）。
+- 单例门面可用短名：`algo`、`viz`（类名仍须 PascalCase）。
+
+### 允许保留的例外（不要改）
+
+- Codesys 对照：`Auto_A`、`GVL`、`Mem`、`Busy`、工位 `Station[n]`。
+- 法奥 SDK / 旧工程 API：`MoveL`、`SetSpeed`、厂商寄存器名。
+- yaml / 已落盘配置键、示教点名：`place_slot`、`belt_pick_mock` 等。
+
+## 类型 hint（必须）
+
+公开函数参数与返回值写 hint；关键局部变量不易推断时也写。
+
+```python
+from __future__ import annotations
+
+import numpy as np
+from numpy.typing import NDArray
+
+def annotate_bgr(
+    image: NDArray[np.uint8],
+    lines: list[str],
+    *,
+    ok: bool = True,
+    cam_id: str = "",
+) -> NDArray[np.uint8]:
+    """在 BGR 图上叠 ASCII 状态。
+
+    Args:
+        image: BGR，shape (H, W, 3)，dtype uint8。
+        lines: 文本行。
+        ok: True 绿色 / False 红色。
+        cam_id: 相机 id；空则不写抬头。
+
+    Returns:
+        新 BGR 图（不修改入参）。
+    """
+    ...
+```
+
+- 图像：`NDArray[np.uint8]` 或约定的 `np.ndarray`；可空用 `T | None`。
+- 新增必带 hint；改旧函数时补全该函数 hint + 简短 docstring。
+
+## 注释
+
+- docstring：**做什么、入参/类型、返回值、副作用**（运动 / 写盘 / 改全局）。
+- 复杂分支用一行中文写「为什么」；禁止 `# i加1` 和成片死代码。
+
+## 风格
+
+- 文明写码；魔法数提成命名常量并注明单位。
+- 只改任务相关代码；算法进 `algorithm_module`，设备 I/O 不进算法层。

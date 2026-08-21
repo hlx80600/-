@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from .results import BeltPickResult, RodOffsetResult, SlotResult, ToeAlignResult
 
 
-class algorithmModule:
-    """算法门面。"""
+class AlgorithmModule:
+    """视觉算法门面：惰性加载 production / commission / tooling。"""
 
     def __init__(self) -> None:
         self._production = None
@@ -187,4 +187,6 @@ class algorithmModule:
         return t.slots()
 
 
-algo = algorithmModule()
+algo = AlgorithmModule()
+# 兼容旧类名（框架风格 algorithmModule）
+algorithmModule = AlgorithmModule

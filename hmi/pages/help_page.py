@@ -26,14 +26,14 @@ class HelpPage(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        head = QLabel("使用说明（各操作页的长段释义都在这里）")
+        head = QLabel("使用说明（每页：做什么 / 实现文件 / 引用 / 被谁使用）")
         head.setStyleSheet(
             "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:4px;font-weight:bold;"
         )
         root.addWidget(head)
 
         self.ed_find = QLineEdit()
-        self.ed_find.setPlaceholderText("搜索说明…（分页、槽号、YOLO、空跑、示教…）")
+        self.ed_find.setPlaceholderText("搜索…（页名、Station、algorithm_module、文件路径…）")
         self.ed_find.textChanged.connect(self._filter)
         root.addWidget(self.ed_find)
 
