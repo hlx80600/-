@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>四槽机 · 手机监控</title>
+  <style>
+    :root {
+      --bg: #eef1f4;
+      --card: #f7f9fb;
+      --text: #1c2833;
+      --muted: #5d6d7e;
+      --ok: #1a7a37;
+      --warn: #b9770e;
+      --danger: #c0392b;
+      --primary: #1a5276;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 12px;
+      padding-bottom: 88px;
+    }
+    h1 { font-size: 1.15rem; margin: 0 0 8px; color: var(--primary); }
+    .card {
+      background: var(--card);
+      border: 1px solid #c5d0dc;
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .pill {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #fff;
+      background: var(--muted);
+    }
+    .pill.ok { background: var(--ok); }
+    .pill.warn { background: var(--warn); }
+    .pill.danger { background: var(--danger); }
+    .pill.primary { background: var(--primary); }
+    label { font-size: 0.85rem; color: var(--muted); }
+    input[type=password], input[type=text] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #c5d0dc;
+      border-radius: 8px;
+      font-size: 1rem;
+      margin-top: 4px;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #fff;
+      cursor: pointer;
+      flex: 1 1 40%;
+      min-height: 48px;
+    }
+    button:active { opacity: 0.85; }
+    .b-primary { background: #1a5276; }
+    .b-success { background: #1a7a37; }
+    .b-warn { background: #b9770e; }
+    .b-danger { background: #c0392b; }
+    .b-neutral { background: #5d6d7e; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    td, th { padding: 6px 4px; border-bottom: 1px solid #dde3ea; text-align: left; }
+    .mem-on { color: var(--ok); font-weight: 700; }
+    .mem-off { color: var(--muted); }
+    #toast {
+      position: fixed; left: 12px; right: 12px; bottom: 12px;
+      background: #1c2833; color: #fff; padding: 12px 14px;
+      border-radius: 10px; display: none; z-index: 20;
+      font-size: 0.9rem;
+    }
+    .bar {
+      position: sticky; top: 0; z-index: 10;
+      background: #eef1f4ee; padding: 8px 0 10px; backdrop-filter: blur(6px);
+    }
+    .tiny { font-size: 0.8rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <h1>莆田四槽机 · 手机监控</h1>
+    <div class="row" style="align-items:center;">
+      <span id="statePill" class="pill">连接中…</span>
+      <span id="clock" class="tiny"></span>
+    </div>
+  </div>
+
+  <div class="card" id="authCard">
+    <label>访问口令（若工控机设置了 token）</label>
+    <input id="token" type="password" placeholder="无口令可留空" autocomplete="off" />
+    <div class="row" style="margin-top:8px;">
+      <button class="b-primary" onclick="saveToken()">保存口令并刷新</button>
+    </div>
+    <p class="tiny">与电脑同一 Wi‑Fi / 局域网。口令写在 config → system.mobile_web.token</p>
+  </div>
+
+  <div class="card">
+    <div><b>初始化</b>：<span id="initTxt">-</span></div>
+    <div class="tiny" id="initMsg"></div>
+    <div style="margin-top:6px;"><b>报警</b>：<span id="alarmTxt">无</span></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="b-primary" onclick="cmd('init')">初始化</button>
+      <button class="b-success" onclick="cmd('start')">启动</button>
+      <button class="b-warn" onclick="cmd('pause')">暂停</button>
+      <button class="b-neutral" onclick="cmd('stop')">停止</button>
+      <button class="b-danger" onclick="cmd('estop')">急停</button>
+      <button class="b-primary" onclick="cmd('reset_estop')">急停复位</button>
+      <button class="b-warn" onclick="cmd('alarm_reset')">报警复位</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <button class="b-success" onclick="cmd('dry_run',{enabled:true})">开空跑</button>
+      <button class="b-neutral" onclick="cmd('dry_run',{enabled:false})">关空跑</button>
+      <button class="b-success" onclick="cmd('belt',{on:true})">光电有料</button>
+      <button class="b-neutral" onclick="cmd('belt',{on:false})">光电无料</button>
+    </div>
+    <p class="tiny" id="auxTxt">空跑/光电：-</p>
+  </div>
+
+  <div class="card">
+    <b>设备链路</b>
+    <div id="links" class="tiny">-</div>
+  </div>
+
+  <div class="card">
+    <b>Station</b>
+    <table>
+      <thead><tr><th>站</th><th>状态</th><th>步</th></tr></thead>
+      <tbody id="stations"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <b>记忆 Mem</b>
+    <table>
+      <tbody id="mems"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <b>产量 / 臂</b>
+    <div id="prod" class="tiny">-</div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const TOKEN_KEY = "pt_mobile_token";
+    let timer = null;
+
+    function token() {
+      return localStorage.getItem(TOKEN_KEY) || document.getElementById("token").value || "";
+    }
+    function saveToken() {
+      localStorage.setItem(TOKEN_KEY, document.getElementById("token").value || "");
+      toast("口令已保存");
+      refresh();
+    }
+    function toast(msg) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.style.display = "block";
+      setTimeout(() => { el.style.display = "none"; }, 2800);
+    }
+    function headers() {
+      const h = { "Content-Type": "application/json" };
+      const t = token();
+      if (t) h["X-Token"] = t;
+      return h;
+    }
+    async function refresh() {
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+      try {
+        const r = await fetch("/api/status", { headers: headers() });
+        const d = await r.json();
+        if (r.status === 401) {
+          document.getElementById("statePill").textContent = "需要口令";
+          document.getElementById("statePill").className = "pill warn";
+          return;
+        }
+        if (!d.ok) throw new Error(d.error || "status fail");
+        render(d);
+      } catch (e) {
+        document.getElementById("statePill").textContent = "离线";
+        document.getElementById("statePill").className = "pill danger";
+      }
+    }
+    function stateClass(s) {
+      if (s === "RUNNING") return "ok";
+      if (s === "READY" || s === "PAUSED") return "primary";
+      if (s === "ALARM" || s === "ESTOP") return "danger";
+      if (s === "INITIALIZING") return "warn";
+      return "";
+    }
+    function render(d) {
+      const pill = document.getElementById("statePill");
+      pill.textContent = d.state;
+      pill.className = "pill " + stateClass(d.state);
+      let init = d.init_done ? "已完成可启动" : (d.initializing ? ("进行中 步" + d.init_step) : "未初始化");
+      document.getElementById("initTxt").textContent = init;
+      document.getElementById("initMsg").textContent = d.init_message || "";
+      if (d.alarm) {
+        document.getElementById("alarmTxt").innerHTML =
+          `<span style="color:#c0392b;font-weight:700">[${d.alarm.code}] ${d.alarm.message}</span>`;
+      } else {
+        document.getElementById("alarmTxt").textContent = "无";
+      }
+      document.getElementById("auxTxt").textContent =
+        `空跑=${d.dry_run ? "开" : "关"} | 光电DI[${d.belt_di}]=${d.belt_on ? "有料" : "无料"} | 压机旋转到位=${d.press && d.press.rotate_done}`;
+
+      const links = (d.links || []).map(x =>
+        `${x.name}:${x.mock ? "模拟" : (x.ok ? "已连" : "未连")}`
+      ).join(" · ") || "-";
+      document.getElementById("links").textContent = links;
+
+      const tb = document.getElementById("stations");
+      tb.innerHTML = (d.stations || []).map(s =>
+        `<tr><td>${s.name}</td><td>${s.status}</td><td>${s.step}</td></tr>`
+      ).join("");
+
+      const labels = d.memory_labels || {};
+      const mem = d.memory || {};
+      document.getElementById("mems").innerHTML = Object.keys(labels).map(k => {
+        const on = !!mem[k];
+        return `<tr><td>[${k}] ${labels[k]}</td><td class="${on ? "mem-on" : "mem-off"}">${on ? "1" : "0"}</td></tr>`;
+      }).join("");
+
+      const p = d.production || {};
+      const r1 = d.robot1 || {}, r2 = d.robot2 || {};
+      document.getElementById("prod").textContent =
+        `CT=${p.last_ct_s ?? "-"}s UPH=${p.uph_instant ?? "-"} 总产=${p.total ?? "-"} | ` +
+        `${r1.name} tool=${r1.tool} ${r1.mock ? "模" : "真"} ${r1.vel}% | ` +
+        `${r2.name} tool=${r2.tool} ${r2.mock ? "模" : "真"} ${r2.vel}%`;
+    }
+    async function cmd(name, body) {
+      try {
+        const r = await fetch("/api/cmd/" + name, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify(body || {}),
+        });
+        const d = await r.json();
+        if (!d.ok) {
+          toast(d.error || (d.tips && d.tips.join("; ")) || "失败");
+        } else {
+          toast(name + " 已执行" + (d.tips ? "：" + d.tips.join("；") : ""));
+        }
+        refresh();
+      } catch (e) {
+        toast("命令失败: " + e);
+      }
+    }
+    document.getElementById("token").value = localStorage.getItem(TOKEN_KEY) || "";
+    refresh();
+    timer = setInterval(refresh, 800);
+  </script>
+</body>
+</html>

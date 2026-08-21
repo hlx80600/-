@@ -1,0 +1,29 @@
+# 莆田鞋厂四槽机器控制程序依赖
+# Python 建议 3.10+
+
+PySide6>=6.5.0
+PyYAML>=6.0
+numpy>=1.24.0
+# 用 headless，避免与 PySide6 抢 Qt 插件导致窗口闪退
+opencv-python-headless>=4.8.0
+scipy>=1.10.0
+
+# 压鞋机 Modbus
+pymodbus>=3.5.0
+
+# 夹爪 CAN（Casbot CANGripperController / socketcan）
+python-can>=4.3.0
+
+# 法奥 SDK：请把同级目录 fairino 装到环境，或自行 pip 安装官方包
+# pip install -e ../fairino
+
+# Orbbec 相机：按奥比中光官方 SDK 安装后再取消注释
+# pyorbbecsdk
+
+# 旧视觉主路径（YOLO OBB / 分类 / 手眼），与 Casbot_Press_Shoes 同一套环境：
+# ultralytics
+# torch / torchvision
+#   CPU：  pip install ultralytics torch torchvision
+#   GPU：  pip install ultralytics torch torchvision --index-url https://download.pytorch.org/whl/cu124
+#         （也可在 HMI「视觉采图」→「安装 ultralytics」里选 GPU 版）
+# 另需旧包：casbot_yolo_point4d、ultralytics_obb360、RSDT_Simple_Automation（按旧工程 conda 装）

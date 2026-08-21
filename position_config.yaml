@@ -1,0 +1,76 @@
+# ===== 运行前必须按现场配置的参数 =====
+
+# 相机序列号配置
+cam_left_sn: CPC4B41000G0
+cam_right_sn: CPCLA5300066
+
+# 相机内参，格式为 [fx, fy, cx, cy]
+cam_left_K: [610.7285, 610.8050, 632.7072, 360.3536]
+cam_right_K: [610.1464, 609.8653, 644.0151, 361.8214]
+
+# 相机彩色图采集参数
+cam_left_color_exposure: 150
+cam_left_color_gain: 14
+cam_right_color_exposure: 150
+cam_right_color_gain: 14
+
+# 模型路径配置
+rod_obb_model_path: models/position/rod/obb.pt
+
+# 相机到机器人基坐标系的旋转角度
+cam_left_robot_base_rotation_degrees: [0, 0, 137]
+cam_right_robot_base_rotation_degrees: [0.0, 0.0, -43]
+
+# ===== 默认参数，一般无需修改 =====
+
+# 相机采集参数
+rgb_resolution_setting: [1280, 720]
+depth_resolution_setting: [848, 480]
+fps_setting: 15
+measurement_retry_count: 5
+
+# 压杆对位模型参数
+rod_obb_img_size: 640
+rod_obb_detection_conf: 0.4
+rod_default_shift:
+  - [0, 0]
+  - [0, 0]
+  - [0, 0]
+  - [0, 0]
+  - [0, 0]
+  - [0, 0]
+
+# 压杆在相机坐标系下的预设坐标 [x, y, z]（米），不再通过检测获取，目前仅使用 x
+cam_left_rod_preset_xyz: [0.1057, 0.0282, 0.3620]
+cam_right_rod_preset_xyz: [-0.0772, 0.0273, 0.3250]
+
+# 夹抓在相机坐标系下的预设坐标 [x, y, z]（米），目前仅使用 x【取鞋示教】
+cam_left_gripper_preset_xyz: [0.0790, 0.0367, 0.3820]
+cam_right_gripper_preset_xyz: [-0.0801, 0.0515, 0.3730]
+
+# ROI 配置，只需设置左上角 [[x1, y1]]；右下角自动为 [x1 + width, y1 + height]；null 表示全图检测
+roi_width: 600
+roi_height: 300
+cam_left_rod_roi: [[400, 280]]
+cam_right_rod_roi: [[300, 320]]
+
+# 卡鞋检测分类模型参数
+slot_check_model_path: models/position/slot/slot_check.pt
+slot_check_conf: 0.7
+slot_check_img_size: 640
+
+# 卡鞋检测深度伪彩参数；slot_check_color_start_depth_mm 为 null 时从最小有效深度开始
+slot_check_depth_alpha: 0.5
+slot_check_depth_beta: 0.5
+slot_check_color_start_depth_mm: 250
+slot_check_color_range_mm: 300
+slot_check_min_depth_mm: 100
+slot_check_max_depth_mm: 1000
+
+# 卡鞋检测 ROI，格式分别为 [x1, y1] 和 [width, height]
+slot_check_roi_start: [160, 210]
+slot_check_roi_size: [1000, 500]
+
+# 检测结果归档参数
+enable_detection_artifact_save: true
+detection_artifact_root: position_artifacts

@@ -1,0 +1,12 @@
+{
+  "include": ["."],
+  "exclude": ["**/__pycache__", ".venv"],
+  "pythonVersion": "3.12",
+  "pythonPlatform": "Linux",
+  "pythonPath": "/usr/bin/python3",
+  "extraPaths": [
+    "/home/hlx8060/.local/lib/python3.12/site-packages",
+    "/usr/lib/python3/dist-packages"
+  ],
+  "reportMissingImports": "warning"
+}

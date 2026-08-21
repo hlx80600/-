@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "contour-seg"
+version = "0.1.0"
+description = "基于 SAM 的目标外轮廓提取工具"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["segmentation", "contour", "SAM", "computer-vision"]
+dependencies = [
+    "torch>=1.13.0",
+    "torchvision>=0.14.0",
+    "opencv-python>=4.7.0",
+    "numpy>=1.23.0",
+    "segment-anything @ git+https://github.com/facebookresearch/segment-anything.git",
+]
+
+[project.scripts]
+contour-seg = "contour_seg.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["contour_seg*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

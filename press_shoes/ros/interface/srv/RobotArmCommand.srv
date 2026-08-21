@@ -1,0 +1,9 @@
+# Generic command service for Fairino robot arms.
+string function_name      # Optional label for logging/traceability
+string method             # FairinoRobotArm method to call
+string kwargs_json        # JSON object for keyword arguments
+---
+bool success              # Whether the call ran without raising
+int32 ret_code            # Underlying SDK return code (if available)
+string message            # Human readable result or error cause
+string result_json        # JSON encoded return payload (pose, version, etc.)

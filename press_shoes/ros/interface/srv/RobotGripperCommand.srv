@@ -1,0 +1,6 @@
+# Generic command service for Fairino robot arms.
+string function_name      # Open or Close
+---
+bool success              # Whether the call ran without raising
+int32 ret_code            # Underlying SDK return code (if available)
+string message            # Human readable result or error cause

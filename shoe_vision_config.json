@@ -1,0 +1,102 @@
+{
+  "shoe_model_path": "models/shoe_vision/7.23鞋obb.pt",
+  "shoe_cls_model_path": "models/shoe_vision/custom_鞋头朝上左右脚分类.pt",
+  "shoe_tree_model_path": "models/shoe_vision/7.24鞋楦obb.pt",
+  "save_crop_toe_up": false,
+  "crop_toe_up_dir": "crop_up",
+  "crop_toe_up_save_every": 1,
+  "save_shoe_tree_crop": false,
+  "shoe_tree_crop_dir": "runs/shoe_tree_crop",
+  "conf": 0.5,
+  "iou": 0.3,
+  "roi_ratio": [
+    0.53,
+    0.08,
+    0.65,
+    0.96
+  ],
+  "shift": [
+    [
+      0.0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      0
+    ]
+  ],
+  "shoe_tree_center_offset": [
+    0.0,
+    0.0
+  ],
+  "camera": {
+    "fx": 605.2488424730359,
+    "fy": 605.24434631,
+    "cx": 640.40194013,
+    "cy": 368.274078
+  },
+  "orbbec": {
+    "cam_id": "cam1",
+    "cam_serial": "",
+    "color_res": [
+      1280,
+      720
+    ],
+    "depth_res": [
+      848,
+      480
+    ],
+    "fps": 10,
+    "color_auto_exposure": false,
+    "color_exposure": 75,
+    "color_gain": 3
+  },
+  "handeye": {
+    "mat": [
+      [
+        -0.706296,
+        0.707838,
+        -0.0105649,
+        726.28
+      ],
+      [
+        0.707716,
+        0.706372,
+        0.0132817,
+        -534.433
+      ],
+      [
+        0.016864,
+        0.00190388,
+        -0.999856,
+        563.337
+      ],
+      [
+        0,
+        0,
+        0,
+        1
+      ]
+    ]
+  }
+}

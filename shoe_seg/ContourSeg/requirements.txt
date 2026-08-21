@@ -1,0 +1,13 @@
+# ContourSeg - 依赖
+
+# PyTorch (先按官网选适合你 CUDA 版本的命令安装，再装下面的)
+# https://pytorch.org/get-started/locally/
+torch>=1.13.0
+torchvision>=0.14.0
+
+# SAM 核心库
+git+https://github.com/facebookresearch/segment-anything.git
+
+# 图像处理
+opencv-python>=4.7.0
+numpy>=1.23.0
