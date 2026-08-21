@@ -2,7 +2,7 @@
 """
 莆田鞋厂四槽机器控制程序 —— 入口
 
-给电气转机器人的同事：
+使用：
 1. 先装依赖：pip install -r requirements.txt
 2. 默认 use_mock=true，无需真机即可打开 HMI 走流程
 3. 运行：python3 main.py

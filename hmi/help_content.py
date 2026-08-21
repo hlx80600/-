@@ -62,10 +62,20 @@ def sections() -> List[Section]:
                     f"全局状态：{_code('core/gvl.py')}（Main / Station / Memory_BOOL）。",
                     f"设备与视觉：{_code('core/app_context.py')}（robot1/2、夹爪、压机、cameras、vision）。",
                     f"参数总表：{_code('config/default.yaml')}（IP、点位、Mock、运动步参数）。",
+                    "纸质/仓库详解：docs/程序总览.md（主流程）；视觉接口见 algorithm_module/readme.md。",
                 ]
             )
-            + _h("分页一览")
+            + _h("一条鞋怎么走（自动）")
             + _ul(
+                [
+                    "Station1 皮带拍照 → 得到取料坐标",
+                    "Station2 上料臂取料 →（需要时 Station3 拍放料槽）→ 放料对位压跟张爪",
+                    "Station6 压合 → 转台推进槽号",
+                    "Station4 拍取料槽 ± 压杆 → Station5 下料放到皮带",
+                    "详细步序与文件：见本说明「工位程序」章，或 docs/程序总览.md",
+                ]
+            )
+            + _h("分页一览")            + _ul(
                 [
                     f"<b>{T.MONITOR}</b>：启停、灯、记忆、槽号、速度、夹爪/压机手动",
                     f"<b>{T.CAM_MONITOR}</b>：独立窗，四路原图+推演结果",

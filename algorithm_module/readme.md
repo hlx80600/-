@@ -28,13 +28,14 @@ from algorithm_module import algo
 
 ## 2. 建议阅读顺序（第一次打开工程）
 
-1. **本文**（接口与调用图）  
-2. `algorithm_module/results.py` — 结果结构字段含义  
-3. `vision/vision_service.py` — 取图 + 调 `algo` + `publish_vis`  
-4. `stations/station1_belt_photo.py` → `station2_robot1.py` → `station3/4/5` — 何时调用视觉  
-5. `vision/legacy_pipeline.py` — YOLO/手眼真正实现（重、可后读）  
-6. HMI「使用说明」标签 — 各页引用关系  
-7. `docs/操作说明.md` — 安装与联调摘要  
+1. **整机主流程（先建立全局）**：[docs/程序总览.md](../docs/程序总览.md)（启动、主循环、一条鞋怎么走）  
+2. **本文**（视觉接口与调用图）  
+3. `algorithm_module/results.py` — 结果结构字段含义  
+4. `vision/vision_service.py` — 取图 + 调 `algo` + `publish_vis`  
+5. `stations/station1_belt_photo.py` → `station2_robot1.py` → `station3/4/5` — 何时调用视觉  
+6. `vision/legacy_pipeline.py` — YOLO/手眼真正实现（重、可后读）  
+7. HMI「使用说明」标签 — 各页引用关系  
+8. `docs/操作说明.md` — 安装与联调摘要  
 
 入口程序：`main.py` → `core/coordinator.py` 扫描各 Station。
 
