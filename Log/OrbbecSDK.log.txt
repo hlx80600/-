@@ -15043,3 +15043,50 @@
 [08/24 16:11:28.328895][info][19358][ObLibuvcDevicePort.cpp:87] uvc_close done.
 [08/24 16:11:28.328922][info][19358][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
 [08/24 16:11:29.317071][warning][21479][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**240 logs in 19641ms, last: 16:11:28.238952**]
+[08/24 17:06:06.887253][info][29786][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 17:06:07.044206][info][29786][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 17:06:07.044242][info][29786][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 17:06:07.044247][info][29786][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 17:06:07.044252][info][29786][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 17:06:08.048456][info][29786][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 17:06:08.048493][info][29786][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 17:06:08.053971][info][29786][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 17:06:08.061019][info][29786][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 17:06:08.061033][info][29786][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 17:06:08.061035][info][29786][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 17:06:08.061036][info][29786][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 17:06:08.061038][info][29786][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 17:06:08.061040][info][29786][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 17:06:08.258898][info][29786][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 17:06:08.260168][info][29786][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x79DF7835BB70
+[08/24 17:06:08.282085][info][29786][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 17:06:08.283413][info][29786][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 17:06:08.283430][info][29786][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 17:06:08.283440][info][29786][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 17:06:08.283443][info][29786][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 17:06:08.286440][info][29786][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 17:06:08.286443][info][29786][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 17:06:08.296179][warning][29836][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8
+[08/24 17:06:08.697966][info][29834][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 17:06:11.305585][warning][29837][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**196 logs in 3009ms, last: 17:06:11.292973**]
+[08/24 17:06:13.710433][info][29834][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.243366fps
+[08/24 17:06:13.710553][info][29840][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.255386fps
+[08/24 17:06:17.308668][warning][29880][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**353 logs in 6003ms, last: 17:06:17.305326**]
+[08/24 17:06:18.722921][info][29834][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 17:06:18.723013][info][29840][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 17:06:23.735541][info][29834][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.043884fps
+[08/24 17:06:23.735642][info][29840][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.043884fps
+[08/24 17:06:24.328642][info][29669][Pipeline.cpp:367] [CV27561000FH] Try to stop pipeline!
+[08/24 17:06:24.328656][info][29669][Pipeline.cpp:343] [CV27561000FH] Try to stop streams!
+[08/24 17:06:24.328672][info][29669][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STREAMING to STOPPING@Color
+[08/24 17:06:24.353417][info][29669][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPING to STOPPED@Color
+[08/24 17:06:24.353504][info][29669][Pipeline.cpp:357] [CV27561000FH] Sensor stream stopped, sensorType=Color
+[08/24 17:06:24.353507][info][29669][Pipeline.cpp:363] [CV27561000FH] Stop streams done!
+[08/24 17:06:24.356369][info][29669][Pipeline.cpp:393] [CV27561000FH] Stop pipeline done!
+[08/24 17:06:24.357068][info][29669][Pipeline.cpp:65] [CV27561000FH] Pipeline destroyed! @0x79DF7835BB70
+[08/24 17:06:24.357206][info][29669][SensorBase.cpp:53] [CV27561000FH] SensorBase is destroyed
+[08/24 17:06:24.359753][info][29669][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 17:06:24.359759][info][29669][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 17:06:24.423558][info][29669][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 17:06:24.423576][info][29669][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 17:06:25.076374][warning][29961][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**400 logs in 7767ms, last: 17:06:24.331455**]

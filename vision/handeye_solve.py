@@ -1,7 +1,7 @@
 """眼在手外（cam1 皮带）：像素+深度 → 相机 XYZ，与 TCP 对齐，求 T_cam2base。
 
 与 shoe_vision_seg 生产约定一致：base = T @ [X,Y,Z,1]。
-采样：预览点选皮带上一点，上料臂 TCP 对准同一点。建议 ≥3 个散开的点，有深度更好。
+采样：皮带放鞋 → 对准记录 → 移开拍照 → 完成采样 → pick_entry/上方/取料点回夹验证。
 """
 
 from __future__ import annotations

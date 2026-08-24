@@ -206,6 +206,228 @@ def move_robot1_to_pick(ctx, *, above: bool = True) -> str:
     return f"已发 MoveL → {label}\n{xyz}"
 
 
+def handeye_capture_cfg(ctx) -> dict[str, float | bool]:
+    """手眼标定拍照参数（config vision.handeye_capture）。"""
+    vis = vis_cfg(ctx)
+    hc = vis.get("handeye_capture") or vis.get("handeye_retreat") or {}
+    if not isinstance(hc, dict):
+        hc = {}
+    return {
+        "open_gripper": bool(hc.get("open_gripper", False)),
+        "gripper_wait_s": float(hc.get("gripper_wait_s", 0.5)),
+        "grab_wait_s": float(hc.get("grab_wait_s", 0.65)),
+        "repick_vel": float(hc.get("repick_vel", 20.0)),
+    }
+
+
+def handeye_retreat_cfg(ctx) -> dict[str, float | bool]:
+    """兼容旧名。"""
+    return handeye_capture_cfg(ctx)
+
+
+def _require_handeye_manual(ctx) -> None:
+    if ctx is None:
+        raise RuntimeError("无 app_context")
+    if ctx.machine.state.name == "RUNNING":
+        raise RuntimeError("自动运行中禁止手眼标定操作，请先停止")
+
+
+def read_handeye_robot_pose(ctx) -> dict[str, Any]:
+    """读取上料臂当前 TCP 与关节角（对准标定点、尚未退开时调用）。"""
+    from datetime import datetime
+
+    _require_handeye_manual(ctx)
+    try:
+        tcp_raw = ctx.robot1.get_actual_tcp_pose()
+        joints = ctx.robot1.get_actual_joint_pos()
+    except Exception as e:
+        raise RuntimeError(f"读上料臂位姿失败: {e}") from e
+    tcp = {k: float(tcp_raw.get(k, 0)) for k in ("x", "y", "z", "rx", "ry", "rz")}
+    j_list = [float(v) for v in joints]
+    return {
+        "tcp": tcp,
+        "joints": j_list,
+        "time": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def handeye_retreat_and_capture(ctx, camera_id: str = "cam1") -> tuple[Any, Any, str]:
+    """手动移开臂/夹爪后拍照（不自动发 MoveL；可选仅张爪）。"""
+    import time
+
+    _require_handeye_manual(ctx)
+    cfg = handeye_capture_cfg(ctx)
+    notes: list[str] = []
+    if cfg["open_gripper"]:
+        try:
+            ok = bool(ctx.gripper1.open_claw())
+            notes.append("夹爪张开指令已发" if ok else "夹爪张开指令失败(请手动确认)")
+        except Exception as e:
+            notes.append(f"夹爪张开异常: {e}")
+        time.sleep(max(0.0, float(cfg["gripper_wait_s"])))
+    else:
+        notes.append("未自动张爪/退开：请在示教器手动移出相机视野")
+
+    cam = ctx.cameras.get(camera_id) if ctx is not None else None
+    img = None
+    wait_s = float(cfg["grab_wait_s"])
+    if ctx is not None and hasattr(ctx, "vision"):
+        img = ctx.vision.grab_raw(camera_id, wait_s=wait_s)
+        if img is None:
+            img = (ctx.vision.last_raw or {}).get(camera_id)
+    depth = getattr(cam, "last_depth", None) if cam is not None else None
+    if img is None:
+        raise RuntimeError("拍照失败：无彩色图，请检查相机连接或 Mock 设置")
+
+    ih, iw = int(img.shape[0]), int(img.shape[1])
+    z_note = "有深度" if depth is not None else "无深度"
+    extra = "\n  ".join(notes)
+    msg = (
+        f"已拍照 ({iw}×{ih}, {z_note})\n"
+        f"  {extra}\n"
+        "请在上方预览点击标定点像素，再点「③ 完成本点采样」。"
+    )
+    return img, depth, msg
+
+
+def write_pick_pose_from_tcp(ctx, tcp: dict[str, float]) -> str:
+    """把手眼记录的对准位姿写入 PickPose（供回夹验证 / 视觉试走）。"""
+    pick = numeric_pose(tcp)
+    gvl = ctx.gvl
+    for k in ("x", "y", "z", "rx", "ry", "rz"):
+        gvl.PickPose[k] = float(pick[k])
+    ctx.runtime_pick.update(gvl.PickPose)
+    return (
+        f"已写入 PickPose（本标定点取料位）\n"
+        f"  X={pick['x']:.1f} Y={pick['y']:.1f} Z={pick['z']:.1f} "
+        f"Rz={pick['rz']:.1f}"
+    )
+
+
+def pick_poses_from_tcp(ctx, tcp: dict[str, float]) -> tuple[dict[str, float], dict[str, float]]:
+    """由对准 TCP 生成取料点与上方点（上方=取料点+pick_above_offset）。"""
+    pick = numeric_pose(tcp)
+    try:
+        above = apply_offset(pick, ctx.offset("robot1", "pick_above_offset"))
+    except Exception:
+        above = dict(pick)
+        above["z"] = float(pick.get("z", 0)) + 80.0
+    return above, pick
+
+
+def move_robot1_pick_entry(ctx, *, vel: float | None = None) -> str:
+    """MoveJ 到示教 pick_entry。"""
+    _require_handeye_manual(ctx)
+    v = float(vel if vel is not None else handeye_capture_cfg(ctx)["repick_vel"])
+    tag = ctx.named_point_tag("robot1", "pick_entry")
+    ctx.move_to_point("robot1", "pick_entry", precise=True, vel=v)
+    return f"已发 MoveJ → {tag}"
+
+
+def move_robot1_to_handeye_tcp(
+    ctx,
+    tcp: dict[str, float],
+    *,
+    above: bool,
+    vel: float | None = None,
+) -> str:
+    """MoveL 到本标定点的取料上方或取料点。"""
+    _require_handeye_manual(ctx)
+    v = float(vel if vel is not None else handeye_capture_cfg(ctx)["repick_vel"])
+    above_pose, pick_pose = pick_poses_from_tcp(ctx, tcp)
+    target = above_pose if above else pick_pose
+    label = "手眼标定-取料上方" if above else "手眼标定-取料点"
+    ctx.robot1.move_l(target, label=label, precise=True, vel=v)
+    xyz = ", ".join(f"{k}={target[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
+    return f"已发 MoveL → {label}\n{xyz}"
+
+
+def move_robot1_handeye_repick(ctx, tcp: dict[str, float], *, vel: float | None = None) -> str:
+    """张爪 → pick_entry → 取料上方 → 取料点 → 夹紧（与 Station2 取料段一致，用于验证）。"""
+    _require_handeye_manual(ctx)
+    v = float(vel if vel is not None else handeye_capture_cfg(ctx)["repick_vel"])
+    above_pose, pick_pose = pick_poses_from_tcp(ctx, tcp)
+    entry_tag = ctx.named_point_tag("robot1", "pick_entry")
+    ctx.gripper1.open()
+    ctx.move_to_point("robot1", "pick_entry", precise=True, vel=v)
+    ctx.robot1.move_l(
+        above_pose,
+        label="手眼验证取料上方",
+        from_label=entry_tag,
+        precise=True,
+        vel=v,
+    )
+    ctx.robot1.move_l(pick_pose, label="手眼验证取料点", precise=True, vel=v)
+    ctx.gripper1.close()
+    xyz = ", ".join(f"{k}={pick_pose[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
+    return (
+        "已按取料路径回夹：张爪 → pick_entry → 上方 → 取料点 → 夹紧\n"
+        f"  取料点 {xyz}\n"
+        "请确认夹取是否正常；可对比示教偏差评估手眼误差。"
+    )
+
+
+def append_handeye_sample(
+    ctx,
+    camera_id: str,
+    *,
+    pixel_u: int,
+    pixel_v: int,
+    robot_record: dict[str, Any],
+    img: Any = None,
+) -> str:
+    """用手眼记录位姿 + 退开后拍照上的像素，追加一条采样。"""
+    from datetime import datetime
+
+    tcp_in = robot_record.get("tcp") if isinstance(robot_record.get("tcp"), dict) else {}
+    if not tcp_in:
+        raise RuntimeError("缺少已记录的机械臂 TCP，请先点「① 记录机械臂位姿」")
+    u, v = int(pixel_u), int(pixel_v)
+
+    cam = ctx.cameras.get(camera_id) if ctx is not None else None
+    if img is None:
+        img = getattr(cam, "last_color", None) if cam is not None else None
+    if img is None and ctx is not None and hasattr(ctx, "vision"):
+        img = (ctx.vision.last_raw or {}).get(camera_id)
+
+    sample: dict[str, Any] = {
+        "pixel_u": u,
+        "pixel_v": v,
+        "tcp": {k: float(tcp_in.get(k, 0)) for k in ("x", "y", "z", "rx", "ry", "rz")},
+        "camera": camera_id,
+        "time": datetime.now().isoformat(timespec="seconds"),
+        "recorded_at": robot_record.get("time"),
+        "workflow": "retreat_capture",
+    }
+    joints = robot_record.get("joints")
+    if isinstance(joints, (list, tuple)) and len(joints) >= 6:
+        sample["joints"] = [float(x) for x in joints[:6]]
+
+    if img is not None and hasattr(img, "shape"):
+        sample["image_w"] = int(img.shape[1])
+        sample["image_h"] = int(img.shape[0])
+        color_hw = (int(img.shape[0]), int(img.shape[1]))
+    else:
+        color_hw = None
+    k = resolve_k(ctx, camera_id)
+    depth = getattr(cam, "last_depth", None) if cam is not None else None
+    sample = enrich_sample(sample, depth=depth, color_hw=color_hw, k=k)
+    samples = list(calib.load_handeye_samples(camera_id) or [])
+    samples.append(sample)
+    path = calib.save_handeye_samples(camera_id, samples)
+    z = sample.get("depth_mm")
+    z_s = f"{float(z):.0f}mm" if z else "无深度"
+    j = sample.get("joints") or []
+    j_s = ", ".join(f"{x:.2f}" for x in j[:6]) if j else "-"
+    return (
+        f"手眼采样 +1（共{len(samples)}） {path.name}\n"
+        f"  像素=({u},{v}) 深度={z_s}（移开后拍照）\n"
+        f"  记录位 TCP x={sample['tcp']['x']:.1f} y={sample['tcp']['y']:.1f} "
+        f"z={sample['tcp']['z']:.1f} rz={sample['tcp']['rz']:.1f}\n"
+        f"  记录位关节 J=[{j_s}]"
+    )
+
+
 def record_handeye_sample(
     ctx,
     camera_id: str = "cam1",

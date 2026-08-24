@@ -22,7 +22,7 @@ system:
     refresh_inactive_ms: 250
     preview_max_fps: 60
     preview_inactive_fps: 5
-    vision_debug_max_fps: 15
+    vision_debug_max_fps: 60
 motion:
   blend_enable: true
   blend_t_ms: 100
@@ -305,6 +305,12 @@ vision:
     cols: 11
     rows: 8
     square_size_mm: 15.0
+  # 手眼标定：记录 TCP 后手动移开臂/夹爪，再拍照点像素（避免遮挡）
+  handeye_capture:
+    open_gripper: false
+    gripper_wait_s: 0.5
+    grab_wait_s: 0.65
+    repick_vel: 20.0
   photo_retry: 3
   photo_retry_interval_s: 1.0
   guide_retry: 3

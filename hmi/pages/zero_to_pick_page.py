@@ -242,7 +242,8 @@ class ZeroToPickPage(QWidget):
         r3b.addStretch(1)
         l3.addLayout(r3b)
         hint = QLabel(
-            "手眼：视觉页点皮带上一点 → 示教器把上料臂 TCP 对准该点 → 记录。换位置至少 3 点。"
+采样：皮带放鞋 → ① 记录对准位姿 → 手动移开 → ② 拍照 → ③ 完成采样 → 按路径回夹验证。
+            "换位置至少 3 点；cam1 建议 ≥8 点。"
         )
         hint.setWordWrap(True)
         l3.addWidget(hint)

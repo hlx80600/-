@@ -185,6 +185,9 @@ class VisionWorkspace(QWidget):
         self._overlay_toe = None  # (gx,gy,tx,ty,length_mm) 全图坐标
         self._crosshair = True
         self._handeye_samples: list = []
+        self._pending_handeye_robot: dict | None = None
+        self._handeye_retreat_done = False
+        self._last_handeye_pick_tcp: dict[str, float] | None = None
         self._pending_pixel: tuple[int, int] | None = None
         self._roi_by_cam: dict[str, dict] = {}
         self._frame_size_by_cam: dict[str, tuple[int, int]] = {}
@@ -550,7 +553,9 @@ class VisionWorkspace(QWidget):
         tab = QWidget()
         lay = QVBoxLayout(tab)
         tip = QLabel(
-            "在上方预览点击像素点 →「记录手眼采样点」（同时读上料臂 TCP）→ 采满后求解。"
+            "推荐流程：皮带放一只鞋 → ① 记录对准位姿 → 手动移出视野 → "
+            "② 移开后拍照 → 点像素 → ③ 完成采样（自动写入 PickPose）→ "
+            "④ 按路径回进入点/上方/取料点夹取验证，减小手眼误差。"
         )
         tip.setWordWrap(True)
         tip.setStyleSheet("color:#1a5276;font-weight:bold;")
@@ -558,8 +563,56 @@ class VisionWorkspace(QWidget):
 
         he = QGroupBox("手眼采样与求解")
         he_lay = QVBoxLayout(he)
+        row0 = QHBoxLayout()
+        b_he_pose = QPushButton("① 记录机械臂位姿")
+        b_he_retreat = QPushButton("② 移开后拍照")
+        b_he_finish = QPushButton("③ 完成本点采样")
+        b_he_pose.setToolTip("臂仍对准标定点时：读 TCP + 六关节角并暂存")
+        b_he_retreat.setToolTip(
+            "请先在示教器手动移开上料臂/夹爪，使标定点无遮挡且仍在视野内，再拍照"
+        )
+        b_he_finish.setToolTip("用①记录的位姿 + 移开后预览上点的像素写入采样")
+        style_many([(b_he_pose, "warn"), (b_he_retreat, "motion"), (b_he_finish, "success")])
+        b_he_pose.clicked.connect(self._record_handeye_robot_pose)
+        b_he_retreat.clicked.connect(self._handeye_retreat_and_capture)
+        b_he_finish.clicked.connect(self._finish_handeye_sample)
+        row0.addWidget(b_he_pose)
+        row0.addWidget(b_he_retreat)
+        row0.addWidget(b_he_finish)
+        row0.addStretch(1)
+        he_lay.addLayout(row0)
+        row_pick = QHBoxLayout()
+        b_he_pickpose = QPushButton("写入本点PickPose")
+        b_he_entry = QPushButton("回 pick_entry")
+        b_he_above = QPushButton("到取料上方")
+        b_he_pick = QPushButton("到取料点")
+        b_he_repick = QPushButton("按路径回夹取")
+        b_he_pickpose.setToolTip("将最近一次③完成的标定点 TCP 写入 PickPose")
+        b_he_entry.setToolTip("MoveJ 到示教 pick_entry（需先完成③）")
+        b_he_above.setToolTip("MoveL 到本点取料上方（PickPose+pick_above_offset）")
+        b_he_pick.setToolTip("MoveL 到本点取料位（①记录的对准 TCP）")
+        b_he_repick.setToolTip(
+            "张爪 → pick_entry → 取料上方 → 取料点 → 夹紧；与 Station2 取料段一致"
+        )
+        style_many(
+            [
+                (b_he_pickpose, "primary"),
+                (b_he_entry, "motion"),
+                (b_he_above, "motion"),
+                (b_he_pick, "motion"),
+                (b_he_repick, "success"),
+            ]
+        )
+        b_he_pickpose.clicked.connect(self._handeye_write_pick_pose)
+        b_he_entry.clicked.connect(self._handeye_move_pick_entry)
+        b_he_above.clicked.connect(lambda: self._handeye_move_pick_stage(above=True))
+        b_he_pick.clicked.connect(lambda: self._handeye_move_pick_stage(above=False))
+        b_he_repick.clicked.connect(self._handeye_repick_sequence)
+        for b in (b_he_pickpose, b_he_entry, b_he_above, b_he_pick, b_he_repick):
+            row_pick.addWidget(b, 0)
+        row_pick.addStretch(1)
+        he_lay.addLayout(row_pick)
         row1 = QHBoxLayout()
-        b8 = QPushButton("记录手眼采样点")
         b9 = QPushButton("保存手眼采样")
         b_solve = QPushButton("计算手眼4×4写入json")
         b_kjson = QPushButton("内参写入皮带json")
@@ -571,7 +624,6 @@ class VisionWorkspace(QWidget):
         b_solve.setToolTip("用采样点求 T_cam2base，cam1 会写入 shoe_vision_config.json")
         style_many(
             [
-                (b8, "warn"),
                 (b9, "success"),
                 (b_solve, "success"),
                 (b_kjson, "success"),
@@ -580,14 +632,13 @@ class VisionWorkspace(QWidget):
                 (b_del_he, "danger"),
             ]
         )
-        b8.clicked.connect(self._add_handeye_sample)
         b9.clicked.connect(self._save_handeye_samples)
         b_solve.clicked.connect(self._solve_handeye)
         b_kjson.clicked.connect(self._write_k_json)
         b_roij.clicked.connect(self._write_roi_json)
         b_del_he_s.clicked.connect(self._delete_handeye_samples)
         b_del_he.clicked.connect(self._delete_handeye_file)
-        for b in (b8, b9, b_solve, b_kjson, b_roij):
+        for b in (b9, b_solve, b_kjson, b_roij):
             row1.addWidget(b, 0)
         row1.addStretch(1)
         he_lay.addLayout(row1)
@@ -1290,7 +1341,14 @@ class VisionWorkspace(QWidget):
     def _on_pixel_clicked(self, x: int, y: int) -> None:
         self._pending_pixel = (x, y)
         set_clicked_pixel(self._cam_id(), x, y)
-        self._log(f"已选像素点 ({x}, {y}) — 可点「记录手眼采样点」")
+        if self._pending_handeye_robot and self._handeye_retreat_done:
+            self._log(
+                f"已选像素点 ({x}, {y}) — 点「③ 完成本点采样」"
+                "（位姿来自移开前记录，像素来自移开后拍照）"
+            )
+        else:
+            self._log(f"已选像素点 ({x}, {y})")
+        self._refresh_handeye_lbl()
 
     # ---------- calib ----------
     def _board_params(self) -> tuple[int, int, float]:
@@ -1381,6 +1439,9 @@ class VisionWorkspace(QWidget):
             return
         calib.delete_handeye_samples(cid)
         self._handeye_samples.clear()
+        self._pending_handeye_robot = None
+        self._handeye_retreat_done = False
+        self._pending_pixel = None
         self._pending_pixel = None
         self._refresh_handeye_lbl()
         self._refresh_calib_status()
@@ -1529,10 +1590,204 @@ class VisionWorkspace(QWidget):
             return
         n = len(self._handeye_samples)
         px = self._pending_pixel
+        pend = self._pending_handeye_robot
+        if pend:
+            tcp = pend.get("tcp") or {}
+            pose_s = (
+                f"已记录TCP z={float(tcp.get('z', 0)):.1f}"
+                f"{'·已移开拍照' if self._handeye_retreat_done else '·待移开拍照'}"
+            )
+        else:
+            pose_s = "未记录位姿"
+        pick_s = ""
+        if self._last_handeye_pick_tcp:
+            t = self._last_handeye_pick_tcp
+            pick_s = f" | 本点Pick X={float(t.get('x', 0)):.0f}"
         self.lbl_handeye.setText(
             f"{calib.handeye_status_text(self._cam_id())} | "
-            f"采样缓冲={n} | 待写入像素={px if px else '未点选'}"
+            f"采样缓冲={n} | {pose_s} | 像素={px if px else '未点选'}{pick_s}"
         )
+
+    def _record_handeye_robot_pose(self) -> None:
+        from vision import commission_actions as cact
+
+        try:
+            rec = cact.read_handeye_robot_pose(self.ctx)
+        except Exception as e:
+            QMessageBox.warning(self, "手眼", str(e))
+            return
+        self._pending_handeye_robot = rec
+        self._handeye_retreat_done = False
+        self._pending_pixel = None
+        tcp = rec["tcp"]
+        joints = rec.get("joints") or []
+        j_s = ", ".join(f"{x:.2f}" for x in joints[:6])
+        self._refresh_handeye_lbl()
+        self._log(
+            "① 已记录机械臂位姿\n"
+            "  请在示教器手动移开臂/夹爪（标定点仍在相机视野内），再点「② 移开后拍照」\n"
+            f"  TCP x={tcp['x']:.2f} y={tcp['y']:.2f} z={tcp['z']:.2f} "
+            f"rz={tcp['rz']:.2f}\n"
+            f"  J=[{j_s}]"
+        )
+
+    def _handeye_retreat_and_capture(self) -> None:
+        from vision import commission_actions as cact
+
+        if self._pending_handeye_robot is None:
+            QMessageBox.information(
+                self,
+                "手眼",
+                "请先把上料臂 TCP 对准标定点，再点「① 记录机械臂位姿」。",
+            )
+            return
+        ans = QMessageBox.question(
+            self,
+            "手眼",
+            "请确认已在示教器上手动将上料臂/夹爪移出相机视野，"
+            "且标定点仍清晰可见。\n\n移开完成后点「是」开始拍照。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if ans != QMessageBox.StandardButton.Yes:
+            return
+        cid = self._cam_id()
+        try:
+            img, _depth, msg = cact.handeye_retreat_and_capture(self.ctx, cid)
+        except Exception as e:
+            QMessageBox.warning(self, "手眼", str(e))
+            self._log(f"移开拍照失败: {e}")
+            return
+        self._handeye_retreat_done = True
+        self._pending_pixel = None
+        self._last_bgr = img
+        self._show_bgr(img)
+        self._refresh_handeye_lbl()
+        self._log(msg)
+
+    def _finish_handeye_sample(self) -> None:
+        from vision import commission_actions as cact
+
+        if self._pending_handeye_robot is None:
+            QMessageBox.information(self, "手眼", "请先点「① 记录机械臂位姿」")
+            return
+        if not self._handeye_retreat_done:
+            QMessageBox.information(self, "手眼", "请先点「② 移开后拍照」")
+            return
+        if self._pending_pixel is None:
+            QMessageBox.information(
+                self,
+                "手眼",
+                "请在上方预览点击标定点像素（移开后无遮挡的画面）",
+            )
+            return
+        u, v = self._pending_pixel
+        try:
+            msg = cact.append_handeye_sample(
+                self.ctx,
+                self._cam_id(),
+                pixel_u=u,
+                pixel_v=v,
+                robot_record=self._pending_handeye_robot,
+                img=self._last_bgr,
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "手眼", str(e))
+            return
+        self._handeye_samples = calib.load_handeye_samples(self._cam_id())
+        tcp_saved = dict(self._pending_handeye_robot["tcp"])
+        self._last_handeye_pick_tcp = tcp_saved
+        try:
+            pp_msg = cact.write_pick_pose_from_tcp(self.ctx, tcp_saved)
+        except Exception:
+            pp_msg = ""
+        self._pending_handeye_robot = None
+        self._handeye_retreat_done = False
+        self._pending_pixel = None
+        self._refresh_handeye_lbl()
+        full_msg = msg + (f"\n{pp_msg}" if pp_msg else "")
+        self._log(full_msg + "\n可点「按路径回夹取」验证取料误差。")
+
+    def _handeye_tcp_for_repick(self) -> dict[str, float] | None:
+        if self._last_handeye_pick_tcp:
+            return dict(self._last_handeye_pick_tcp)
+        try:
+            from devices.pose_utils import numeric_pose
+
+            pp = numeric_pose(self.ctx.gvl.PickPose)
+            if abs(float(pp.get("x", 0))) > 1e-3 or abs(float(pp.get("y", 0))) > 1e-3:
+                return pp
+        except Exception:
+            pass
+        return None
+
+    def _handeye_confirm_motion(self, title: str, detail: str) -> bool:
+        if self.ctx.machine.state.name == "RUNNING":
+            QMessageBox.warning(self, "禁止", "自动运行中禁止点动，请先停止。")
+            return False
+        ans = QMessageBox.question(
+            self,
+            title,
+            f"{detail}\n\n请确认周边安全。继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return ans == QMessageBox.StandardButton.Yes
+
+    def _handeye_write_pick_pose(self) -> None:
+        from vision import commission_actions as cact
+
+        tcp = self._handeye_tcp_for_repick()
+        if tcp is None:
+            QMessageBox.information(self, "手眼", "请先完成「③ 完成本点采样」以记录取料位")
+            return
+        try:
+            self._log(cact.write_pick_pose_from_tcp(self.ctx, tcp))
+        except Exception as e:
+            QMessageBox.warning(self, "PickPose", str(e))
+
+    def _handeye_move_pick_entry(self) -> None:
+        from vision import commission_actions as cact
+
+        if not self._handeye_confirm_motion("回 pick_entry", "MoveJ → 示教进入点 pick_entry"):
+            return
+        try:
+            self._log(cact.move_robot1_pick_entry(self.ctx))
+        except Exception as e:
+            QMessageBox.critical(self, "运动", str(e))
+
+    def _handeye_move_pick_stage(self, *, above: bool) -> None:
+        from vision import commission_actions as cact
+
+        tcp = self._handeye_tcp_for_repick()
+        if tcp is None:
+            QMessageBox.information(self, "手眼", "请先完成「③ 完成本点采样」")
+            return
+        label = "取料上方" if above else "取料点"
+        if not self._handeye_confirm_motion(f"到{label}", f"MoveL → 本标定点{label}"):
+            return
+        try:
+            self._log(cact.move_robot1_to_handeye_tcp(self.ctx, tcp, above=above))
+        except Exception as e:
+            QMessageBox.critical(self, "运动", str(e))
+
+    def _handeye_repick_sequence(self) -> None:
+        from vision import commission_actions as cact
+
+        tcp = self._handeye_tcp_for_repick()
+        if tcp is None:
+            QMessageBox.information(self, "手眼", "请先完成「③ 完成本点采样」")
+            return
+        if not self._handeye_confirm_motion(
+            "按路径回夹取",
+            "张爪 → pick_entry → 取料上方 → 取料点 → 夹紧\n"
+            "（与自动取料路径一致，用于验证手眼精度）",
+        ):
+            return
+        try:
+            self._log(cact.move_robot1_handeye_repick(self.ctx, tcp))
+        except Exception as e:
+            QMessageBox.critical(self, "运动", str(e))
 
     def _add_handeye_sample(self) -> None:
         if self._pending_pixel is None:
