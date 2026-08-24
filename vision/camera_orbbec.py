@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -201,11 +202,23 @@ def _depth_frame_to_mm(frames) -> Optional[object]:
 
 
 class OrbbecCamera:
-    def __init__(self, name: str, index: int = 0, serial: str = "", use_mock: bool = True):
+    def __init__(
+        self,
+        name: str,
+        index: int = 0,
+        serial: str = "",
+        use_mock: bool = True,
+        fps: int = 30,
+        color_width: int = 0,
+        color_height: int = 0,
+    ):
         self.name = name
         self.index = index
         self.serial = serial
         self.use_mock = use_mock
+        self._target_fps = max(1, int(fps or 30))
+        self._color_width = max(0, int(color_width or 0))
+        self._color_height = max(0, int(color_height or 0))
         self._cap = None
         self._pipeline = None
         self._ob_ctx = None
@@ -215,8 +228,14 @@ class OrbbecCamera:
         self._open_token = 0
         self._open_lock = threading.Lock()
         self._grab_lock = threading.Lock()
+        self._stream_running = False
+        self._stream_thread: threading.Thread | None = None
         self.last_depth = None  # 最近一帧深度 mm（无深度则为 None）
         self.last_color = None  # 最近一帧彩色 BGR
+
+    @property
+    def target_fps(self) -> int:
+        return int(self._target_fps)
 
     @property
     def opening(self) -> bool:
@@ -228,8 +247,12 @@ class OrbbecCamera:
             self.opened = True
             self.last_error = ""
             log.info("[%s] Mock 相机 serial=%s index=%s", self.name, self.serial, self.index)
+            self._start_stream()
             return True
-        return self._open_with_timeout(_OPEN_TIMEOUT_S)
+        ok = self._open_with_timeout(_OPEN_TIMEOUT_S)
+        if ok:
+            self._start_stream()
+        return ok
 
     def open_async(self) -> None:
         """后台打开，不阻塞界面。"""
@@ -244,7 +267,9 @@ class OrbbecCamera:
 
         def _run() -> None:
             try:
-                self._open_with_timeout(_OPEN_TIMEOUT_S)
+                ok = bool(self._open_with_timeout(_OPEN_TIMEOUT_S))
+                if ok:
+                    self._start_stream()
             finally:
                 self._opening = False
 
@@ -309,6 +334,163 @@ class OrbbecCamera:
             return owner
         return None
 
+    def _pick_color_profile(self, profile_list) -> tuple:
+        """按配置分辨率选帧率最高的彩色 profile。"""
+        want_w, want_h = self._color_width, self._color_height
+
+        def _scan(require_res: bool) -> tuple[object | None, int]:
+            best_p = None
+            best_fps = -1
+            try:
+                n = int(profile_list.get_count())
+            except Exception:
+                n = 0
+            for i in range(n):
+                try:
+                    p = profile_list.get_stream_profile_by_index(i)
+                    fps = int(p.get_fps())
+                    w = int(p.get_width())
+                    h = int(p.get_height())
+                except Exception:
+                    continue
+                if require_res and want_w > 0 and w != want_w:
+                    continue
+                if require_res and want_h > 0 and h != want_h:
+                    continue
+                if fps > best_fps:
+                    best_fps = fps
+                    best_p = p
+            return best_p, best_fps
+
+        best, best_fps = _scan(require_res=True)
+        if best is None:
+            best, best_fps = _scan(require_res=False)
+        if best is not None:
+            return best, best_fps
+        default = profile_list.get_default_video_stream_profile()
+        try:
+            best_fps = int(default.get_fps())
+        except Exception:
+            best_fps = self._target_fps
+        return default, best_fps
+
+    def _apply_opencv_fps(self, cap) -> None:
+        if cv2 is None or cap is None:
+            return
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
+        try:
+            cap.set(cv2.CAP_PROP_FPS, float(self._target_fps))
+        except Exception:
+            pass
+        cw, ch = self._color_width, self._color_height
+        if cw > 0:
+            try:
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, float(cw))
+            except Exception:
+                pass
+        if ch > 0:
+            try:
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, float(ch))
+            except Exception:
+                pass
+
+    def _start_stream(self) -> None:
+        if not self.opened or self._stream_running:
+            return
+        self._stream_running = True
+        self._stream_thread = threading.Thread(
+            target=self._stream_loop,
+            daemon=True,
+            name=f"cam-stream-{self.name}",
+        )
+        self._stream_thread.start()
+
+    def _stop_stream(self) -> None:
+        self._stream_running = False
+
+    def _stream_loop(self) -> None:
+        target = float(self._target_fps)
+        min_interval = 1.0 / target if target > 0 else 0.0
+        while self._stream_running:
+            if not self.opened:
+                time.sleep(0.02)
+                continue
+            t0 = time.monotonic()
+            if self.use_mock:
+                self._grab_mock_frame()
+                if min_interval > 0:
+                    time.sleep(max(0.0, min_interval - (time.monotonic() - t0)))
+                continue
+            if self._capture_frame(wait_s=0.0):
+                while self._stream_running and (time.monotonic() - t0) < min_interval:
+                    if not self._capture_frame(wait_s=0.0):
+                        break
+                continue
+            time.sleep(0.001)
+
+    def _grab_mock_frame(self) -> Optional[object]:
+        try:
+            img = np.zeros((480, 640, 3), dtype=np.uint8)
+            img[:] = (40, 40, 40)
+            if cv2 is not None:
+                cv2.putText(
+                    img,
+                    f"MOCK {self.name}",
+                    (40, 240),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (0, 255, 255),
+                    2,
+                )
+            self.last_color = img
+            return img
+        except Exception:
+            return None
+
+    def _capture_frame(self, wait_s: float = 0.0) -> bool:
+        wait_s = float(wait_s or 0.0)
+        if wait_s > 0:
+            got = self._grab_lock.acquire(timeout=wait_s)
+        else:
+            got = self._grab_lock.acquire(blocking=False)
+        if not got:
+            return False
+        try:
+            if self._pipeline is not None:
+                if wait_s > 0:
+                    timeout_ms = max(50, min(500, int(wait_s * 1000)))
+                else:
+                    timeout_ms = 8
+                frames = self._pipeline.wait_for_frames(timeout_ms)
+                if not frames:
+                    return False
+                color = frames.get_color_frame()
+                if not color:
+                    return False
+                img = _color_frame_to_bgr(color)
+                if img is None:
+                    return False
+                self.last_depth = _depth_frame_to_mm(frames)
+                self.last_error = ""
+                self.last_color = img
+                return True
+            if self._cap is not None and cv2 is not None:
+                ok, frame = self._cap.read()
+                if ok and frame is not None:
+                    self.last_color = frame
+                    self.last_error = ""
+                    return True
+                return False
+            return False
+        except Exception as e:
+            log.warning("[%s] 取图异常: %s", self.name, e)
+            return False
+        finally:
+            self._grab_lock.release()
+
     def _open_impl(self) -> bool:
         self.close()
         self.last_error = ""
@@ -354,9 +536,11 @@ class OrbbecCamera:
             pipe = Pipeline(device)
             cfg = Config()
             profile_list = pipe.get_stream_profile_list(OBSensorType.COLOR_SENSOR)
-            color_profile = profile_list.get_default_video_stream_profile()
+            color_profile, got_fps = self._pick_color_profile(profile_list)
             cfg.enable_stream(color_profile)
             pipe.start(cfg)
+            if got_fps > 0:
+                self._target_fps = max(self._target_fps, got_fps)
             self._ob_ctx = ctx
             self._pipeline = pipe
             self.opened = True
@@ -365,11 +549,12 @@ class OrbbecCamera:
             got_sn = str(info.get_serial_number() or sn)
             self._claim(got_sn)
             log.info(
-                "[%s] Orbbec 已打开 name=%s serial=%s pid=0x%04X",
+                "[%s] Orbbec 已打开 name=%s serial=%s pid=0x%04X fps=%s",
                 self.name,
                 info.get_name(),
                 got_sn,
                 int(info.get_pid()),
+                self._target_fps,
             )
             return True
         except Exception as e:
@@ -517,6 +702,7 @@ class OrbbecCamera:
             if cap is None:
                 continue
             self._cap = cap
+            self._apply_opencv_fps(self._cap)
             self.opened = True
             self.last_error = ""
             self._claim((self.serial or "").strip(), path)
@@ -534,64 +720,16 @@ class OrbbecCamera:
         if not self.opened:
             return None
         if self.use_mock:
-            try:
-                img = np.zeros((480, 640, 3), dtype=np.uint8)
-                img[:] = (40, 40, 40)
-                if cv2 is not None:
-                    cv2.putText(
-                        img,
-                        f"MOCK {self.name}",
-                        (40, 240),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.0,
-                        (0, 255, 255),
-                        2,
-                    )
-                self.last_color = img
-                return img
-            except Exception:
-                return None
+            return self._grab_mock_frame()
         wait_s = float(wait_s or 0.0)
-        if wait_s > 0:
-            got = self._grab_lock.acquire(timeout=wait_s)
-        else:
-            got = self._grab_lock.acquire(blocking=False)
-        if not got:
-            return None
-        try:
-            if self._pipeline is not None:
-                frames = self._pipeline.wait_for_frames(200 if wait_s > 0 else 80)
-                if not frames:
-                    return None
-                color = frames.get_color_frame()
-                if not color:
-                    return None
-                img = _color_frame_to_bgr(color)
-                if img is None:
-                    log.warning(
-                        "[%s] 彩色帧无法转 BGR %sx%s",
-                        self.name,
-                        color.get_width(),
-                        color.get_height(),
-                    )
-                    return None
-                self.last_depth = _depth_frame_to_mm(frames)
-                self.last_error = ""
-                self.last_color = img
-                return img
-            if self._cap is not None and cv2 is not None:
-                ok, frame = self._cap.read()
-                if ok:
-                    self.last_color = frame
-                return frame if ok else None
-            return None
-        except Exception as e:
-            log.warning("[%s] 取图异常: %s", self.name, e)
-            return None
-        finally:
-            self._grab_lock.release()
+        if wait_s <= 0 and self.last_color is not None and self._stream_running:
+            return self.last_color
+        if self._capture_frame(wait_s=wait_s):
+            return self.last_color
+        return self.last_color if self.last_color is not None else None
 
     def close(self) -> None:
+        self._stop_stream()
         self._unclaim()
         if self._cap is not None and cv2 is not None:
             try:

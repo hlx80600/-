@@ -15,6 +15,14 @@ system:
     host: 0.0.0.0
     port: 8765
     token: '1234'
+  hmi:
+    language: zh-CN
+    refresh_fast_ms: 33
+    refresh_slow_ms: 100
+    refresh_inactive_ms: 250
+    preview_max_fps: 60
+    preview_inactive_fps: 5
+    vision_debug_max_fps: 15
 motion:
   blend_enable: true
   blend_t_ms: 100
@@ -27,7 +35,7 @@ robots:
     use_mock: false
     tool: 1
     user: 0
-    vel: 50.0
+    vel: 30.0
     di_belt_sensor: 0
     di_belt_use_mock: true
     payloads:
@@ -69,7 +77,7 @@ robots:
     use_mock: true
     tool: 1
     user: 0
-    vel: 50.0
+    vel: 30.0
     payloads:
       empty:
         name: 手爪
@@ -104,7 +112,29 @@ robots:
         - 0.0
         - 0.0
 grippers:
+  max_motors: 99
+  motor_count: 2
+  load_index: 1
+  unload_index: 2
+  motors:
+    '1':
+      label: 上料
+      interface: can0
+      can_id: 259
+      gripper_type: 2
+      open_speed: 50.0
+      close_speed: 50.0
+      use_mock: true
+    '2':
+      label: 下料
+      interface: can1
+      can_id: 257
+      gripper_type: 2
+      open_speed: 100.0
+      close_speed: 50.0
+      use_mock: true
   gripper1:
+    label: 上料
     interface: can0
     can_id: 259
     gripper_type: 2
@@ -112,6 +142,7 @@ grippers:
     close_speed: 50.0
     use_mock: true
   gripper2:
+    label: 下料
     interface: can1
     can_id: 257
     gripper_type: 2
@@ -240,7 +271,7 @@ cameras:
     serial: CV27561000FH
     index: 10
     role: eye_in_hand
-    use_mock: false
+    use_mock: true
   cam3:
     name: 放料鞋槽
     serial: ''
@@ -489,7 +520,7 @@ motion_steps:
   s2a10_90:
     vel: 100.0
     acc: 100.0
-    blend: true
+    blend: false
   s2a20_10:
     vel: 100.0
     acc: 100.0
@@ -509,7 +540,7 @@ motion_steps:
   s2a20_80:
     vel: 100.0
     acc: 100.0
-    blend: true
+    blend: false
   s5a10_30:
     vel: 100.0
     acc: 100.0
@@ -529,7 +560,7 @@ motion_steps:
   s5a10_90:
     vel: 100.0
     acc: 100.0
-    blend: true
+    blend: false
   s5a20_10:
     vel: 100.0
     acc: 100.0
@@ -549,7 +580,7 @@ motion_steps:
   s5a20_70:
     vel: 100.0
     acc: 100.0
-    blend: true
+    blend: false
   init_r1_home:
     vel: 100.0
     acc: 100.0

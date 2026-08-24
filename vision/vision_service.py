@@ -133,6 +133,7 @@ class VisionService:
         message: str = "",
         ok: bool = True,
         raw: Any = None,
+        extra: Optional[Dict[str, Any]] = None,
     ) -> None:
         if raw is not None:
             self.last_raw[cam_id] = copy_bgr(raw)
@@ -150,11 +151,94 @@ class VisionService:
 
             shown = draw_roi(shown, cam_id)
             self.last_vis[cam_id] = shown
-        self.last_vis_meta[cam_id] = {
+        meta: Dict[str, Any] = {
             "ok": bool(ok),
             "message": str(message or ""),
             "ts": time.time(),
         }
+        if isinstance(extra, dict):
+            meta.update(extra)
+        self.last_vis_meta[cam_id] = meta
+
+    def _belt_toe_tcp_extra(
+        self,
+        toe_offset: Any,
+        shoe_length_mm: float = 0.0,
+    ) -> Dict[str, Any]:
+        """把中心→鞋头距离换算成抓鞋前/后 TCP，写入监控 meta。"""
+        from devices.toe_tcp import (
+            describe_grasp_to_toe_tcp,
+            grasp_tcp_from_robot_cfg,
+        )
+
+        if not (isinstance(toe_offset, (list, tuple)) and len(toe_offset) >= 2):
+            return {}
+        off = [
+            float(toe_offset[0]),
+            float(toe_offset[1]),
+            float(toe_offset[2] if len(toe_offset) > 2 else 0.0),
+        ]
+        full_cfg = getattr(self, "root_cfg", None)
+        if not isinstance(full_cfg, dict):
+            full_cfg = self.cfg if isinstance(self.cfg, dict) else {}
+        grasp = grasp_tcp_from_robot_cfg(full_cfg, "robot1")
+        return describe_grasp_to_toe_tcp(
+            grasp, off, shoe_length_mm=float(shoe_length_mm or 0.0)
+        )
+
+    def _publish_cam1_with_toe(
+        self,
+        vis: Any,
+        message: str,
+        ok: bool,
+        *,
+        raw: Any = None,
+        toe_offset: Any = None,
+        shoe_length_mm: float = 0.0,
+        ascii_prefix: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """cam1 发布结果，并把中心→鞋头 / 抓鞋前后 TCP 写入 meta 与文案。"""
+        extra = self._belt_toe_tcp_extra(toe_offset, shoe_length_mm)
+        ascii_lines = list(ascii_prefix or [])
+        ascii_lines.extend(list(extra.get("ascii_lines") or []))
+        shown = vis
+        if ascii_lines:
+            base = shown if shown is not None else (raw if raw is not None else self.last_raw.get("cam1"))
+            if base is not None:
+                shown = annotate_bgr(
+                    base,
+                    ascii_lines[:7],
+                    ok=ok,
+                    cam_id="cam1",
+                    kind="VIS",
+                )
+        elif shown is None and raw is not None:
+            shown = annotate_bgr(
+                raw,
+                ["CAM1"],
+                ok=ok,
+                cam_id="cam1",
+                kind="VIS",
+            )
+        label = str(message or "")
+        zh = str(extra.get("label_zh") or "")
+        if zh:
+            label = f"{label}\n{zh}" if label else zh
+        if extra:
+            dbg = dict(self.last_belt_debug or {})
+            dbg.update(
+                {
+                    "length_mm": extra.get("center_toe_dist_mm"),
+                    "offset": extra.get("toe_offset_in_grasp_tcp"),
+                    "tcp_before_grasp": extra.get("tcp_before_grasp"),
+                    "tcp_after_grasp": extra.get("tcp_after_grasp"),
+                }
+            )
+            self.last_belt_debug = dbg
+            extra = dict(extra)
+            extra["ascii_lines"] = ascii_lines
+        self.publish_vis("cam1", shown, label, ok, raw=raw, extra=extra)
+        return extra
 
     def peek_raw(self, cam_id: str) -> Any:
         """取最近一帧拷贝，不 grab（监控实时推演 / 叠加用）。"""
@@ -215,16 +299,22 @@ class VisionService:
                 seq = self._belt_mock_sequence(shoes)
                 s = seq[int(self._belt_mock_idx) % len(seq)] if seq else shoes[0]
                 side = "左鞋" if is_left_shoe_flag(s.is_left_shoe) else "右鞋"
+                toe_off = getattr(s, "toe_offset_in_grasp_tcp", None)
+                if not (isinstance(toe_off, (list, tuple)) and len(toe_off) >= 3):
+                    toe_off = mock_blk.get("toe_offset_in_grasp_tcp") or [0.0, 120.0, 0.0]
+                toe_list = [float(toe_off[0]), float(toe_off[1]), float(toe_off[2])]
+                length_mm = (toe_list[0] ** 2 + toe_list[1] ** 2) ** 0.5
                 msg = f"监控[缓存]屏蔽 {side} X={s.x:.1f} Y={s.y:.1f}"
-                vis = annotate_bgr(
-                    img,
-                    ["SHIELD", f"{side}", f"XY=({s.x:.0f},{s.y:.0f})"],
-                    ok=True,
-                    cam_id="cam1",
-                    kind="VIS",
+                self._publish_cam1_with_toe(
+                    None,
+                    msg,
+                    True,
+                    raw=img,
+                    toe_offset=toe_list,
+                    shoe_length_mm=length_mm,
+                    ascii_prefix=["SHIELD", f"{side}", f"XY=({s.x:.0f},{s.y:.0f})"],
                 )
-                self.publish_vis("cam1", vis, msg, True, raw=img)
-                return msg
+                return str((self.last_vis_meta.get("cam1") or {}).get("message") or msg)
             if img is None:
                 self.publish_vis("cam1", None, "相机1无缓存图", False)
                 return "相机1无缓存图"
@@ -241,17 +331,18 @@ class VisionService:
                 if isinstance(ad, FrameAdapter):
                     ad.prefer_last = old
             shown = ar.vis_bgr
-            if shown is None:
-                shown = annotate_bgr(
-                    img,
-                    ["YOLO", "OK" if ar.ok else "FAIL", f"XY=({ar.x:.0f},{ar.y:.0f})"],
-                    ok=ar.ok,
-                    cam_id="cam1",
-                    kind="VIS",
-                )
             msg = f"监控[缓存]{ar.message}"
-            self.publish_vis("cam1", shown, msg, ar.ok, raw=img)
-            return msg
+            prefix = ["YOLO", "OK" if ar.ok else "FAIL", f"XY=({ar.x:.0f},{ar.y:.0f})"]
+            self._publish_cam1_with_toe(
+                shown,
+                msg,
+                ar.ok,
+                raw=img,
+                toe_offset=ar.toe_offset_in_grasp_tcp,
+                shoe_length_mm=float(ar.shoe_length_mm or 0.0),
+                ascii_prefix=prefix if shown is None else None,
+            )
+            return str((self.last_vis_meta.get("cam1") or {}).get("message") or msg)
 
         if cam_id == "cam2":
             if self.cam_is_mock("cam2"):
@@ -439,14 +530,15 @@ class VisionService:
                 f" | idx={self._belt_mock_idx} | 确认后下次→{nxt}"
             )
             raw = self.grab_raw("cam1")
-            vis = annotate_bgr(
-                raw,
-                ["SHIELD MOCK", f"{side} X={s.x:.0f} Y={s.y:.0f}", f"L={length_mm:.0f}mm"],
-                ok=True,
-                cam_id="cam1",
-                kind="VIS",
+            self._publish_cam1_with_toe(
+                None,
+                msg,
+                True,
+                raw=raw,
+                toe_offset=toe_list,
+                shoe_length_mm=length_mm,
+                ascii_prefix=["SHIELD MOCK", f"{side} X={s.x:.0f} Y={s.y:.0f}", f"L={length_mm:.0f}mm"],
             )
-            self.publish_vis("cam1", vis, msg, True, raw=raw)
             return BeltPickResult(
                 ok=True,
                 x=s.x,
@@ -492,15 +584,19 @@ class VisionService:
         }
         r = self._result_from_legacy(d)
         shown = vis
-        if shown is None:
-            shown = annotate_bgr(
-                img,
-                ["YOLO", "OK" if r.ok else "FAIL", f"XY=({r.x:.0f},{r.y:.0f})"],
-                ok=r.ok,
-                cam_id="cam1",
-                kind="VIS",
-            )
-        self.publish_vis("cam1", shown, r.message, r.ok, raw=img)
+        self._publish_cam1_with_toe(
+            shown,
+            r.message,
+            r.ok,
+            raw=img,
+            toe_offset=r.toe_offset_in_grasp_tcp,
+            shoe_length_mm=float(r.shoe_length_mm or 0.0),
+            ascii_prefix=(
+                ["YOLO", "OK" if r.ok else "FAIL", f"XY=({r.x:.0f},{r.y:.0f})"]
+                if shown is None
+                else None
+            ),
+        )
         if not r.ok:
             log.warning("[视觉] YOLO皮带失败: %s", r.message)
         return r

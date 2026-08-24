@@ -151,9 +151,11 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s5a10_80", ctx.robot2)
 
         case 90:
-            # 取料完成后退出至进入点
+            # 取料完成后退出至进入点 —— 必须到位后再写记忆
             if pulse_cmd(gvl, "s5a10_90"):
-                ctx.move_to_point("robot2", "slot_pick_entry", step_key="s5a10_90")
+                ctx.move_to_point(
+                    "robot2", "slot_pick_entry", step_key="s5a10_90", precise=True
+                )
             if ctx.robot2.poll_move_done() and advance_step(st, single):
                 cmd_reset(gvl, "s5a10_90")
                 A[10] = 100
@@ -161,9 +163,11 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s5a10_90", ctx.robot2)
 
         case 100:
-            sync_mem(ctx, 5, True)
-            sync_mem(ctx, 6, False)
+            if pulse_cmd(gvl, "s5a10_100"):
+                sync_mem(ctx, 5, True)
+                sync_mem(ctx, 6, False)
             if advance_step(st, single):
+                cmd_reset(gvl, "s5a10_100")
                 A[10] = 0
                 cmd_reset_prefix(gvl, "s5a10_")
 
@@ -241,9 +245,11 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s5a20_60", ctx.robot2)
 
         case 70:
-            # 放料完成后退出至进入点
+            # 放料完成后退出至进入点 —— 必须到位后再写记忆
             if pulse_cmd(gvl, "s5a20_70"):
-                ctx.move_to_point("robot2", "belt_place_entry", step_key="s5a20_70")
+                ctx.move_to_point(
+                    "robot2", "belt_place_entry", step_key="s5a20_70", precise=True
+                )
             if ctx.robot2.poll_move_done() and advance_step(st, single):
                 cmd_reset(gvl, "s5a20_70")
                 A[20] = 80
@@ -251,8 +257,10 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s5a20_70", ctx.robot2)
 
         case 80:
-            sync_mem(ctx, 5, False)
+            if pulse_cmd(gvl, "s5a20_80"):
+                sync_mem(ctx, 5, False)
             if advance_step(st, single):
+                cmd_reset(gvl, "s5a20_80")
                 A[20] = 0
                 cmd_reset_prefix(gvl, "s5a20_")
                 ctx.production.record_unload()

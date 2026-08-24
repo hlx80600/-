@@ -21,10 +21,11 @@ robots:
 ## 先看这个
 
 1. **整机怎么跑**：[docs/程序总览.md](docs/程序总览.md) — 启动、主循环、一条鞋的流程  
-2. **视觉/算法接口**：[algorithm_module/readme.md](algorithm_module/readme.md)  
-3. 打开软件 → **「使用说明」**（各页：做什么 / 文件 / 引用）  
-4. 联调摘要：[docs/操作说明.md](docs/操作说明.md)  
-5. 入门索引：[docs/从零看懂本程序.md](docs/从零看懂本程序.md)
+2. **各界面怎么点、投产顺序、手眼标定**：[docs/界面操作手册.md](docs/界面操作手册.md)（与软件内「使用说明」一致）  
+3. **视觉/算法接口**：[algorithm_module/readme.md](algorithm_module/readme.md)  
+4. 打开软件 → **「使用说明」**（总览含新机投产顺序；视觉调试含 ROI→内参→手眼逐步）  
+5. 联调 / 改地址：[docs/操作说明.md](docs/操作说明.md)  
+6. 夹爪（达妙 DM-J4310-2EC）：[docs/夹爪使用说明.md](docs/夹爪使用说明.md)  
 
 ## 运行
 
@@ -47,3 +48,5 @@ python3 main.py
 | `hmi/` | 触摸屏界面（`help_content.py` = 使用说明正文） |
 | `config/default.yaml` | **参数表（IP/点位）← 现场改这里** |
 | `docs/程序总览.md` | 主流程与架构 |
+| `docs/界面操作手册.md` | 全界面操作与投产/手眼顺序 |
+| `docs/夹爪使用说明.md` | 达妙 DM-J4310-2EC 接线与试夹 |

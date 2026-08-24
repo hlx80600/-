@@ -14,12 +14,16 @@ from PySide6.QtWidgets import (
     QFrame,
     QScrollArea,
     QSizePolicy,
+    QTabBar,
+    QTabWidget,
     QWidget,
 )
 
 # 所有滚动页统一倍率（仍封顶，避免触控板一冲到底）
 PAGE_WHEEL_SCALE = 0.55
 MONITOR_WHEEL_SCALE = 0.55
+# 视觉总页：内容密、控件多，滚轮略慢于其它页
+VISION_WHEEL_SCALE = 0.38
 # 每次滚轮最多移动的像素（防止一滑到底）
 _MAX_STEP_PX = 140
 _BASE_STEP_PX = 100
@@ -43,12 +47,21 @@ class _PageScrollFilter(QObject):
     页面滚动：自己改滚动条，不把巨大 wheel/pixelDelta 交给 Qt。
     - 吞掉触控板惯性阶段（ScrollMomentum），避免松手后继续飞到底
     - 单次位移封顶
+    - require_ctrl：未按 Ctrl 时吞掉滚轮，避免路过预览/控件时整页乱跳
     """
 
-    def __init__(self, scroll: QScrollArea, scale: float, parent: Optional[QObject] = None):
+    def __init__(
+        self,
+        scroll: QScrollArea,
+        scale: float,
+        parent: Optional[QObject] = None,
+        *,
+        require_ctrl: bool = False,
+    ):
         super().__init__(parent or scroll)
         self.scroll = scroll
         self.scale = max(0.05, min(1.0, float(scale)))
+        self.require_ctrl = bool(require_ctrl)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if event.type() != QEvent.Type.Wheel:
@@ -63,6 +76,9 @@ class _PageScrollFilter(QObject):
                 return True
         except Exception:
             pass
+
+        if self.require_ctrl and not (event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            return True
 
         ang = event.angleDelta()
         pix = event.pixelDelta()
@@ -207,7 +223,70 @@ def harden_wheel(root: QWidget) -> None:
             w.installEventFilter(_GUARD)
 
 
-def attach_page_scroll(scroll: QScrollArea, *, wheel_scale: float | None = None) -> QScrollArea:
+class _BlockValueWheel(QObject):
+    """数值类控件：未聚焦时滚轮交给外层滚动；已聚焦时吞掉，避免误改值。"""
+
+    _TYPES = (QAbstractSpinBox, QComboBox, QAbstractSlider)
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() != QEvent.Type.Wheel:
+            return False
+        if not isinstance(obj, self._TYPES):
+            return False
+        w = obj  # type: ignore[assignment]
+        if w.hasFocus():
+            return True
+        scroll = _find_scroll_area(w)
+        if scroll is not None and isinstance(event, QWheelEvent):
+            QApplication.sendEvent(scroll.viewport(), event)
+            return True
+        event.ignore()
+        return True
+
+
+_BLOCK_VALUE: Optional[_BlockValueWheel] = None
+
+
+def block_value_wheel(root: QWidget) -> None:
+    """彻底禁止 root 下 spin/combo/slider 响应滚轮（适合视觉等密集页）。
+
+    须在 harden_wheel 之后调用，以便本过滤器优先于「聚焦仍可改值」逻辑。
+    """
+    global _BLOCK_VALUE
+    if _BLOCK_VALUE is None:
+        _BLOCK_VALUE = _BlockValueWheel(QApplication.instance())
+    for w in root.findChildren(QWidget):
+        if isinstance(w, (QAbstractSpinBox, QComboBox, QAbstractSlider)):
+            w.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            w.installEventFilter(_BLOCK_VALUE)
+
+
+class _TabBarWheelBlock(QObject):
+    """禁止在标签条上滚轮切换页签（Qt 默认行为极易误触）。"""
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, QTabBar):
+            return True
+        return False
+
+
+_TAB_WHEEL_BLOCK: Optional[_TabBarWheelBlock] = None
+
+
+def disable_tab_bar_wheel(tabs: QTabWidget) -> None:
+    """关闭 QTabWidget 标签条的滚轮切页（只拦 tabBar，不拦页内容区）。"""
+    global _TAB_WHEEL_BLOCK
+    if _TAB_WHEEL_BLOCK is None:
+        _TAB_WHEEL_BLOCK = _TabBarWheelBlock(QApplication.instance())
+    tabs.tabBar().installEventFilter(_TAB_WHEEL_BLOCK)
+
+
+def attach_page_scroll(
+    scroll: QScrollArea,
+    *,
+    wheel_scale: float | None = None,
+    require_ctrl: bool = False,
+) -> QScrollArea:
     """给已有 QScrollArea 安装与 wrap_in_scroll 相同的慢速/封顶滚轮。"""
     scale = float(PAGE_WHEEL_SCALE if wheel_scale is None else wheel_scale)
     scale = max(0.05, min(1.0, scale))
@@ -216,17 +295,26 @@ def attach_page_scroll(scroll: QScrollArea, *, wheel_scale: float | None = None)
     scroll.horizontalScrollBar().setSingleStep(step)
     scroll.verticalScrollBar().setPageStep(140)
     scroll.horizontalScrollBar().setPageStep(140)
-    filt = _PageScrollFilter(scroll, scale, scroll)
+    filt = _PageScrollFilter(scroll, scale, scroll, require_ctrl=require_ctrl)
     scroll.viewport().installEventFilter(filt)
     scroll.installEventFilter(filt)
     scroll.setProperty("_page_scroll_filter", filt)
+    scroll.setProperty("_page_scroll_require_ctrl", require_ctrl)
+    if require_ctrl:
+        scroll.setToolTip("按住 Ctrl 再滚轮可滚动本页；直接滚轮不会移动页面。")
     return scroll
 
 
-def wrap_in_scroll(page: QWidget, *, wheel_scale: float | None = None) -> QScrollArea:
+def wrap_in_scroll(
+    page: QWidget,
+    *,
+    wheel_scale: float | None = None,
+    require_ctrl: bool = False,
+) -> QScrollArea:
     """
     把整页放进可滚动区域，内容随窗口变窄自动换行/收缩，超出则滚轮滑动。
     wheel_scale: 滚轮倍率，越小越慢；默认 PAGE_WHEEL_SCALE。
+    require_ctrl: True 时须按住 Ctrl 才滚动（适合视觉等控件密集页）。
     """
     scale = float(PAGE_WHEEL_SCALE if wheel_scale is None else wheel_scale)
     scale = max(0.05, min(1.0, scale))
@@ -238,6 +326,6 @@ def wrap_in_scroll(page: QWidget, *, wheel_scale: float | None = None) -> QScrol
     scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     page.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
     scroll.setWidget(page)
-    attach_page_scroll(scroll, wheel_scale=scale)
+    attach_page_scroll(scroll, wheel_scale=scale, require_ctrl=require_ctrl)
     harden_wheel(page)
     return scroll

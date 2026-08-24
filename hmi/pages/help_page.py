@@ -16,24 +16,24 @@ from PySide6.QtWidgets import (
 )
 
 from hmi.help_content import sections
+from hmi import i18n
 from hmi.style import apply_page_chrome
 
 
 class HelpPage(QWidget):
     def __init__(self, _coord=None):
         super().__init__()
-        self._secs = sections()
+        self._secs: list = []
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         root = QVBoxLayout(self)
-        head = QLabel("使用说明（每页：做什么 / 实现文件 / 引用 / 被谁使用）")
-        head.setStyleSheet(
+        self.head = QLabel()
+        self.head.setStyleSheet(
             "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:4px;font-weight:bold;"
         )
-        root.addWidget(head)
+        root.addWidget(self.head)
 
         self.ed_find = QLineEdit()
-        self.ed_find.setPlaceholderText("搜索…（页名、Station、algorithm_module、文件路径…）")
         self.ed_find.textChanged.connect(self._filter)
         root.addWidget(self.ed_find)
 
@@ -53,9 +53,29 @@ class HelpPage(QWidget):
         root.addLayout(body, 1)
 
         apply_page_chrome(self)
-        self._fill()
+        self.retranslate_ui()
         if self.lst.count():
             self.lst.setCurrentRow(0)
+
+    def retranslate_ui(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from hmi.i18n import fonts as i18n_fonts
+
+        self.head.setText(i18n.tr("help.title"))
+        self.ed_find.setPlaceholderText(i18n.tr("help.search_placeholder"))
+        query = self.ed_find.text()
+        self._secs = sections()
+        self._fill(query)
+        app = QApplication.instance()
+        if app is None:
+            return
+        font = app.font()
+        i18n_fonts.apply_font_to_widget(self, font)
+        ff = font.family().replace('"', '\\"')
+        self.browser.setStyleSheet(
+            f'QTextBrowser {{ background:#fafbfc; padding:8px; font-size:14px; font-family: "{ff}"; }}'
+        )
 
     def _fill(self, query: str = "") -> None:
         q = query.strip().lower()
@@ -73,7 +93,7 @@ class HelpPage(QWidget):
         if self.lst.count():
             self.lst.setCurrentRow(0)
         else:
-            self.browser.setHtml("<p>没有匹配的说明。</p>")
+            self.browser.setHtml(f"<p>{i18n.tr('help.no_match')}</p>")
 
     def _filter(self, text: str) -> None:
         self._fill(text)

@@ -777,7 +777,26 @@ class StepDebugPage(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "夹爪", str(e))
 
+    def refresh_fast(self) -> None:
+        if not self.isVisible():
+            return
+        self._highlight_current()
+        if self._dbg_busy:
+            for robot in (self.ctx.robot1, self.ctx.robot2):
+                try:
+                    if robot.poll_move_done():
+                        self._dbg_busy = False
+                        self.lbl_pt.setText(f"到位: {robot._last_arrived_label}")
+                        break
+                except Exception as e:
+                    self._dbg_busy = False
+                    self.lbl_pt.setText(f"运动异常: {e}")
+                    break
+
     def refresh(self) -> None:
+        if not self.isVisible():
+            return
+        self.refresh_fast()
         self._refresh_undo_label()
         allow = bool(self.ctx.cfg.get("system", {}).get("allow_debug_bypass", True))
         self.chk_bypass.setEnabled(allow)
@@ -801,7 +820,6 @@ class StepDebugPage(QWidget):
         else:
             live += " | 本站无活动 Auto"
         self.lbl_live.setText(live)
-        self._highlight_current()
 
         for s in self.coord.stations:
             a = s.active_auto_step()
@@ -813,15 +831,3 @@ class StepDebugPage(QWidget):
             self.labels[s.name].setText(
                 f"{s.name}: {s.status_text()} | Busy={s.busy}{extra}"
             )
-
-        if self._dbg_busy:
-            for robot in (self.ctx.robot1, self.ctx.robot2):
-                try:
-                    if robot.poll_move_done():
-                        self._dbg_busy = False
-                        self.lbl_pt.setText(f"到位: {robot._last_arrived_label}")
-                        break
-                except Exception as e:
-                    self._dbg_busy = False
-                    self.lbl_pt.setText(f"运动异常: {e}")
-                    break

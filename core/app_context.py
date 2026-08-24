@@ -14,10 +14,12 @@ from core.lights import TowerLight
 from core.machine_state import MachineController, MachineState, RunMode
 from core.memory import MemoryBank
 from core.production_stats import ProductionStats
-from devices.gripper_can import GripperCAN
+from devices.gripper_bank import normalize_grippers_cfg
+from devices.gripper_can import create_gripper_from_config
 from devices.io_manager import IOManager
 from devices.press_modbus import PressMachine
 from devices.robot_fr5 import RobotFR5
+from core.camera_config import resolve_camera_color_res, resolve_camera_fps
 from vision.camera_orbbec import OrbbecCamera
 from vision.vision_service import VisionService
 
@@ -107,42 +109,70 @@ class AppContext:
             self.robot1.set_di_force_mock(belt_di, True)
             log.info("上料臂真机，但光电 DI[%s] 仍用 HMI 模拟（robots.robot1.di_belt_use_mock）", belt_di)
 
-        g1 = self.cfg["grippers"]["gripper1"]
-        g2 = self.cfg["grippers"]["gripper2"]
-        self.gripper1 = GripperCAN(
-            "夹爪1",
-            g1["interface"],
-            int(g1["can_id"]),
-            int(g1.get("gripper_type", 2)),
-            device_use_mock(g1, self.use_mock),
-            open_speed=float(g1.get("open_speed", 50.0)),
-            close_speed=float(g1.get("close_speed", 50.0)),
+        gcfg = normalize_grippers_cfg(self.cfg)
+        g1 = gcfg["gripper1"]
+        g2 = gcfg["gripper2"]
+        # 启用槽位实例（1..motor_count）；工位仍用 gripper1/gripper2 角色别名
+        self.grippers: Dict[int, Any] = {}
+        motors = gcfg.get("motors") or {}
+        count = int(gcfg.get("motor_count", 2))
+        for i in range(1, count + 1):
+            m = motors.get(str(i)) or motors.get(i) or {}
+            if not isinstance(m, dict):
+                continue
+            label = str(m.get("label") or f"电机{i}")
+            self.grippers[i] = create_gripper_from_config(
+                {**m, "use_mock": device_use_mock(m, self.use_mock)},
+                name=f"电机{i}-{label}",
+            )
+            self.grippers[i].motor_index = i
+            self.grippers[i].on_fault = self._make_gripper_fault_cb(i)
+        load_i = int(gcfg.get("load_index", 1))
+        unload_i = int(gcfg.get("unload_index", 2 if count >= 2 else 1))
+        self.gripper1 = self.grippers.get(load_i) or create_gripper_from_config(
+            {**g1, "use_mock": device_use_mock(g1, self.use_mock)},
+            name="夹爪1",
         )
-        self.gripper2 = GripperCAN(
-            "夹爪2",
-            g2["interface"],
-            int(g2["can_id"]),
-            int(g2.get("gripper_type", 2)),
-            device_use_mock(g2, self.use_mock),
-            open_speed=float(g2.get("open_speed", 50.0)),
-            close_speed=float(g2.get("close_speed", 50.0)),
+        self.gripper2 = self.grippers.get(unload_i) or create_gripper_from_config(
+            {**g2, "use_mock": device_use_mock(g2, self.use_mock)},
+            name="夹爪2",
         )
+        if load_i not in self.grippers:
+            self.grippers[load_i] = self.gripper1
+            self.gripper1.motor_index = load_i
+            self.gripper1.on_fault = self._make_gripper_fault_cb(load_i)
+        if unload_i not in self.grippers:
+            self.grippers[unload_i] = self.gripper2
+            self.gripper2.motor_index = unload_i
+            self.gripper2.on_fault = self._make_gripper_fault_cb(unload_i)
+        # 保证角色别名也有回调
+        self.gripper1.motor_index = load_i
+        self.gripper2.motor_index = unload_i
+        self.gripper1.on_fault = self._make_gripper_fault_cb(load_i)
+        self.gripper2.on_fault = self._make_gripper_fault_cb(unload_i)
+        self._last_grip_alarm_key: Optional[tuple] = None
 
         press_cfg = self.cfg.get("press", {})
         self.press = PressMachine(press_cfg, use_mock=device_use_mock(press_cfg, self.use_mock))
 
         self.cameras: Dict[str, OrbbecCamera] = {}
         for key, ccfg in self.cfg.get("cameras", {}).items():
+            cw, ch = resolve_camera_color_res(ccfg, self.cfg)
             self.cameras[key] = OrbbecCamera(
                 ccfg.get("name", key),
                 index=int(ccfg.get("index", 0)),
                 serial=str(ccfg.get("serial", "")),
                 use_mock=device_use_mock(ccfg, self.use_mock),
+                fps=resolve_camera_fps(key, ccfg, self.cfg),
+                color_width=cw,
+                color_height=ch,
             )
         vis_cfg = self.cfg.get("vision", {})
         self.vision = VisionService(
             self.cameras, vis_cfg, use_mock=device_use_mock(vis_cfg, self.use_mock)
         )
+        # 整机配置：监控换算抓鞋前/后 TCP 时读 robots.*.payloads
+        self.vision.root_cfg = self.cfg
 
         # 空跑屏蔽（OB1 tick；yaml system.dry_run）
         self.dry_run = DryRunShield(self)
@@ -177,6 +207,10 @@ class AppContext:
         self._link_attempts: Dict[str, int] = {}
         self._last_link_alarm_key: Optional[tuple] = None
         self._link_last_ok_log: Dict[str, float] = {}
+        # 启动连接完成前：不报 LINK，避免协调线程抢跑
+        self.links_bootstrapped = False
+        # 空闲时未连上只提示；点初始化/启动后才升为报警态
+        self.link_alarm_armed = False
 
         log.info(
             "设备 Mock：R1=%s R2=%s G1=%s G2=%s Press=%s Vision兜底=%s IO=%s "
@@ -213,32 +247,108 @@ class AppContext:
                 parts.append(tag(key, cam.use_mock))
         return " | ".join(parts)
 
+    def _make_gripper_fault_cb(self, motor_index: int):
+        def _cb(code: str, message: str) -> None:
+            self.raise_gripper_alarm(code, message, motor_index=motor_index)
+
+        return _cb
+
+    def raise_gripper_alarm(
+        self,
+        code: str,
+        message: str,
+        *,
+        motor_index: int = 0,
+        popup: bool = True,
+    ) -> None:
+        """
+        夹爪专用报警。
+        代码约定：GRIP_LINK / GRIP_OPEN / GRIP_CLOSE / GRIP_DRV
+        """
+        code = str(code or "GRIP").upper()
+        if not code.startswith("GRIP"):
+            code = f"GRIP_{code}"
+        station = f"Gripper{motor_index}" if motor_index else "Gripper"
+        self.raise_alarm(code, message, station, int(motor_index), popup=popup)
+
+    def clear_gripper_faults(self) -> list[str]:
+        """
+        报警复位时清夹爪侧错误：last_error、尝试重连真机。
+        返回提示行。
+        """
+        tips: list[str] = []
+        seen = set()
+        for idx, g in sorted(getattr(self, "grippers", {}).items()):
+            if g is None or id(g) in seen:
+                continue
+            seen.add(id(g))
+            try:
+                g.clear_fault()
+            except Exception:
+                pass
+            if bool(getattr(g, "use_mock", True)):
+                tips.append(f"电机{idx}: 模拟，已清错误")
+                continue
+            try:
+                ok = bool(g.refresh_link()) if hasattr(g, "refresh_link") else bool(g.connected)
+                if not ok:
+                    ok = bool(g.reconnect())
+                tips.append(
+                    f"电机{idx}({g.interface} 0x{int(g.can_id):X}): "
+                    + ("已连接" if ok else f"仍未连接 {g.last_error or ''}".strip())
+                )
+            except Exception as e:
+                tips.append(f"电机{idx}: 复位异常 {e}")
+        self._last_grip_alarm_key = None
+        return tips
+
     def _link_device_entries(self) -> list[tuple[str, Any, str]]:
         """(显示名, 设备对象, 端点说明)。"""
         r1 = self.cfg.get("robots", {}).get("robot1", {})
         r2 = self.cfg.get("robots", {}).get("robot2", {})
-        g1 = self.cfg.get("grippers", {}).get("gripper1", {})
-        g2 = self.cfg.get("grippers", {}).get("gripper2", {})
         press = self.cfg.get("press", {})
         rows: list[tuple[str, Any, str]] = [
             ("上料臂R1", self.robot1, f"IP {r1.get('ip', self.robot1.ip)}"),
             ("下料臂R2", self.robot2, f"IP {r2.get('ip', self.robot2.ip)}"),
-            (
-                "夹爪1",
-                self.gripper1,
-                f"{g1.get('interface', self.gripper1.interface)} 0x{int(g1.get('can_id', self.gripper1.can_id)):X}",
-            ),
-            (
-                "夹爪2",
-                self.gripper2,
-                f"{g2.get('interface', self.gripper2.interface)} 0x{int(g2.get('can_id', self.gripper2.can_id)):X}",
-            ),
+        ]
+        # 全部启用夹爪电机
+        gcfg = self.cfg.get("grippers") or {}
+        motors = gcfg.get("motors") if isinstance(gcfg.get("motors"), dict) else {}
+        bank = getattr(self, "grippers", {}) or {}
+        if bank:
+            for idx in sorted(bank.keys()):
+                g = bank[idx]
+                if g is None:
+                    continue
+                m = motors.get(str(idx)) or motors.get(idx) or {}
+                iface = m.get("interface", getattr(g, "interface", "can0"))
+                cid = int(m.get("can_id", getattr(g, "can_id", 0)))
+                label = m.get("label") or getattr(g, "name", f"电机{idx}")
+                rows.append((f"夹爪{idx}-{label}", g, f"{iface} 0x{cid:X}"))
+        else:
+            g1 = gcfg.get("gripper1", {})
+            g2 = gcfg.get("gripper2", {})
+            rows.append(
+                (
+                    "夹爪1",
+                    self.gripper1,
+                    f"{g1.get('interface', self.gripper1.interface)} 0x{int(g1.get('can_id', self.gripper1.can_id)):X}",
+                )
+            )
+            rows.append(
+                (
+                    "夹爪2",
+                    self.gripper2,
+                    f"{g2.get('interface', self.gripper2.interface)} 0x{int(g2.get('can_id', self.gripper2.can_id)):X}",
+                )
+            )
+        rows.append(
             (
                 "压鞋机",
                 self.press,
                 f"{press.get('ip', '?')}:{press.get('port', 502)}",
-            ),
-        ]
+            )
+        )
         for key in ("cam1", "cam2", "cam3", "cam4"):
             cam = self.cameras.get(key)
             if cam is None:
@@ -337,20 +447,39 @@ class AppContext:
         return line, False
 
     def raise_link_failures_if_needed(self) -> None:
-        """真机连不上：记 LINK 报警（不弹窗），禁止初始化/启动；运行中由 Coordinator 立刻停机。"""
+        """真机连不上：记 LINK 报警（不弹窗）。
+
+        - 启动未完成（links_bootstrapped=False）：不报，避免开机抢跑误报。
+        - 空闲/停止且未武装：只写日志，不把整机切到报警红灯（开机未连上常见）。
+        - 初始化/运行中或已武装：正式 raise_alarm，禁止启动。
+        """
+        if not getattr(self, "links_bootstrapped", False):
+            return
         missing = self.missing_real_devices()
         if not missing:
             self._last_link_alarm_key = None
             return
         key = tuple(r["name"] for r in missing)
-        if key == self._last_link_alarm_key and self.alarms.has_alarm:
-            return
-        self._last_link_alarm_key = key
         parts = []
         for r in missing:
             err = r.get("error") or r.get("status") or "未连接"
             parts.append(f"{r['name']}({r['endpoint']}): {err}")
         msg = "设备连接失败：\n" + "\n".join(parts) + "\n请检查线缆/IP/CAN/序列号，或改回模拟。"
+
+        st = self.machine.state
+        soft = (not getattr(self, "link_alarm_armed", False)) and st in (
+            MachineState.IDLE,
+            MachineState.STOPPED,
+        )
+        if soft:
+            if key != self._last_link_alarm_key:
+                self._last_link_alarm_key = key
+                log.warning("[启动/空闲] %s", msg.replace("\n", " | "))
+            return
+
+        if key == self._last_link_alarm_key and self.alarms.has_alarm:
+            return
+        self._last_link_alarm_key = key
         self.raise_alarm("LINK", msg, "System", 0, popup=False)
 
     def maintain_device_links(self) -> None:
@@ -358,6 +487,8 @@ class AppContext:
         周期维护：探测断线；对非 Mock 未连接设备限频重连。
         Mock 设备永不重连真机链路。
         """
+        if not getattr(self, "links_bootstrapped", False):
+            return
         interval = float(self.cfg.get("system", {}).get("reconnect_interval_s", 3.0))
         interval = max(1.0, interval)
         now = time.monotonic()
@@ -424,18 +555,49 @@ class AppContext:
             return True
         return False
 
-    def connect_all(self) -> None:
+    def connect_all(self, *, on_progress=None) -> None:
+        """连接机器人/夹爪/压机/相机。on_progress(text) 可选，供启动进度条。"""
+
+        def _p(text: str) -> None:
+            if callable(on_progress):
+                try:
+                    on_progress(text)
+                except Exception:
+                    pass
+
+        _p("连接上料臂…")
         self.robot1.connect()
+        _p("连接下料臂…")
         self.robot2.connect()
-        self.gripper1.connect()
-        self.gripper2.connect()
+        _p("连接夹爪…")
+        seen = set()
+        for g in getattr(self, "grippers", {}).values():
+            if g is None or id(g) in seen:
+                continue
+            seen.add(id(g))
+            g.connect()
+        if self.gripper1 is not None and id(self.gripper1) not in seen:
+            self.gripper1.connect()
+        if self.gripper2 is not None and id(self.gripper2) not in seen:
+            self.gripper2.connect()
+        _p("连接压鞋机…")
         self.press.connect()
+        _p("打开相机…")
         for cam in self.cameras.values():
             if cam.use_mock:
                 cam.open()
             else:
                 cam.open_async()
+        self.links_bootstrapped = True
+        # 空闲不武装：未连上只写日志/监控提示，不立刻整机报警
         self.raise_link_failures_if_needed()
+        missing = self.missing_real_devices()
+        if missing:
+            names = "、".join(r["name"] for r in missing)
+            log.warning(
+                "启动后仍有设备未连接：%s（后台重连；点初始化时再检查）",
+                names,
+            )
 
     def update_lights(self) -> None:
         out = self.lights.update(self.machine.state, self.machine.mode, self.alarms.has_alarm)

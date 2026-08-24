@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QGridLayout,
     QHBoxLayout,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.coordinator import Coordinator
+from core.camera_config import preview_interval_ms
 from hmi.style import apply_page_chrome, style_many
 from visualize_module import viz
 
@@ -36,12 +38,20 @@ draw_roi = _frames.draw_roi
 annotate_bgr = _frames.annotate_bgr
 CamPane = _qt.CamPane
 
-# 监控窗 UI 限帧：约 12fps，避免八路同时 BGR→QPixmap 卡顿
-_UI_MIN_INTERVAL = 1.0 / 12.0
+# 监控窗 UI：跟相机目标帧率（上限见 system.hmi.preview_max_fps）
+_UI_MIN_INTERVAL = 1.0 / 60.0
+_UI_VIS_INTERVAL = 1.0 / 20.0
+
+
+def _app_is_active() -> bool:
+    app = QApplication.instance()
+    if app is None:
+        return True
+    return app.applicationState() == Qt.ApplicationState.ApplicationActive
 
 
 def _vision_debug_cam() -> str:
-    """主界面正在看「视觉调试」时，返回其当前相机 id；否则空串。"""
+    """主界面正在看「视觉」总页时，返回其当前相机 id；否则空串。"""
     try:
         from PySide6.QtWidgets import QApplication
 
@@ -57,13 +67,28 @@ def _vision_debug_cam() -> str:
                 break
         if main is None:
             return ""
-        tabs = main.tabs
-        vision = main.vision
-        idx = int(tabs.currentIndex())
-        if idx < 0 or tabs.tabText(idx) != T.VISION:
+        # 左侧导航当前页 id
+        nav_id = ""
+        nav = getattr(main, "nav", None)
+        nav_ids = getattr(main, "_nav_ids", None)
+        if nav is not None and nav_ids:
+            row = int(nav.currentRow())
+            if 0 <= row < len(nav_ids):
+                nav_id = str(nav_ids[row])
+        elif callable(getattr(main, "_current_nav_id", None)):
+            nav_id = str(main._current_nav_id())
+        if nav_id != T.VISION:
             return ""
+        vision = getattr(main, "vision", None)
+        if vision is None:
+            return ""
+        # Hub 委托 workspace；旧 VisionPage 自身有 _cam_id
         fn = getattr(vision, "_cam_id", None)
-        return str(fn()) if callable(fn) else ""
+        if callable(fn):
+            return str(fn())
+        ws = getattr(vision, "workspace", None)
+        fn2 = getattr(ws, "_cam_id", None) if ws is not None else None
+        return str(fn2()) if callable(fn2) else ""
     except Exception:
         return ""
 
@@ -128,6 +153,7 @@ class VisionMonitorPage(QWidget):
 
         tip = QLabel(
             "实时推演 = 缓存帧算法（不掉原图帧）；结果跟原图 = 右侧跟拍叠加上次计算结果。"
+            "cam1 显示中心→鞋头距离，以及抓鞋前TCP(工具1)/抓鞋后TCP(工具2) 变更参数。"
         )
         tip.setWordWrap(True)
         tip.setStyleSheet("color:#5d6d7e;font-size:12px;")
@@ -148,19 +174,64 @@ class VisionMonitorPage(QWidget):
         apply_page_chrome(self)
         self._compute_done.connect(self._on_compute_done)
 
+        self._app_active = True
+        # CoarseTimer：失焦/切窗时不把 UI 线程打满
+        self._ui_timer = QTimer(self)
+        self._ui_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._ui_timer.timeout.connect(self.refresh)
+        self._sync_ui_timer_interval()
+
+    def set_app_active(self, active: bool) -> None:
+        """主窗通知：程序是否前台。失焦时降频并停取流，减轻点其他窗口卡顿。"""
+        self._app_active = bool(active)
+        self._sync_ui_timer_interval()
+        if not self._app_active:
+            self._stop_workers()
+            if self._ui_timer.isActive():
+                # 仍保留很慢的 UI 心跳，避免完全僵死
+                pass
+        else:
+            self._sync_workers()
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._app_active = _app_is_active()
         self._sync_workers()
+        if not self._ui_timer.isActive():
+            self._ui_timer.start()
+        self.refresh()
 
     def hideEvent(self, event) -> None:
+        self._ui_timer.stop()
         self._stop_workers()
         super().hideEvent(event)
 
+    def _sync_ui_timer_interval(self) -> None:
+        fps = 30
+        for cid in CAM_IDS:
+            cam = self.ctx.cameras.get(cid)
+            if cam is not None:
+                fps = max(fps, int(getattr(cam, "target_fps", 0) or 30))
+        inactive = not self._app_active or not _app_is_active()
+        self._ui_timer.setInterval(
+            preview_interval_ms(self.ctx.cfg, fps, inactive=inactive)
+        )
+
     def _want_live_grab(self) -> bool:
-        return bool(self.isVisible() and self.chk_live.isChecked())
+        return bool(
+            self.isVisible()
+            and self.chk_live.isChecked()
+            and self._app_active
+            and _app_is_active()
+        )
 
     def _want_live_compute(self) -> bool:
-        return bool(self.isVisible() and self.chk_compute.isChecked())
+        return bool(
+            self.isVisible()
+            and self.chk_compute.isChecked()
+            and self._app_active
+            and _app_is_active()
+        )
 
     def _sync_workers(self) -> None:
         self._grabber.set_enabled(self._want_live_grab())
@@ -242,7 +313,37 @@ class VisionMonitorPage(QWidget):
         now = time.time()
         flag = "OK" if ok else ("FAIL" if ok is False else "-")
         age = now - ts if ts else 0.0
-        label = f"结果 {flag}  {age:.1f}s前  {msg}"
+        # cam1：突出中心→鞋头距离与抓鞋前/后 TCP
+        tcp_hint = ""
+        if cid == "cam1":
+            dist = meta.get("center_toe_dist_mm")
+            before = meta.get("tcp_before_grasp")
+            after = meta.get("tcp_after_grasp")
+            off = meta.get("toe_offset_in_grasp_tcp")
+            parts = []
+            if dist is not None:
+                parts.append(f"中心→鞋头 {float(dist):.1f}mm")
+            if isinstance(off, (list, tuple)) and len(off) >= 3:
+                parts.append(
+                    f"offset=[{float(off[0]):.1f},{float(off[1]):.1f},{float(off[2]):.1f}]"
+                )
+            if isinstance(before, (list, tuple)) and len(before) >= 3:
+                parts.append(
+                    "抓鞋前TCP=["
+                    + ",".join(f"{float(v):.1f}" for v in list(before)[:6])
+                    + "]"
+                )
+            if isinstance(after, (list, tuple)) and len(after) >= 3:
+                parts.append(
+                    "抓鞋后TCP=["
+                    + ",".join(f"{float(v):.1f}" for v in list(after)[:6])
+                    + "]"
+                )
+            if parts:
+                tcp_hint = "  |  " + "  ".join(parts[:2])
+                if len(parts) > 2:
+                    tcp_hint += "\n" + "  ".join(parts[2:])
+        label = f"结果 {flag}  {age:.1f}s前  {msg.splitlines()[0] if msg else ''}{tcp_hint}"
 
         # 结果跟原图：用最新原图叠文字，画面流畅；数字随 meta 更新
         if self.chk_overlay.isChecked():
@@ -256,16 +357,18 @@ class VisionMonitorPage(QWidget):
             if not need_img and not need_lbl:
                 pane.lbl_vis.setText(label)
                 return
-            if not force and (now - self._vis_paint_wall.get(cid, 0.0)) < _UI_MIN_INTERVAL:
+            if not force and (now - self._vis_paint_wall.get(cid, 0.0)) < _UI_VIS_INTERVAL:
                 if need_lbl:
                     pane.lbl_vis.setText(label)
                     if ts > 0:
                         self._vis_shown_ts[cid] = ts
                 return
-            lines = [str(msg or "")[:60]] if msg else ["waiting…"]
+            ascii_lines = list(meta.get("ascii_lines") or [])
+            if not ascii_lines:
+                ascii_lines = [str(msg or "")[:60]] if msg else ["waiting…"]
             shown = annotate_bgr(
                 raw,
-                lines,
+                ascii_lines[:7],
                 ok=bool(ok) if ok is not None else True,
                 cam_id=cid,
                 kind="LIVE",
@@ -284,7 +387,7 @@ class VisionMonitorPage(QWidget):
         if not force and ts > 0 and self._vis_shown_ts.get(cid) == ts:
             pane.lbl_vis.setText(label)
             return
-        if not force and (now - self._vis_paint_wall.get(cid, 0.0)) < _UI_MIN_INTERVAL:
+        if not force and (now - self._vis_paint_wall.get(cid, 0.0)) < _UI_VIS_INTERVAL:
             return
         pane.show_vis(img, label)
         self._vis_paint_wall[cid] = now
@@ -295,6 +398,12 @@ class VisionMonitorPage(QWidget):
         if not self.isVisible():
             self._stop_workers()
             return
+        # 失焦：只维持低频率，不刷图、不抢相机
+        if (not self._app_active) or (not _app_is_active()):
+            self._sync_ui_timer_interval()
+            self._stop_workers()
+            return
+        self._sync_ui_timer_interval()
         self._sync_workers()
         for cid in CAM_IDS:
             self._paint_raw(cid)
@@ -340,24 +449,35 @@ class VisionMonitorWindow(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+        # 显示后确保取流与 UI 定时器启动
         self.page._sync_workers()
+        if not self.page._ui_timer.isActive():
+            self.page._ui_timer.start()
+        self.page.refresh()
 
     def shutdown(self) -> None:
+        self.page._ui_timer.stop()
         self.page._stop_workers()
         self._allow_close = True
         self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._allow_close:
+            self.page._ui_timer.stop()
             self.page._stop_workers()
             event.accept()
             return
         event.ignore()
         self.hide()
+        self.page._ui_timer.stop()
         self.page._stop_workers()
 
     def refresh(self) -> None:
+        """主窗偶发调用：隐藏/最小化时停取流；显示时不抢刷（由 page 定时器负责）。"""
         if not self.isVisible() or self.isMinimized():
+            self.page._ui_timer.stop()
             self.page._stop_workers()
             return
-        self.page.refresh()
+        if not self.page._ui_timer.isActive():
+            self.page._ui_timer.start()
+        self.page._sync_workers()

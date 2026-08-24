@@ -30,11 +30,23 @@ def load_config(path: Path | None = None) -> Dict[str, Any]:
     with open(p, "r", encoding="utf-8") as f:
         raw = yaml.safe_load(f)
     data: Dict[str, Any] = raw if isinstance(raw, dict) else {}
+    try:
+        from devices.gripper_bank import normalize_grippers_cfg
+
+        normalize_grippers_cfg(data)
+    except Exception:
+        pass
     return data
 
 
 def save_config(data: Dict[str, Any], path: Path | None = None) -> None:
     """把内存里的 cfg 写回 default.yaml（HMI 保存按钮会调这里）。"""
+    try:
+        from devices.gripper_bank import normalize_grippers_cfg
+
+        normalize_grippers_cfg(data)
+    except Exception:
+        pass
     p = path or DEFAULT_CONFIG
     with open(p, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)

@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import List, Tuple
 
-from hmi.tab_titles import T
+from hmi import i18n
+from hmi.tab_titles import T, nav_title
+
+
+def _L(nav_id: str) -> str:
+    """帮助文档中的当前语言导航名。"""
+    return nav_title(nav_id)
 
 Section = Tuple[str, str, str]  # id, title, html
 
@@ -32,18 +38,28 @@ def _code(path: str) -> str:
 def _io_block(*, purpose: str, impl: list[str], refs: list[str], used_by: list[str]) -> str:
     """统一块：职责 / 实现 / 引用 / 被引用。"""
     return (
-        _h("做什么")
+        _h(i18n.tr("help.section.what"))
         + _p(purpose)
-        + _h("实现文件（本页 UI）")
+        + _h(i18n.tr("help.section.impl"))
         + _ul(impl)
-        + _h("引用 / 依赖")
+        + _h(i18n.tr("help.section.refs"))
         + _ul(refs)
-        + _h("被谁使用 / 关联")
+        + _h(i18n.tr("help.section.used_by"))
         + _ul(used_by)
     )
 
 
 def sections() -> List[Section]:
+    """按当前界面语言返回帮助章节。"""
+    lang = i18n.language()
+    if lang == "zh-CN":
+        return _sections_zh_cn()
+    if lang == "zh-TW":
+        return _sections_zh_tw()
+    return _sections_en_us()
+
+
+def _sections_zh_cn() -> List[Section]:
     return [
         (
             "overview",
@@ -53,7 +69,10 @@ def sections() -> List[Section]:
                 "本「使用说明」是现场操作的完整手册。左侧按章节浏览，上方可搜索。"
                 "每个单页都写清：做什么、实现文件、引用了什么、被谁调用。"
             )
-            + _p(f"日常生产从「{T.MONITOR}」开始；长释义只在本页，操作页只留按钮和状态。")
+            + _p(
+                f"主界面左侧为「功能导航」列表（不再用顶部标签左右翻页）；"
+                f"日常生产从「{_L(T.MONITOR)}」开始；长释义只在本页，操作页只留按钮和状态。"
+            )
             + _h("程序入口与主扫描")
             + _ul(
                 [
@@ -75,22 +94,45 @@ def sections() -> List[Section]:
                     "详细步序与文件：见本说明「工位程序」章，或 docs/程序总览.md",
                 ]
             )
-            + _h("分页一览")            + _ul(
+            + _h("新机投产总顺序（必按序）")
+            + _ol(
                 [
-                    f"<b>{T.MONITOR}</b>：启停、灯、记忆、槽号、速度、夹爪/压机手动",
-                    f"<b>{T.CAM_MONITOR}</b>：独立窗，四路原图+推演结果",
-                    f"<b>{T.PRODUCTION}</b>：记件 / CT / UPH",
-                    f"<b>{T.STEP_DEBUG}</b>：按工位单步",
-                    f"<b>{T.MOTION}</b>：按程序步 vel/平滑",
-                    f"<b>{T.VISION_SETUP}</b>：采图训练、挂模型、写手眼、试抓",
-                    f"<b>{T.VISION}</b>：出图、ROI、内参、检测测试",
-                    f"<b>{T.POINTS}</b>：示教点 / 过渡点",
-                    f"<b>{T.SHIELD_PICK}</b>：cam1 Mock 取料示教",
-                    f"<b>{T.DRY_RUN}</b>：空跑屏蔽信号",
-                    f"<b>{T.PAYLOAD}</b>：负载与 TCP",
-                    f"<b>{T.PRESS_IO}</b>：压机槽号与地址",
-                    f"<b>{T.CONFIG}</b>：通信与 Mock",
-                    f"<b>{T.ALARM}</b>：报警",
+                    f"<b>{_L(T.CONFIG)}</b>：IP / CAN / 相机 serial / Mock → 保存 → <b>重启程序</b>",
+                    f"<b>{_L(T.PAYLOAD)}</b>：手爪 TCP 与抓鞋负载 → 保存并下发",
+                    f"<b>{_L(T.POINTS)}</b>：示教进入点、槽点、偏移 → 保存",
+                    f"<b>{_L(T.MOTION)}</b>：各步速度；退回进入点建议关闭平滑",
+                    f"<b>{_L(T.PRESS_IO)}</b>：槽号顺序与地址",
+                    f"<b>{_L(T.VISION)}</b>：挂/训模型；页内 ROI → 棋盘格内参 → 手眼 → 检测测试 → 采图训练",
+                    f"<b>{_L(T.SHIELD_PICK)}</b>：仅 cam1 Mock 时示教取料点",
+                    f"<b>{_L(T.GRIPPER)}</b>：单机开合确认",
+                    f"<b>{_L(T.DRY_RUN)}</b> / <b>{_L(T.STEP_DEBUG)}</b>：空跑或单步",
+                    f"<b>{_L(T.MONITOR)}</b>：自动 → 初始化 → 启动",
+                ]
+            )
+            + _p(
+                "纸质详解（含手眼逐步点击顺序）："
+                + _code("docs/界面操作手册.md")
+                + "；参数改址："
+                + _code("docs/操作说明.md")
+                + "。"
+            )
+            + _h("分页一览")
+            + _ul(
+                [
+                    f"<b>{_L(T.MONITOR)}</b>：启停、灯、记忆、槽号、速度、夹爪/压机手动",
+                    f"<b>{_L(T.CAM_MONITOR)}</b>：独立窗，四路原图+推演（含中心→鞋头/抓鞋前后TCP）",
+                    f"<b>{_L(T.PRODUCTION)}</b>：记件 / CT / UPH",
+                    f"<b>{_L(T.STEP_DEBUG)}</b>：按工位单步",
+                    f"<b>{_L(T.MOTION)}</b>：按程序步 vel/平滑",
+                    f"<b>{_L(T.VISION)}</b>：总页（相机与ROI / 棋盘格 / 手眼 / 检测 / 采图训练）",
+                    f"<b>{_L(T.POINTS)}</b>：示教点 / 过渡点",
+                    f"<b>{_L(T.SHIELD_PICK)}</b>：cam1 Mock 取料示教",
+                    f"<b>{_L(T.DRY_RUN)}</b>：空跑屏蔽信号",
+                    f"<b>{_L(T.PAYLOAD)}</b>：负载与 TCP",
+                    f"<b>{_L(T.PRESS_IO)}</b>：压机槽号与地址",
+                    f"<b>{_L(T.GRIPPER)}</b>：夹爪单独调试与 GRIP_* 报警复位",
+                    f"<b>{_L(T.CONFIG)}</b>：通信与 Mock",
+                    f"<b>{_L(T.ALARM)}</b>：报警",
                     f"<b>算法接口 / 工位程序</b>：见本说明后几章",
                 ]
             )
@@ -113,13 +155,14 @@ def sections() -> List[Section]:
             )
             + _ul(
                 [
-                    "常见：Mem2 有鞋在手、Mem3 待转台、Mem4 需拍放料槽、Mem6 取料槽就绪、Mem8/9 左右脚等（以运行监控勾选旁文字为准）。",
+                    "1 皮带拍照完成；2 上料爪有料；3 放料槽有料待压转；4 放料槽拍照完成",
+                    "5 下料爪有料；6 取料槽有料；7 取料槽拍照完成；8/9 左/右鞋；10 放料方向不匹配",
                 ]
             ),
         ),
         (
             "monitor",
-            T.MONITOR,
+            _L(T.MONITOR),
             _io_block(
                 purpose=(
                     "产线主操作台：初始化、自动/单步、启动暂停停止急停；看三色灯与工位忙闲；"
@@ -139,8 +182,8 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "操作员每日必开页",
-                    f"「单步下一步」联动「{T.STEP_DEBUG}」逻辑",
-                    f"「启动空跑」联动「{T.DRY_RUN}」屏蔽策略",
+                    f"「单步下一步」联动「{_L(T.STEP_DEBUG)}」逻辑",
+                    f"「启动空跑」联动「{_L(T.DRY_RUN)}」屏蔽策略",
                 ],
             )
             + _h("操作要点")
@@ -155,7 +198,7 @@ def sections() -> List[Section]:
         ),
         (
             "cam_monitor",
-            T.CAM_MONITOR,
+            _L(T.CAM_MONITOR),
             _io_block(
                 purpose=(
                     "独立窗口显示 cam1～4 原图与推演结果。"
@@ -172,15 +215,15 @@ def sections() -> List[Section]:
                     f"{_code('algorithm_module')} — 推演内部算法（经 VisionService）",
                 ],
                 used_by=[
-                    f"主界面顶部「{T.CAM_MONITOR}窗口」按钮",
-                    f"「{T.VISION}」「{T.VISION_SETUP}」打开监控按钮",
-                    "与「视觉调试」同开时避让当前调试相机，减少抢锁闪烁",
+                    f"主界面顶部「{_L(T.CAM_MONITOR)}窗口」按钮",
+                    f"「{_L(T.VISION)}」打开监控按钮",
+                    "与「视觉」总页同开时避让当前调试相机，减少抢锁闪烁",
                 ],
             ),
         ),
         (
             "production",
-            T.PRODUCTION,
+            _L(T.PRODUCTION),
             _io_block(
                 purpose="产量看板：下料完成记件数、节拍 CT、换算 UPH（即时与滚动平均）。",
                 impl=[f"{_code('hmi/pages/production_page.py')}"],
@@ -193,7 +236,7 @@ def sections() -> List[Section]:
         ),
         (
             "step",
-            T.STEP_DEBUG,
+            _L(T.STEP_DEBUG),
             _io_block(
                 purpose=(
                     "按 Station / Auto 程序单步：看步表、武装某步、执行下一步、中止本站 Auto、调试旁路。"
@@ -211,13 +254,13 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "新机调轨迹、排查卡步必用",
-                    f"与「{T.POINTS}」「{T.MOTION}」配合：先示教点 → 再设步速 → 再单步验证",
+                    f"与「{_L(T.POINTS)}」「{_L(T.MOTION)}」配合：先示教点 → 再设步速 → 再单步验证",
                 ],
             ),
         ),
         (
             "motion",
-            T.MOTION,
+            _L(T.MOTION),
             _io_block(
                 purpose=(
                     "按「程序步键」（如 s2a10_30）设置 vel / 加速度 / 是否平滑 / blend，"
@@ -234,16 +277,16 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "Station2/5 等所有 ctx.move_to_point(..., step_key=...) / step_motion_kwargs",
-                    f"全局倍率仍在「{T.MONITOR}」SetSpeed",
+                    f"全局倍率仍在「{_L(T.MONITOR)}」SetSpeed",
                 ],
             ),
         ),
         (
             "zero_pick",
-            T.VISION_SETUP,
+            f"{_L(T.VISION)} · 采图训练",
             _io_block(
                 purpose=(
-                    "新机视觉投产向导：挂/训模型、采图、将棋盘格内参与手眼写入 shoe_vision_config.json、"
+                    "「视觉」总页「采图训练」子页签：挂/训模型、采图、将棋盘格内参与手眼写入 shoe_vision_config.json、"
                     "测皮带取料、写入 PickPose、MoveL 试抓。左右脚可本页重训。"
                 ),
                 impl=[f"{_code('hmi/pages/zero_to_pick_page.py')}"],
@@ -256,7 +299,7 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "投产前必做；训完的 .pt 被 VisionService / Station1～4 加载",
-                    f"点像素预览仍在「{T.VISION}」",
+                    f"点像素预览在「{_L(T.VISION)}」上方预览区 /「手眼标定」页签",
                 ],
             )
             + _h("推荐流程")
@@ -264,21 +307,23 @@ def sections() -> List[Section]:
                 [
                     "① 挂接旧模型或自选 .pt；可 pip 装 ultralytics（CPU/GPU 版）。",
                     "② 采图/训练；「训练设备」选 CPU 或 GPU。",
-                    f"③ 在「{T.VISION}」采棋盘格 → 本页写入内参/ROI/手眼。",
-                    f"④ 取消 cam1 Mock → 测皮带 → 写 PickPose → MoveL 试上方 →「{T.STEP_DEBUG}」单步。",
+                    f"③ 切到「{_L(T.VISION)}」其它页签：ROI → 棋盘格内参 → 手眼采样 → 回「采图训练」写入 json。",
+                    f"④ 取消 cam1 Mock → 测皮带 → 写 PickPose → MoveL 试上方 →「{_L(T.STEP_DEBUG)}」单步。",
                 ]
-            ),
+            )
+            + _p("完整检查清单：" + _code("docs/界面操作手册.md") + " §C。"),
         ),
         (
             "vision",
-            T.VISION,
+            _L(T.VISION),
             _io_block(
                 purpose=(
-                    "单路相机调试：枚举/绑定 serial、预览、ROI 绿框、棋盘格内参、手眼点像素、"
-                    "各路「测试检测」按钮。缺模型时该路保持 Mock。"
+                    "视觉总页：上方常驻预览；子页签含相机与ROI、棋盘格内参、手眼标定、检测测试、采图训练。"
+                    "缺模型时该路保持 Mock。"
                 ),
                 impl=[
-                    f"{_code('hmi/pages/vision_page.py')}",
+                    f"{_code('hmi/pages/vision_hub_page.py')} — VisionHubPage",
+                    f"{_code('hmi/pages/vision_workspace.py')} — 共享预览与标定状态",
                     f"{_code('hmi/pages/vision_commission.py')} — 本路检查清单文案",
                 ],
                 refs=[
@@ -289,7 +334,7 @@ def sections() -> List[Section]:
                     f"配置：{_code('config/roi/camN.json')}、{_code('config/calib/')}、{_code('shoe_vision_config.json')}",
                 ],
                 used_by=[
-                    f"「{T.VISION_SETUP}」写入 json 依赖本页采到的内参/采样",
+                    "「采图训练」写入 json 依赖本页采到的内参/采样",
                     "自动流程不直接开本页，但用同一套 VisionService",
                 ],
             )
@@ -301,11 +346,31 @@ def sections() -> List[Section]:
                     "<b>cam3</b>：放料槽有无鞋（Station3）",
                     "<b>cam4</b>：取料槽有无鞋 + 压杆偏移（Station4→5）",
                 ]
+            )
+            + _h("本页推荐操作顺序（每路相机）")
+            + _ol(
+                [
+                    "通信配置里该路 Mock=关、填 serial，保存并重启；「相机与ROI」枚举 → 绑定并重开。",
+                    "调 ROI 绿框 →「写入配置（保存 ROI）」；cam1 再可「ROI 写入皮带 json」（手眼页签）。",
+                    "棋盘格：检测 → 多角度「采集有效帧」→「计算并保存内参」；cam1「内参写入皮带 json」。",
+                    "手眼（cam1 必做）：预览上点针尖像素 →「记录手眼采样点」"
+                    "→ 换位采满 ≥8～12 点 →「保存手眼采样」→「计算手眼4×4写入 json」。",
+                    "「检测测试」测皮带 →「写入 PickPose」→「MoveL 到取料上方」核对。",
+                    "其它路：用对应「测试…」按钮验证模型；再切「采图训练」写生产 json / 单步。",
+                ]
+            )
+            + _h("手眼注意")
+            + _ul(
+                [
+                    "必须先有内参再求解手眼；点像素与读 TCP 时臂必须停稳。",
+                    "采样点铺满皮带工作区，略变高度；算错用「清除手眼采样/矩阵」重来。",
+                    "改完手眼建议重启程序再跑自动。详图步骤见 docs/界面操作手册.md §6。",
+                ]
             ),
         ),
         (
             "points",
-            T.POINTS,
+            _L(T.POINTS),
             _io_block(
                 purpose="示教并保存机器人1/2 的 TCP+关节角、过渡点、偏移试跑（基点+偏移）。",
                 impl=[f"{_code('hmi/pages/points_page.py')}"],
@@ -317,7 +382,7 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "Station2/5 经 ctx.pose / move_to_point 读这些点",
-                    f"步速度不在本页设，在「{T.MOTION}」",
+                    f"步速度不在本页设，在「{_L(T.MOTION)}」",
                 ],
             )
             + _h("常用点名")
@@ -327,7 +392,7 @@ def sections() -> List[Section]:
         ),
         (
             "shield",
-            T.SHIELD_PICK,
+            _L(T.SHIELD_PICK),
             _io_block(
                 purpose=(
                     "cam1 为 Mock 时，用本页示教的多只鞋位（belt_pick_mock）代替 YOLO 出 PickPose；"
@@ -341,13 +406,13 @@ def sections() -> List[Section]:
                 ],
                 used_by=[
                     "Station1 在 cam1 Mock 时读本页结果",
-                    f"「{T.DRY_RUN}」空跑通常配合本页示教点",
+                    f"「{_L(T.DRY_RUN)}」空跑通常配合本页示教点",
                 ],
             ),
         ),
         (
             "dry",
-            T.DRY_RUN,
+            _L(T.DRY_RUN),
             _io_block(
                 purpose=(
                     "无真皮带/压机时联调 Station1～6：一键光电模拟、压机 Mock、槽有无料时序，"
@@ -363,14 +428,14 @@ def sections() -> List[Section]:
                     f"{_code('config/default.yaml')} press.mock_auto_*",
                 ],
                 used_by=[
-                    f"「{T.MONITOR}」启动空跑程序按钮",
+                    f"「{_L(T.MONITOR)}」启动空跑程序按钮",
                     "软件验收 / 轨迹空跑",
                 ],
             ),
         ),
         (
             "payload",
-            T.PAYLOAD,
+            _L(T.PAYLOAD),
             _io_block(
                 purpose="分别设置上料/下料臂：未抓鞋与抓鞋两套负载质量质心 + 工具 TCP，并可下发到法奥控制器。",
                 impl=[f"{_code('hmi/pages/payload_page.py')}"],
@@ -384,7 +449,7 @@ def sections() -> List[Section]:
         ),
         (
             "press",
-            T.PRESS_IO,
+            _L(T.PRESS_IO),
             _io_block(
                 purpose=(
                     "四槽压机：放料口/取料口约定、正序/反序、槽号自算、各槽 Modbus 地址、"
@@ -404,7 +469,7 @@ def sections() -> List[Section]:
         ),
         (
             "config",
-            T.CONFIG,
+            _L(T.CONFIG),
             _io_block(
                 purpose="改机器人 IP、压机、夹爪 CAN、光电 DI、各设备 use_mock，保存回 default.yaml 并尽量重连。",
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
@@ -418,7 +483,7 @@ def sections() -> List[Section]:
         ),
         (
             "alarm",
-            T.ALARM,
+            _L(T.ALARM),
             _io_block(
                 purpose="查看报警历史、复制全文、报警复位。",
                 impl=[
@@ -462,7 +527,7 @@ def sections() -> List[Section]:
             + _ul(
                 [
                     f"{_code('core/coordinator.py')} 主扫描",
-                    f"「{T.STEP_DEBUG}」武装/单步同一套 cycle",
+                    f"「{_L(T.STEP_DEBUG)}」武装/单步同一套 cycle",
                 ]
             )
             + _h("Station2 放料路径（Auto_A[20]）")
@@ -493,13 +558,13 @@ def sections() -> List[Section]:
             + _ul(
                 [
                     f"<b>detect_belt_pick</b> — {_code('vision/vision_service.py')} photo_belt_pick → <b>Station1</b>",
-                    f"<b>detect_belt_shoes_mock</b> — Mock 皮带 → Station1 / 「{T.SHIELD_PICK}」",
+                    f"<b>detect_belt_shoes_mock</b> — Mock 皮带 → Station1 / 「{_L(T.SHIELD_PICK)}」",
                     f"<b>classify_toe_align</b> — guide_place_edge / toe_place_assist → <b>Station2</b>",
                     f"<b>classify_slot_occupied</b> — photo_place_slot / photo_pick_slot → <b>Station3/4</b>",
                     f"<b>measure_rod_offset_mm</b> — photo_pick_slot → <b>Station5</b> 叠加偏移",
-                    f"<b>write_intrinsics_from_calib / solve_handeye_and_write / apply_belt_pick</b> — 「{T.VISION_SETUP}」",
-                    f"<b>capture_to_slot / train_cmd / cuda_train_status</b> — 「{T.VISION_SETUP}」采图训练",
-                    f"<b>compute_monitor(from_cache)</b> 在 VisionService — 「{T.CAM_MONITOR}」实时推演",
+                    f"<b>write_intrinsics_from_calib / solve_handeye_and_write / apply_belt_pick</b> — 「{_L(T.VISION)}·采图训练」",
+                    f"<b>capture_to_slot / train_cmd / cuda_train_status</b> — 「{_L(T.VISION)}·采图训练」",
+                    f"<b>compute_monitor(from_cache)</b> 在 VisionService — 「{_L(T.CAM_MONITOR)}」实时推演",
                 ]
             )
             + _h("底层实现引用")
@@ -527,7 +592,62 @@ def sections() -> List[Section]:
                 ]
             )
             + _h("被谁使用")
-            + _ul([f"仅「{T.CAM_MONITOR}」窗口（vision_monitor_page）主用；关窗 stop 取流与推演"]),
+            + _ul([f"仅「{_L(T.CAM_MONITOR)}」窗口（vision_monitor_page）主用；关窗 stop 取流与推演"]),
+        ),
+        (
+            "gripper",
+            "夹爪（达妙 DM-J4310-2EC）",
+            _h("型号与对应")
+            + _ul(
+                [
+                    "达妙 DM-J4310-2EC（48V），CAN 1 Mbps，位置速度模式，gripper_type=2",
+                    "最多 99 路：grippers.motor_count + motors；HMI 通信配置选数量后填地址",
+                    "上料绑定 load_index → ctx.gripper1；下料绑定 unload_index → ctx.gripper2",
+                    "其余启用电机：ctx.grippers[序号]",
+                ]
+            )
+            + _h("现场改什么")
+            + _ul(
+                [
+                    f"「{_L(T.CONFIG)}」：启用数量、每路 CAN/can_id、上料/下料绑定 → 保存；改数量后重启",
+                    f"「{_L(T.GRIPPER)}」：单独调试开合、速度、重连、掉落检测、报警复位",
+                    f"开合速度也可在「{_L(T.MONITOR)}」保存到 yaml",
+                    "接线、试夹：docs/夹爪使用说明.md",
+                ]
+            )
+            + _h("报警代码 GRIP_*")
+            + _ul(
+                [
+                    "GRIP_LINK — CAN 连接/使能失败",
+                    "GRIP_OPEN / GRIP_CLOSE — 张开/夹紧反馈失败",
+                    "GRIP_DRV — 驱动/掉落等",
+                    f"「{_L(T.MONITOR)}」或「{_L(T.GRIPPER)}」点「报警复位」会清 GRIP_* 并尝试重连夹爪",
+                ]
+            )
+            + _h("自动流程")
+            + _ul(
+                [
+                    f"Station2 上料：张爪取料 → 夹紧 → 放料对位后张爪（{_code('stations/station2_robot1.py')}）",
+                    f"Station5 下料：张爪取槽 → 夹紧 → 皮带放料张爪（{_code('stations/station5_robot2.py')}）",
+                    "到位用 poll_done() 等反馈，不再固定延时",
+                ]
+            )
+            + _h("程序接口（单文件 devices/gripper_can.py）")
+            + _ul(
+                [
+                    f"{_code('from devices.gripper_can import GripperCAN, create_gripper')} — 统一入口",
+                    "工位：open()/close() + poll_done()；HMI：open_claw()/close_claw()",
+                    "电机模式：位置速度模式（目标位置 + 速度）；gripper_type=2",
+                    "单独测试：python3 -m devices.gripper_can --side 1",
+                    "详见 docs/夹爪使用说明.md",
+                ]
+            )
+            + _h("实现文件")
+            + _ul(
+                [
+                    f"{_code('devices/gripper_can.py')} — CAN 驱动 + GripperCAN 接口（全部逻辑在此文件）",
+                ]
+            ),
         ),
         (
             "devices",
@@ -537,7 +657,7 @@ def sections() -> List[Section]:
             + _ul(
                 [
                     f"{_code('devices/robot_fr5.py')} — MoveJ/MoveL、SetSpeed、StopMotion；被 Station2/5、点位页、视觉试抓调用",
-                    f"{_code('devices/gripper_can.py')} — 开合；Station2/5、运行监控手动",
+                    f"{_code('devices/gripper_can.py')} — 达妙夹爪（单文件 CAN+接口）；Station2/5、运行监控",
                     f"{_code('devices/press_modbus.py')} — 压合旋转槽号；Station6、压机信号页、运行监控",
                     f"{_code('devices/io_manager.py')} — 光电/急停 DI；Station1、空跑",
                     f"{_code('devices/toe_tcp.py')} — 鞋头 TCP；Station2 放料段",
@@ -551,23 +671,34 @@ def sections() -> List[Section]:
             _h("Mock 快速走通")
             + _ol(
                 [
-                    f"打开软件 →「{T.MONITOR}」模式自动 → 初始化 → READY。",
-                    f"「{T.DRY_RUN}」一键启用（或监控页启动空跑）。",
-                    f"「{T.SHIELD_PICK}」确认左右鞋示教。",
+                    f"打开软件 →「{_L(T.MONITOR)}」模式自动 → 初始化 → READY。",
+                    f"「{_L(T.DRY_RUN)}」一键启用（或监控页启动空跑）。",
+                    f"「{_L(T.SHIELD_PICK)}」确认左右鞋示教。",
                     "启动；观察 S1→S2→S3→…→S6（先压合再旋转）。",
                 ]
             )
             + _h("接真机前")
             + _ul(
                 [
-                    f"「{T.CONFIG}」：要接的设备 use_mock=false，IP/CAN/DI 正确。",
-                    f"「{T.VISION}」四路出图 + 模型；「{T.VISION_SETUP}」本机手眼已写。",
-                    f"「{T.POINTS}」关节已存；「{T.STEP_DEBUG}」单站验证无干涉。",
+                    f"「{_L(T.CONFIG)}」：要接的设备 use_mock=false，IP/CAN/DI 正确。",
+                    f"「{_L(T.VISION)}」四路出图 + 模型；采图训练页签本机手眼已写。",
+                    f"「{_L(T.POINTS)}」关节已存；「{_L(T.STEP_DEBUG)}」单站验证无干涉。",
                     "再自动空跑 → 带鞋试产。",
                 ]
             ),
         ),
     ]
+
+
+def _sections_zh_tw() -> List[Section]:
+    """繁中暂与简体同源（导航名仍随语言）。"""
+    return _sections_zh_cn()
+
+
+def _sections_en_us() -> List[Section]:
+    from hmi.help_content_en import build_sections_en
+
+    return build_sections_en()
 
 
 def all_text_for_search() -> str:

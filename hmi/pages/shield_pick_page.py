@@ -433,7 +433,7 @@ class ShieldPickPage(QWidget):
         self._dbg_busy = False
         self.lbl_dbg.setText("已停止")
 
-    def refresh(self) -> None:
+    def refresh_fast(self) -> None:
         if not self._dbg_busy:
             return
         robot = self.ctx.robot1
@@ -444,3 +444,6 @@ class ShieldPickPage(QWidget):
         except Exception as e:
             self._dbg_busy = False
             self.lbl_dbg.setText(f"运动异常: {e}")
+
+    def refresh(self) -> None:
+        self.refresh_fast()

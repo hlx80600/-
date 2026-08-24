@@ -1,21 +1,39 @@
-"""主界面标签名称（现场 HMI 用语，短、专业、职责一眼能看懂）。"""
+"""导航页内部 id（稳定键）；显示文案见 hmi.i18n.nav_label。"""
 
 from __future__ import annotations
 
+from hmi import i18n
 
-class T:
-    MONITOR = "运行监控"
-    PRODUCTION = "产量统计"
-    STEP_DEBUG = "工位调试"
-    MOTION = "运动参数"
-    VISION_SETUP = "视觉采图"
-    VISION = "视觉调试"
-    POINTS = "示教点位"
-    SHIELD_PICK = "屏蔽取料"
-    DRY_RUN = "空跑联调"
-    PAYLOAD = "负载工具"
-    PRESS_IO = "压机信号"
-    CONFIG = "通信配置"
-    ALARM = "报警记录"
-    HELP = "使用说明"
-    CAM_MONITOR = "相机监控"
+
+class NavId:
+    MONITOR = "monitor"
+    PRODUCTION = "production"
+    STEP_DEBUG = "step_debug"
+    MOTION = "motion"
+    VISION = "vision"
+    POINTS = "points"
+    SHIELD_PICK = "shield_pick"
+    DRY_RUN = "dry_run"
+    PAYLOAD = "payload"
+    PRESS_IO = "press_io"
+    GRIPPER = "gripper"
+    SETTINGS = "settings"
+    ALARM = "alarm"
+    HELP = "help"
+    CAM_MONITOR = "cam_monitor"
+    # 非导航项：goto / 帮助别名
+    CONFIG = "config"
+    VISION_SETUP = "vision_setup"
+
+
+class T(NavId):
+    """兼容旧 import：T.MONITOR 等为 NavId，不再直接等于中文标题。"""
+
+
+def nav_title(nav_id: str) -> str:
+    """当前语言的导航/页标题。"""
+    if nav_id == NavId.VISION_SETUP:
+        return i18n.tr("alias.vision_setup")
+    if nav_id == NavId.CONFIG:
+        return i18n.tr("settings.tab.communication")
+    return i18n.nav_label(nav_id)

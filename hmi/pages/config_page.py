@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +24,7 @@ from PySide6.QtWidgets import (
 from core.app_context import device_use_mock
 from core.config_loader import save_config
 from core.coordinator import Coordinator
+from devices.gripper_bank import MAX_MOTORS, motor_cfg, normalize_grippers_cfg, write_motor
 from hmi.style import apply_page_chrome, style_button
 
 
@@ -102,40 +107,44 @@ class ConfigPage(QWidget):
         fr.addRow(self.chk_r2)
         root.addWidget(box_r)
 
-        # —— 夹爪 ——
-        g1 = cfg["grippers"]["gripper1"]
-        g2 = cfg["grippers"]["gripper2"]
-        box_g = QGroupBox("夹爪 CAN（Casbot：左 can0/0x103，右 can1/0x101，type=2）")
-        fg = QFormLayout(box_g)
-        self.ed_g1_if = QLineEdit(str(g1.get("interface", "can0")))
-        self.ed_g2_if = QLineEdit(str(g2.get("interface", "can1")))
-        self.sp_g1_id = _spin_int(0, 0x7FF, int(g1.get("can_id", 0x103)), hex_mode=True)
-        self.sp_g2_id = _spin_int(0, 0x7FF, int(g2.get("can_id", 0x101)), hex_mode=True)
-        self.sp_g1_type = _spin_int(0, 2, int(g1.get("gripper_type", 2)))
-        self.sp_g2_type = _spin_int(0, 2, int(g2.get("gripper_type", 2)))
-        self.sp_g1_open = _spin_float(1.0, 200.0, float(g1.get("open_speed", 50.0)), 5.0, 1)
-        self.sp_g1_close = _spin_float(1.0, 200.0, float(g1.get("close_speed", 50.0)), 5.0, 1)
-        self.sp_g2_open = _spin_float(1.0, 200.0, float(g2.get("open_speed", 50.0)), 5.0, 1)
-        self.sp_g2_close = _spin_float(1.0, 200.0, float(g2.get("close_speed", 50.0)), 5.0, 1)
-        self.chk_g1 = QCheckBox("夹爪1（上料）模拟")
-        self.chk_g1.setChecked(device_use_mock(g1, sys_def))
-        self.chk_g2 = QCheckBox("夹爪2（下料）模拟")
-        self.chk_g2.setChecked(device_use_mock(g2, sys_def))
-        fg.addRow("夹爪1 接口 canX", self.ed_g1_if)
-        fg.addRow("夹爪1 can_id", self.sp_g1_id)
-        fg.addRow("夹爪1 gripper_type", self.sp_g1_type)
-        fg.addRow("夹爪1 张开/夹紧速度", self._pair(self.sp_g1_open, self.sp_g1_close))
-        fg.addRow(self.chk_g1)
-        fg.addRow("夹爪2 接口 canX", self.ed_g2_if)
-        fg.addRow("夹爪2 can_id", self.sp_g2_id)
-        fg.addRow("夹爪2 gripper_type", self.sp_g2_type)
-        fg.addRow("夹爪2 张开/夹紧速度", self._pair(self.sp_g2_open, self.sp_g2_close))
-        fg.addRow(self.chk_g2)
+        # —— 夹爪：最多 99 路，先选数量再填地址 ——
+        gcfg = normalize_grippers_cfg(cfg)
+        box_g = QGroupBox(
+            "夹爪电机（达妙 DM-J4310-2EC · 48V · 最多 99 路；选数量后填 CAN 地址）"
+        )
+        vg = QVBoxLayout(box_g)
+        row_cnt = QHBoxLayout()
+        row_cnt.addWidget(QLabel("启用电机数量"))
+        self.sp_motor_count = _spin_int(1, MAX_MOTORS, int(gcfg.get("motor_count", 2)))
+        self.sp_motor_count.setToolTip("1～99；改数量后表格只显示启用行，再填每路 interface / can_id")
+        self.sp_motor_count.valueChanged.connect(self._on_motor_count_changed)
+        row_cnt.addWidget(self.sp_motor_count)
+        row_cnt.addWidget(QLabel("上料绑定序号"))
+        self.sp_load_idx = _spin_int(1, MAX_MOTORS, int(gcfg.get("load_index", 1)))
+        row_cnt.addWidget(self.sp_load_idx)
+        row_cnt.addWidget(QLabel("下料绑定序号"))
+        self.sp_unload_idx = _spin_int(1, MAX_MOTORS, int(gcfg.get("unload_index", 2)))
+        row_cnt.addWidget(self.sp_unload_idx)
+        row_cnt.addStretch(1)
+        vg.addLayout(row_cnt)
+        vg.addWidget(
+            QLabel(
+                "工位仍用夹爪1=上料绑定、夹爪2=下料绑定；其余启用电机可后续扩展流程调用。"
+            )
+        )
+        self.tbl_motors = QTableWidget(0, 7)
+        self.tbl_motors.setHorizontalHeaderLabels(
+            ["序号", "名称", "CAN接口", "can_id(hex)", "type", "开/合速度", "模拟"]
+        )
+        self.tbl_motors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_motors.setMinimumHeight(180)
+        vg.addWidget(self.tbl_motors)
+        self._rebuild_motor_table()
         root.addWidget(box_g)
 
         # —— 压鞋机 ——
         press = cfg.get("press") or {}
-        box_p = QGroupBox("压鞋机 ModbusTCP（线圈地址按现场 PLC 改）")
+        box_p = QGroupBox("压鞋机 ModbusTCP（线圈地址按现场改）")
         fp = QFormLayout(box_p)
         self.ed_press = QLineEdit(str(press.get("ip", "")))
         self.sp_port = _spin_int(1, 65535, int(press.get("port", 502)))
@@ -267,19 +276,95 @@ class ConfigPage(QWidget):
         lay.addWidget(c)
         return w
 
+    def _on_motor_count_changed(self, _n: int = 0) -> None:
+        n = int(self.sp_motor_count.value())
+        self.sp_load_idx.setMaximum(n)
+        self.sp_unload_idx.setMaximum(n)
+        if self.sp_load_idx.value() > n:
+            self.sp_load_idx.setValue(n)
+        if self.sp_unload_idx.value() > n:
+            self.sp_unload_idx.setValue(n)
+        self._rebuild_motor_table()
+
+    def _rebuild_motor_table(self) -> None:
+        """按启用数量重建电机地址表（先收当前表内容写回 cfg，再刷新）。"""
+        cfg = self.ctx.cfg
+        gcfg = normalize_grippers_cfg(cfg)
+        # 若表格已有行，先把编辑写回
+        if getattr(self, "tbl_motors", None) is not None and self.tbl_motors.rowCount() > 0:
+            self._collect_motor_table_into(gcfg)
+        count = int(self.sp_motor_count.value())
+        gcfg["motor_count"] = count
+        normalize_grippers_cfg(cfg)
+        self.tbl_motors.setRowCount(count)
+        sys_def = bool((cfg.get("system") or {}).get("use_mock", True))
+        for r in range(count):
+            i = r + 1
+            m = motor_cfg(gcfg, i)
+            it_idx = QTableWidgetItem(str(i))
+            it_idx.setFlags(it_idx.flags() & ~Qt.ItemIsEditable)
+            self.tbl_motors.setItem(r, 0, it_idx)
+            self.tbl_motors.setItem(r, 1, QTableWidgetItem(str(m.get("label", f"电机{i}"))))
+            self.tbl_motors.setItem(r, 2, QTableWidgetItem(str(m.get("interface", "can0"))))
+            self.tbl_motors.setItem(r, 3, QTableWidgetItem(f"0x{int(m.get('can_id', 0)):X}"))
+            self.tbl_motors.setItem(r, 4, QTableWidgetItem(str(int(m.get("gripper_type", 2)))))
+            op = float(m.get("open_speed", 50))
+            cl = float(m.get("close_speed", 50))
+            self.tbl_motors.setItem(r, 5, QTableWidgetItem(f"{op:g}/{cl:g}"))
+            chk = QCheckBox("模拟")
+            chk.setChecked(device_use_mock(m, sys_def))
+            self.tbl_motors.setCellWidget(r, 6, chk)
+
+    def _parse_can_id(self, text: str) -> int:
+        s = (text or "").strip().lower()
+        try:
+            if s.startswith("0x"):
+                return int(s, 16)
+            return int(s, 10)
+        except ValueError:
+            return 0
+
+    def _collect_motor_table_into(self, gcfg: dict) -> None:
+        rows = self.tbl_motors.rowCount()
+        for r in range(rows):
+            i = r + 1
+            def _cell(c: int) -> str:
+                it = self.tbl_motors.item(r, c)
+                return it.text().strip() if it else ""
+
+            speeds = _cell(5).replace("，", "/").split("/")
+            open_spd = float(speeds[0]) if speeds and speeds[0] else 50.0
+            close_spd = float(speeds[1]) if len(speeds) > 1 and speeds[1] else open_spd
+            try:
+                gtype = int(_cell(4) or "2")
+            except ValueError:
+                gtype = 2
+            chk = self.tbl_motors.cellWidget(r, 6)
+            use_mock = bool(chk.isChecked()) if isinstance(chk, QCheckBox) else True
+            write_motor(
+                gcfg,
+                i,
+                {
+                    "label": _cell(1) or f"电机{i}",
+                    "interface": _cell(2) or "can0",
+                    "can_id": self._parse_can_id(_cell(3)),
+                    "gripper_type": gtype,
+                    "open_speed": open_spd,
+                    "close_speed": close_spd,
+                    "use_mock": use_mock,
+                },
+            )
+
     def _reload_from_runtime(self) -> None:
         """简单：提示用户重新打开页或重启；此处重读 cfg 到主要控件。"""
         cfg = self.ctx.cfg
-        g1 = cfg["grippers"]["gripper1"]
-        g2 = cfg["grippers"]["gripper2"]
-        self.ed_g1_if.setText(str(g1.get("interface", "can0")))
-        self.ed_g2_if.setText(str(g2.get("interface", "can1")))
-        self.sp_g1_id.setValue(int(g1.get("can_id", 0x103)))
-        self.sp_g2_id.setValue(int(g2.get("can_id", 0x101)))
-        self.sp_g1_open.setValue(float(g1.get("open_speed", 50)))
-        self.sp_g1_close.setValue(float(g1.get("close_speed", 50)))
-        self.sp_g2_open.setValue(float(g2.get("open_speed", 50)))
-        self.sp_g2_close.setValue(float(g2.get("close_speed", 50)))
+        gcfg = normalize_grippers_cfg(cfg)
+        self.sp_motor_count.blockSignals(True)
+        self.sp_motor_count.setValue(int(gcfg.get("motor_count", 2)))
+        self.sp_motor_count.blockSignals(False)
+        self.sp_load_idx.setValue(int(gcfg.get("load_index", 1)))
+        self.sp_unload_idx.setValue(int(gcfg.get("unload_index", 2)))
+        self._rebuild_motor_table()
         self.ed_r1.setText(str(cfg["robots"]["robot1"].get("ip", "")))
         self.ed_r2.setText(str(cfg["robots"]["robot2"].get("ip", "")))
         self.ed_press.setText(str((cfg.get("press") or {}).get("ip", "")))
@@ -320,21 +405,16 @@ class ConfigPage(QWidget):
         r1["use_mock"] = bool(self.chk_r1.isChecked())
         r2["use_mock"] = bool(self.chk_r2.isChecked())
 
-        # 夹爪
-        g1 = cfg["grippers"]["gripper1"]
-        g2 = cfg["grippers"]["gripper2"]
-        g1["interface"] = self.ed_g1_if.text().strip() or "can0"
-        g2["interface"] = self.ed_g2_if.text().strip() or "can1"
-        g1["can_id"] = int(self.sp_g1_id.value())
-        g2["can_id"] = int(self.sp_g2_id.value())
-        g1["gripper_type"] = int(self.sp_g1_type.value())
-        g2["gripper_type"] = int(self.sp_g2_type.value())
-        g1["open_speed"] = float(self.sp_g1_open.value())
-        g1["close_speed"] = float(self.sp_g1_close.value())
-        g2["open_speed"] = float(self.sp_g2_open.value())
-        g2["close_speed"] = float(self.sp_g2_close.value())
-        g1["use_mock"] = bool(self.chk_g1.isChecked())
-        g2["use_mock"] = bool(self.chk_g2.isChecked())
+        # 夹爪电机槽
+        gcfg = normalize_grippers_cfg(cfg)
+        count = int(self.sp_motor_count.value())
+        gcfg["motor_count"] = count
+        gcfg["load_index"] = int(self.sp_load_idx.value())
+        gcfg["unload_index"] = int(self.sp_unload_idx.value())
+        self._collect_motor_table_into(gcfg)
+        normalize_grippers_cfg(cfg)
+        g1 = gcfg["gripper1"]
+        g2 = gcfg["gripper2"]
 
         # 压机
         press = cfg.setdefault("press", {})
@@ -387,6 +467,7 @@ class ConfigPage(QWidget):
             int(r1["di_belt_sensor"]), bool(r1.get("di_belt_use_mock", True))
         )
 
+        # 夹爪：按绑定序号刷新 gripper1/2；数量变更建议重启
         self.ctx.gripper1.use_mock = bool(g1["use_mock"])
         self.ctx.gripper2.use_mock = bool(g2["use_mock"])
         self.ctx.gripper1.interface = str(g1["interface"])
@@ -426,6 +507,7 @@ class ConfigPage(QWidget):
             self,
             "已保存",
             "接口参数已写入 config/default.yaml，并已尽量应用到当前运行实例。\n"
+            "夹爪：若改了「启用电机数量」，请重启程序以重建电机实例。\n"
             "相机改 serial 后后台连接，失败会弹「连接失败」报警，无需重启。\n"
             f"{self.ctx.mock_status_text()}",
         )

@@ -69,7 +69,7 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
                 "robot": "robot1",
                 "points": ["pick_entry"],
             },
-            {"step": 100, "title": "写记忆", "detail": "Mem2=1；过渡仍工具1，不切鞋头", "kind": "mem", "points": []},
+            {"step": 100, "title": "写记忆", "detail": "已回进入点后：Mem2=1；过渡仍工具1", "kind": "mem", "points": []},
         ],
         20: [
             {
@@ -138,7 +138,7 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
                 "robot": "robot1",
                 "points": ["place_entry"],
             },
-            {"step": 90, "title": "写记忆", "detail": "Mem2=0 Mem3=1 清Mem8/9", "kind": "mem", "points": []},
+            {"step": 90, "title": "写记忆", "detail": "已回进入点后：Mem2=0 Mem3=1 清Mem8/9", "kind": "mem", "points": []},
         ],
     },
     3: {
@@ -199,7 +199,7 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
                 "robot": "robot2",
                 "points": ["slot_pick_entry"],
             },
-            {"step": 100, "title": "写记忆", "detail": "Mem5=1 Mem6=0", "kind": "mem", "points": []},
+            {"step": 100, "title": "写记忆", "detail": "已回进入点后：Mem5=1 Mem6=0", "kind": "mem", "points": []},
         ],
         20: [
             {
@@ -244,7 +244,7 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
                 "robot": "robot2",
                 "points": ["belt_place_entry"],
             },
-            {"step": 80, "title": "写记忆+产量", "detail": "Mem5=0", "kind": "mem", "points": []},
+            {"step": 80, "title": "写记忆+产量", "detail": "已回进入点后：Mem5=0", "kind": "mem", "points": []},
         ],
     },
     6: {

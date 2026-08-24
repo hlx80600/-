@@ -87,9 +87,9 @@ class CamPane(QGroupBox):
         row = QHBoxLayout()
         left = QVBoxLayout()
         right = QVBoxLayout()
-        # 监控窗八路同刷：略缩小解码尺寸，减轻 UI 卡顿
-        self.raw_view = FrameView("原图", max_side=640)
-        self.vis_view = FrameView("计算结果", max_side=640)
+        # 监控窗八路同刷：缩小解码尺寸，保证 25fps 时 UI 不卡
+        self.raw_view = FrameView("原图", max_side=480)
+        self.vis_view = FrameView("计算结果", max_side=480)
         self.lbl_raw = QLabel("原图")
         self.lbl_vis = QLabel("计算结果")
         for lab in (self.lbl_raw, self.lbl_vis):

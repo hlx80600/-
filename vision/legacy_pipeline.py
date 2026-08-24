@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -20,6 +21,9 @@ log = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SHOE_CFG = ROOT / "shoe_vision_config.json"
+
+_STACK_STATUS_CACHE: Dict[str, Any] | None = None
+_STACK_STATUS_TS: float = 0.0
 
 
 class FrameAdapter:
@@ -79,7 +83,11 @@ class SnapshotAdapter:
 
 
 def stack_status() -> Dict[str, Any]:
-    """检查旧视觉依赖是否能 import。"""
+    """检查旧视觉依赖是否能 import（结果缓存，避免每次打开视觉页都卡一下）。"""
+    global _STACK_STATUS_CACHE, _STACK_STATUS_TS
+    now = time.monotonic()
+    if _STACK_STATUS_CACHE is not None and (now - _STACK_STATUS_TS) < 60.0:
+        return dict(_STACK_STATUS_CACHE)
     out: Dict[str, Any] = {
         "shoe_vision": False,
         "ultralytics": False,
@@ -113,6 +121,8 @@ def stack_status() -> Dict[str, Any]:
     except Exception as e:
         errs.append(f"Position: {e}")
     out["message"] = " | ".join(errs) if errs else "旧视觉栈可加载"
+    _STACK_STATUS_CACHE = dict(out)
+    _STACK_STATUS_TS = now
     return out
 
 

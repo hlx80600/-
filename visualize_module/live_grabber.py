@@ -1,4 +1,4 @@
-"""相机监控后台取流：四路连续 grab，避让视觉调试当前相机。"""
+"""相机监控后台取流：从相机流线程缓存同步到 vision.last_raw。"""
 
 from __future__ import annotations
 
@@ -73,23 +73,10 @@ class LiveGrabber:
         self.vision.last_raw_ts[cid] = time.time()
 
     def _loop(self) -> None:
+        """读相机后台流缓存，不抢 grab 锁；尽量跟满相机帧率。"""
         while not self._stop.is_set() and self._enabled:
-            skip = self._skip_cam()
-            any_ok = False
             for cid in self.cam_ids:
                 if self._stop.is_set() or not self._enabled:
                     break
-                if cid == skip:
-                    self._adopt_last_color(cid)
-                    continue
-                try:
-                    img = self.vision.grab_raw(cid, wait_s=0.0)
-                    if img is not None:
-                        any_ok = True
-                except Exception:
-                    pass
-                time.sleep(0.008)
-            if not any_ok:
-                time.sleep(0.03)
-            else:
-                time.sleep(0.01)
+                self._adopt_last_color(cid)
+            time.sleep(0.001)

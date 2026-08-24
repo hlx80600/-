@@ -32,7 +32,7 @@ def write_intrinsics_from_calib(ctx, camera_id: str = "cam1") -> str:
         raise RuntimeError("皮带 json 的 camera 内参只对应 cam1。请先选 cam1。")
     data = calib.load_calib(camera_id)
     if not data:
-        raise RuntimeError(f"{camera_id} 还没有棋盘格内参。请到「视觉调试」采集并计算内参。")
+        raise RuntimeError(f"{camera_id} 还没有棋盘格内参。请到「视觉」页「棋盘格内参」采集并计算。")
     k = shoe_cfg.k_from_calib(data)
     if not k:
         raise RuntimeError("内参文件里没有有效的 K 矩阵")
@@ -49,7 +49,7 @@ def write_roi_ratio_from_file(ctx, camera_id: str = "cam1") -> str:
         raise RuntimeError("皮带 json 的 roi_ratio 只对应 cam1。请先选 cam1 并保存绿框。")
     r = roi.load_roi(camera_id)
     if not r:
-        raise RuntimeError(f"{camera_id} 还没有 ROI 文件。请在「视觉调试」拖绿框并写入配置。")
+        raise RuntimeError(f"{camera_id} 还没有 ROI 文件。请在「视觉」页「相机与ROI」拖绿框并写入配置。")
     cam = ctx.cameras.get(camera_id) if ctx is not None else None
     img = getattr(cam, "last_color", None) if cam is not None else None
     if img is None and ctx is not None and hasattr(ctx, "vision"):
@@ -231,7 +231,7 @@ def record_handeye_sample(
     else:
         uv = pixel or clicked_pixel(camera_id)
         if uv is None:
-            raise RuntimeError("请先到「视觉调试」预览上点选皮带上一点，或改用画面中心")
+            raise RuntimeError("请先到「视觉」预览上点选皮带上一点，或改用画面中心")
         u, v = int(uv[0]), int(uv[1])
     try:
         pose = ctx.robot1.get_actual_tcp_pose()

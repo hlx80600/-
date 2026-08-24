@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
 
 from core.config_loader import save_config
 from core.machine_state import RunMode
-from core.memory import MEMORY_LABELS
 from core.coordinator import Coordinator
+from hmi import i18n
 from hmi.alarm_dialog import format_alarm_text
 from hmi.style import apply_page_chrome, style_button, style_many
 
@@ -101,6 +101,8 @@ class MonitorPage(QWidget):
         self.lbl_init_flag.setMaximumHeight(140)
         self.lbl_init_flag.setToolTip("报警全文可选中复制，或点「复制报警」（不弹窗）")
         root.addWidget(self.lbl_init_flag)
+        self._init_flag_text = ""
+        self._init_flag_css = ""
         self._refresh_init_flag()
 
         self.btn_init.clicked.connect(self._on_init)
@@ -209,10 +211,11 @@ class MonitorPage(QWidget):
         hero_lay.addWidget(self.lbl_hero_slot_meta)
 
         edit_row = QHBoxLayout()
-        edit_row.addWidget(QLabel("槽号顺序"))
+        self.lbl_slot_seq = QLabel()
+        edit_row.addWidget(self.lbl_slot_seq)
         self.cmb_mon_seq = QComboBox()
-        self.cmb_mon_seq.addItem("12341 正序", "12341")
-        self.cmb_mon_seq.addItem("43214 反序", "43214")
+        self.cmb_mon_seq.addItem("", "12341")
+        self.cmb_mon_seq.addItem("", "43214")
         fs0 = (self.ctx.cfg.get("press") or {}).get("four_slot") or {}
         seq0 = str(fs0.get("slot_sequence", "12341") or "12341")
         self.cmb_mon_seq.setCurrentIndex(
@@ -221,14 +224,16 @@ class MonitorPage(QWidget):
         self.cmb_mon_seq.setMinimumWidth(140)
         self.cmb_mon_seq.currentIndexChanged.connect(self._on_monitor_seq_changed)
         edit_row.addWidget(self.cmb_mon_seq)
-        edit_row.addWidget(QLabel("放料槽"))
+        self.lbl_slot_place = QLabel()
+        edit_row.addWidget(self.lbl_slot_place)
         self.sp_mon_place = QSpinBox()
         self.sp_mon_place.setRange(1, 4)
         self.sp_mon_place.setValue(int(self.ctx.press.place_slot))
         self.sp_mon_place.setMinimumWidth(64)
         self.sp_mon_place.valueChanged.connect(lambda _v: self._on_monitor_slot_spin("place"))
         edit_row.addWidget(self.sp_mon_place)
-        edit_row.addWidget(QLabel("取料槽"))
+        self.lbl_slot_pick = QLabel()
+        edit_row.addWidget(self.lbl_slot_pick)
         self.sp_mon_pick = QSpinBox()
         self.sp_mon_pick.setRange(1, 4)
         self.sp_mon_pick.setValue(int(self.ctx.press.pick_slot))
@@ -267,8 +272,8 @@ class MonitorPage(QWidget):
             lamp.setStyleSheet(
                 "background:#555;color:#ccc;padding:4px;border-radius:3px;font-weight:bold;"
             )
-            cb = QCheckBox(MEMORY_LABELS[i])
-            cb.setToolTip(f"Mem[{i}] {MEMORY_LABELS[i]}")
+            cb = QCheckBox()
+            cb.setToolTip(f"Mem[{i}]")
             cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             cb.toggled.connect(lambda on, idx=i: self._mem_toggled(idx, on))
             self.mem_checks[i] = cb
@@ -297,7 +302,7 @@ class MonitorPage(QWidget):
             self._link_grid.addWidget(lb, i // 2, i % 2)
         link_lay.addLayout(self._link_grid)
         root.addWidget(link_box)
-        self._refresh_link_panel()
+        # 连接状态由慢刷 _refresh_link_panel 更新，避免拖慢启动
 
         # CT / UPH 速览（详细直方图见「产量统计」页）
         prod = QHBoxLayout()
@@ -370,13 +375,15 @@ class MonitorPage(QWidget):
         self.chk_blend.setChecked(bool(m0.get("blend_enable", False)))
         bl.addWidget(self.chk_blend)
         brow = QHBoxLayout()
-        brow.addWidget(QLabel("MoveJ平滑时间 blendT(ms)"))
+        self.lbl_blend_t = QLabel()
+        brow.addWidget(self.lbl_blend_t)
         self.sp_blend_t = QSpinBox()
         self.sp_blend_t.setRange(0, 500)
         self.sp_blend_t.setValue(int(round(float(m0.get("blend_t_ms", 100)))))
         self.sp_blend_t.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         brow.addWidget(self.sp_blend_t)
-        brow.addWidget(QLabel("MoveL平滑半径 blendR(mm)"))
+        self.lbl_blend_r = QLabel()
+        brow.addWidget(self.lbl_blend_r)
         self.sp_blend_r = QDoubleSpinBox()
         self.sp_blend_r.setRange(0, 1000)
         self.sp_blend_r.setDecimals(1)
@@ -385,7 +392,8 @@ class MonitorPage(QWidget):
         brow.addWidget(self.sp_blend_r)
         bl.addLayout(brow)
         brow2 = QHBoxLayout()
-        brow2.addWidget(QLabel("衔接提前量(s)"))
+        self.lbl_blend_delay = QLabel()
+        brow2.addWidget(self.lbl_blend_delay)
         self.sp_blend_delay = QDoubleSpinBox()
         self.sp_blend_delay.setRange(0.02, 1.0)
         self.sp_blend_delay.setDecimals(3)
@@ -445,14 +453,16 @@ class MonitorPage(QWidget):
         gl.addWidget(self.btn_g2_open, 2, 4)
         gl.addWidget(self.btn_g2_close, 2, 5)
 
-        gl.addWidget(QLabel("上料张开速度"), 3, 0)
+        self.lbl_grip_spd1_open = QLabel()
+        gl.addWidget(self.lbl_grip_spd1_open, 3, 0)
         self.sp_g1_open_spd = QDoubleSpinBox()
         self.sp_g1_open_spd.setRange(1.0, 200.0)
         self.sp_g1_open_spd.setDecimals(1)
         self.sp_g1_open_spd.setSingleStep(5.0)
         self.sp_g1_open_spd.setValue(float(self.ctx.gripper1.open_speed))
         gl.addWidget(self.sp_g1_open_spd, 3, 1)
-        gl.addWidget(QLabel("上料夹紧速度"), 3, 2)
+        self.lbl_grip_spd1_close = QLabel()
+        gl.addWidget(self.lbl_grip_spd1_close, 3, 2)
         self.sp_g1_close_spd = QDoubleSpinBox()
         self.sp_g1_close_spd.setRange(1.0, 200.0)
         self.sp_g1_close_spd.setDecimals(1)
@@ -460,14 +470,16 @@ class MonitorPage(QWidget):
         self.sp_g1_close_spd.setValue(float(self.ctx.gripper1.close_speed))
         gl.addWidget(self.sp_g1_close_spd, 3, 3)
 
-        gl.addWidget(QLabel("下料张开速度"), 4, 0)
+        self.lbl_grip_spd2_open = QLabel()
+        gl.addWidget(self.lbl_grip_spd2_open, 4, 0)
         self.sp_g2_open_spd = QDoubleSpinBox()
         self.sp_g2_open_spd.setRange(1.0, 200.0)
         self.sp_g2_open_spd.setDecimals(1)
         self.sp_g2_open_spd.setSingleStep(5.0)
         self.sp_g2_open_spd.setValue(float(self.ctx.gripper2.open_speed))
         gl.addWidget(self.sp_g2_open_spd, 4, 1)
-        gl.addWidget(QLabel("下料夹紧速度"), 4, 2)
+        self.lbl_grip_spd2_close = QLabel()
+        gl.addWidget(self.lbl_grip_spd2_close, 4, 2)
         self.sp_g2_close_spd = QDoubleSpinBox()
         self.sp_g2_close_spd.setRange(1.0, 200.0)
         self.sp_g2_close_spd.setDecimals(1)
@@ -664,25 +676,135 @@ class MonitorPage(QWidget):
         root.addWidget(mock)
         self._syncing_press_chk = False
         self._syncing_belt_chk = False
+        self.vel_box = vel_box
+        self.blend_box = blend_box
+        self.grip_box = grip_box
+        self.press_box = press_box
+        self.st_box = st_box
+        self.mock_box = mock
+        self.link_box = link_box
         apply_page_chrome(self)
+        self._apply_static_i18n()
+
+    def retranslate_ui(self) -> None:
+        """语言切换后刷新静态文案并重刷动态状态。"""
+        self._apply_static_i18n()
+        self._update_vel_labels()
+        self._refresh_init_flag()
+        self._refresh_hero_slots()
+        self._refresh_grip_labels()
+        self._refresh_press_manual_label()
+        if self.isVisible():
+            self.refresh()
+
+    def _apply_static_i18n(self) -> None:
+        t = i18n.tr
+        self.btn_init.setText(t("monitor.btn.init"))
+        self.btn_pause.setText(t("monitor.btn.pause"))
+        self.btn_stop.setText(t("monitor.btn.stop"))
+        self.btn_estop.setText(t("monitor.btn.estop"))
+        self.btn_reset_estop.setText(t("monitor.btn.reset_estop"))
+        self.btn_alarm_reset.setText(t("monitor.btn.alarm_reset"))
+        self.btn_copy_alarm.setText(t("monitor.btn.copy_alarm"))
+        self.lbl_init_flag.setToolTip(t("monitor.init_flag.tooltip"))
+        self.btn_mode_auto.setText(t("monitor.mode.auto"))
+        self.btn_mode_step.setText(t("monitor.mode.step"))
+        self.btn_mode_manual.setText(t("monitor.mode.manual"))
+        self.btn_step_next.setText(t("monitor.step.next"))
+        self.btn_step_next.setToolTip(t("monitor.step.next_tip"))
+        self.btn_dry_prog.setText(t("monitor.dry.start"))
+        self.btn_dry_prog.setToolTip(t("monitor.dry.start_tip"))
+        self.light_r.setText(t("monitor.light.red"))
+        self.light_y.setText(t("monitor.light.yellow"))
+        self.light_g.setText(t("monitor.light.green"))
+        self.lbl_slot_seq.setText(t("monitor.slot.seq_order"))
+        self.lbl_slot_place.setText(t("monitor.slot.place"))
+        self.lbl_slot_pick.setText(t("monitor.slot.pick"))
+        self.chk_mon_slot_lock.setText(t("monitor.slot.lock_manual"))
+        self.btn_mon_slot_apply.setText(t("monitor.slot.apply"))
+        seq_idx = self.cmb_mon_seq.currentIndex()
+        self.cmb_mon_seq.blockSignals(True)
+        self.cmb_mon_seq.setItemText(0, t("monitor.slot.seq_fwd"))
+        self.cmb_mon_seq.setItemText(1, t("monitor.slot.seq_rev"))
+        if seq_idx >= 0:
+            self.cmb_mon_seq.setCurrentIndex(seq_idx)
+        self.cmb_mon_seq.blockSignals(False)
+        self.link_box.setTitle(t("monitor.link.title"))
+        self.vel_box.setTitle(t("monitor.vel.title"))
+        self.blend_box.setTitle(t("monitor.blend.title"))
+        self.chk_blend.setText(t("monitor.blend.enable"))
+        self.lbl_blend_t.setText(t("monitor.blend.t"))
+        self.lbl_blend_r.setText(t("monitor.blend.r"))
+        self.lbl_blend_delay.setText(t("monitor.blend.delay"))
+        self.btn_blend_apply.setText(t("monitor.blend.apply"))
+        self.grip_box.setTitle(t("monitor.grip.title"))
+        self.lamp_g1_open.setText(t("monitor.grip.lamp_open"))
+        self.lamp_g1_close.setText(t("monitor.grip.lamp_close"))
+        self.lamp_g2_open.setText(t("monitor.grip.lamp_open"))
+        self.lamp_g2_close.setText(t("monitor.grip.lamp_close"))
+        self.btn_g1_open.setText(t("monitor.grip.btn1_open"))
+        self.btn_g1_close.setText(t("monitor.grip.btn1_close"))
+        self.btn_g2_open.setText(t("monitor.grip.btn2_open"))
+        self.btn_g2_close.setText(t("monitor.grip.btn2_close"))
+        self.lbl_grip_spd1_open.setText(t("monitor.grip.spd1_open"))
+        self.lbl_grip_spd1_close.setText(t("monitor.grip.spd1_close"))
+        self.lbl_grip_spd2_open.setText(t("monitor.grip.spd2_open"))
+        self.lbl_grip_spd2_close.setText(t("monitor.grip.spd2_close"))
+        self.btn_grip_spd_save.setText(t("monitor.grip.save_spd"))
+        self.press_box.setTitle(t("monitor.press.title"))
+        self.btn_press_rot_on.setText(t("monitor.press.rot_on"))
+        self.btn_press_rot_off.setText(t("monitor.press.rot_off"))
+        self.btn_press_start.setText(t("monitor.press.start"))
+        self.btn_press_stop.setText(t("monitor.press.stop"))
+        self.btn_press_done_sim.setText(t("monitor.press.done_sim"))
+        self.btn_press_done_sim.setToolTip(t("monitor.press.done_sim_tip"))
+        self.st_box.setTitle(t("monitor.station.title"))
+        self.mock_box.setTitle(t("monitor.mock.title"))
+        self.btn_dry_on.setText(t("monitor.mock.dry_on"))
+        self.btn_dry_off.setText(t("monitor.mock.dry_off"))
+        self.btn_dry_prog2.setText(t("monitor.mock.dry_prog"))
+        self.chk_belt_force.setText(t("monitor.mock.belt_force"))
+        self.chk_belt.setText(t("monitor.mock.belt_di"))
+        self.btn_belt_on.setText(t("monitor.mock.belt_on"))
+        self.btn_belt_on.setToolTip(t("monitor.mock.belt_on_tip"))
+        self.btn_belt_off.setText(t("monitor.mock.belt_off"))
+        self.btn_belt_off.setToolTip(t("monitor.mock.belt_off_tip"))
+        self.chk_estop.setText(t("monitor.mock.estop_di"))
+        self.chk_rotate_done.setText(t("monitor.mock.rotate_done"))
+        self.chk_press_done.setText(t("monitor.mock.press_done"))
+        self.btn_rot_done.setText(t("monitor.mock.rot_sim"))
+        self.btn_rot_done.setToolTip(t("monitor.mock.rot_sim_tip"))
+        self.chk_place_mat.setText(t("monitor.mock.place_mat"))
+        self.chk_place_mat.setToolTip(t("monitor.mock.place_mat_tip"))
+        self.chk_place_left.setText(t("monitor.mock.place_left"))
+        self.chk_place_left.setToolTip(t("monitor.mock.place_left_tip"))
+        self.chk_pick_mat.setText(t("monitor.mock.pick_mat"))
+        self.chk_pick_mat.setToolTip(t("monitor.mock.pick_mat_tip"))
+        self.btn_fault_r1.setText(t("monitor.mock.fault_r1"))
+        self.btn_fault_r2.setText(t("monitor.mock.fault_r2"))
+        for i, cb in self.mem_checks.items():
+            label = i18n.memory_label(i)
+            cb.setText(label)
+            cb.setToolTip(f"Mem[{i}] {label}")
 
     def _update_vel_labels(self) -> None:
         v1 = int(round(float(self.ctx.robot1.vel)))
         v2 = int(round(float(self.ctx.robot2.vel)))
-        self.lbl_vel1.setText(f"上料机器人 {v1}%")
-        self.lbl_vel2.setText(f"下料机器人 {v2}%")
-        self.lbl_vel_both.setText(f"两臂同步 {int(round((v1 + v2) / 2))}%")
+        self.lbl_vel1.setText(i18n.tr("monitor.vel.robot1", pct=v1))
+        self.lbl_vel2.setText(i18n.tr("monitor.vel.robot2", pct=v2))
+        both = int(round((v1 + v2) / 2))
+        self.lbl_vel_both.setText(i18n.tr("monitor.vel.both", pct=both))
 
     def _on_init(self) -> None:
         err = self.coord.cmd_init()
         if err:
-            QMessageBox.warning(self, "无法初始化", err)
+            QMessageBox.warning(self, i18n.tr("monitor.msg.init_fail"), err)
         self._refresh_init_flag()
 
     def _on_start(self) -> None:
         err = self.coord.cmd_start()
         if err:
-            QMessageBox.warning(self, "无法启动", err)
+            QMessageBox.warning(self, i18n.tr("monitor.msg.start_fail"), err)
         self._refresh_init_flag()
 
     def _refresh_init_flag(self) -> None:
@@ -701,22 +823,22 @@ class MonitorPage(QWidget):
         )
 
         if state == MachineState.ESTOP:
-            text = "急停中 — 请先「急停复位」，再初始化"
+            text = i18n.tr("monitor.init.estop")
             css = base % "#922b21" + "background:#f5b7b1;color:#641e16;"
-            start_tip = "急停中，无法启动"
+            start_tip = i18n.tr("monitor.start_tip.estop")
             start_ok = False
         elif state == MachineState.ALARM:
-            text = "报警中 — 设备连齐后点「报警复位」，再重新初始化"
+            text = i18n.tr("monitor.init.alarm")
             if self.ctx.alarms.active:
                 text += f"\n[{self.ctx.alarms.active.code}] {self.ctx.alarms.active.message}"
             css = base % "#922b21" + "background:#f5b7b1;color:#641e16;"
-            start_tip = "报警中，无法启动"
+            start_tip = i18n.tr("monitor.start_tip.alarm")
             start_ok = False
         elif state == MachineState.INITIALIZING or gvl.Main.Initializing:
             step = int(gvl.Main.Init_Auto or 0)
-            text = f"初始化进行中…（步 {step}）— 完成后才能启动"
+            text = i18n.tr("monitor.init.progress", step=step)
             css = base % "#b9770e" + "background:#fdebd0;color:#6e2c00;"
-            start_tip = "初始化尚未完成，请等待"
+            start_tip = i18n.tr("monitor.start_tip.init_wait")
             start_ok = False
         elif init_done and state in (
             MachineState.READY,
@@ -725,13 +847,13 @@ class MonitorPage(QWidget):
             MachineState.STOPPED,
         ):
             if state == MachineState.RUNNING:
-                text = "初始化完成 · 运行中"
+                text = i18n.tr("monitor.init.running")
             elif state == MachineState.PAUSED:
-                text = "初始化完成 · 已暂停 — 可再点「启动」继续"
+                text = i18n.tr("monitor.init.paused")
             elif state == MachineState.STOPPED:
-                text = "初始化完成 · 已停止 — 可再点「启动」"
+                text = i18n.tr("monitor.init.stopped")
             else:
-                text = "✓ 初始化完成 — 可以点「启动」"
+                text = i18n.tr("monitor.init.ready")
             if link_err:
                 text += f"\n⚠ {link_err}"
                 css = base % "#b9770e" + "background:#fdebd0;color:#6e2c00;"
@@ -740,33 +862,47 @@ class MonitorPage(QWidget):
             else:
                 css = base % "#145a32" + "background:#d5f5e3;color:#145a32;"
                 start_ok = state != MachineState.RUNNING
-                start_tip = "可以启动" if start_ok else "已在运行"
+                start_tip = (
+                    i18n.tr("monitor.start_tip.can_start")
+                    if start_ok
+                    else i18n.tr("monitor.start_tip.running")
+                )
         else:
-            # IDLE 或其它未完成
-            text = "未初始化 — 请先点「初始化」，完成后再「启动」"
-            if self.ctx.init_message and self.ctx.init_message not in ("", "初始化完成"):
+            text = i18n.tr("monitor.init.idle")
+            init_done_msg = i18n.tr("monitor.init.ready").lstrip("✓ ")
+            if self.ctx.init_message and self.ctx.init_message not in ("", "初始化完成", init_done_msg):
                 text += f"\n{self.ctx.init_message}"
             if link_err:
                 text += f"\n⚠ {link_err}"
             css = base % "#7f8c8d" + "background:#e5e8e8;color:#1c2833;"
             start_ok = False
-            start_tip = "请先完成初始化"
+            start_tip = i18n.tr("monitor.start_tip.need_init")
 
-        self.lbl_init_flag.setPlainText(text)
-        self.lbl_init_flag.setStyleSheet(f"QTextEdit{{{css}}}")
-        self.lbl_init_flag.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        selecting = False
+        edit = self.lbl_init_flag
+        if edit.hasFocus() or edit.viewport().hasFocus():
+            selecting = bool(edit.textCursor().hasSelection())
+
+        if (not selecting) and (
+            text != getattr(self, "_init_flag_text", "")
+            or css != getattr(self, "_init_flag_css", "")
+        ):
+            self._init_flag_text = text
+            self._init_flag_css = css
+            self.lbl_init_flag.setPlainText(text)
+            self.lbl_init_flag.setStyleSheet(f"QTextEdit{{{css}}}")
+            self.lbl_init_flag.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.btn_start.setToolTip(start_tip)
-        # 启动按钮文案/亮度：未就绪时灰显但仍可点（弹窗说明原因）
         from hmi.style import style_button
 
         if state == MachineState.PAUSED and start_ok:
-            self.btn_start.setText("启动(继续)")
+            self.btn_start.setText(i18n.tr("monitor.btn.start_resume"))
             style_button(self.btn_start, "success")
         elif start_ok:
-            self.btn_start.setText("启动 ✓")
+            self.btn_start.setText(i18n.tr("monitor.btn.start_ok"))
             style_button(self.btn_start, "success")
         else:
-            self.btn_start.setText("启动")
+            self.btn_start.setText(i18n.tr("monitor.btn.start"))
             style_button(self.btn_start, "neutral")
         self.btn_start.setEnabled(True)
 
@@ -778,26 +914,27 @@ class MonitorPage(QWidget):
         else:
             text = (self.lbl_init_flag.toPlainText() or "").strip()
         if not text:
-            self.btn_copy_alarm.setText("无报警")
+            self.btn_copy_alarm.setText(i18n.tr("monitor.btn.copy_none"))
         else:
             QGuiApplication.clipboard().setText(text)
-            self.btn_copy_alarm.setText("已复制")
-        QTimer.singleShot(1600, lambda: self.btn_copy_alarm.setText("复制报警"))
+            self.btn_copy_alarm.setText(i18n.tr("monitor.btn.copy_done"))
+        QTimer.singleShot(1600, lambda: self.btn_copy_alarm.setText(i18n.tr("monitor.btn.copy_alarm")))
 
     def _on_alarm_reset(self) -> None:
         tips = self.coord.cmd_alarm_reset() or []
-        text = "\n".join(str(t) for t in tips) if tips else "已复位"
+        text = "\n".join(str(t) for t in tips) if tips else i18n.tr("monitor.msg.reset_ok")
         failed = any(
             ("失败" in str(t))
+            or ("fail" in str(t).lower())
             or ("仍有故障" in str(t))
             or ("未连接" in str(t))
             or ("返回" in str(t) and "ResetAllError" in str(t))
             for t in tips
         )
         if failed:
-            QMessageBox.warning(self, "报警复位", text)
+            QMessageBox.warning(self, i18n.tr("monitor.msg.alarm_reset"), text)
         else:
-            QMessageBox.information(self, "报警复位", text)
+            QMessageBox.information(self, i18n.tr("monitor.msg.alarm_reset"), text)
 
     def _apply_blend(self) -> None:
         enable = bool(self.chk_blend.isChecked())
@@ -899,15 +1036,31 @@ class MonitorPage(QWidget):
         if not hasattr(self, "lbl_g1"):
             return
         g1, g2 = self.ctx.gripper1, self.ctx.gripper2
-        busy1 = "动作中…" if g1.busy else ("张开" if not g1.closed else "夹紧")
-        busy2 = "动作中…" if g2.busy else ("张开" if not g2.closed else "夹紧")
+        busy1 = i18n.tr("monitor.grip.busy") if g1.busy else (
+            i18n.tr("monitor.grip.open") if not g1.closed else i18n.tr("monitor.grip.closed")
+        )
+        busy2 = i18n.tr("monitor.grip.busy") if g2.busy else (
+            i18n.tr("monitor.grip.open") if not g2.closed else i18n.tr("monitor.grip.closed")
+        )
+        err1 = "" if g1.last_ok else i18n.tr("monitor.grip.err_suffix", err=g1.last_error)
+        err2 = "" if g2.last_ok else i18n.tr("monitor.grip.err_suffix", err=g2.last_error)
         self.lbl_g1.setText(
-            f"上料夹爪: {busy1} | spd开={g1.open_speed:.0f}/关={g1.close_speed:.0f}"
-            + ("" if g1.last_ok else f" | 错:{g1.last_error}")
+            i18n.tr(
+                "monitor.grip.feed1",
+                status=busy1,
+                open=g1.open_speed,
+                close=g1.close_speed,
+                err=err1,
+            )
         )
         self.lbl_g2.setText(
-            f"下料夹爪: {busy2} | spd开={g2.open_speed:.0f}/关={g2.close_speed:.0f}"
-            + ("" if g2.last_ok else f" | 错:{g2.last_error}")
+            i18n.tr(
+                "monitor.grip.feed2",
+                status=busy2,
+                open=g2.open_speed,
+                close=g2.close_speed,
+                err=err2,
+            )
         )
         if hasattr(self, "lamp_g1_open"):
             self._set_grip_lamp(self.lamp_g1_open, g1.open_done, "#2ecc71")
@@ -954,7 +1107,7 @@ class MonitorPage(QWidget):
 
     def _apply_monitor_slots(self) -> None:
         if not self._slot_ui_editable():
-            QMessageBox.information(self, "槽号", "自动运行中不可改槽号，请先暂停或停止。")
+            QMessageBox.information(self, i18n.tr("monitor.msg.slot_title"), i18n.tr("monitor.msg.slot_locked"))
             return
         self.ctx.press.set_current_slots(
             pick=int(self.sp_mon_pick.value()),
@@ -1073,14 +1226,20 @@ class MonitorPage(QWidget):
         place = int(p.get("place_slot") or 0)
         pick = int(p.get("pick_slot") or 0)
         seq = str(p.get("slot_sequence") or "12341")
-        auto = "自算槽号" if p.get("auto_compute_slots") else "读PLC槽号"
-        lock = "手动锁定" if p.get("manual_slot_lock") else auto
-        ready = "可取" if p.get("pick_ready") else "未完成"
-        self.lbl_hero_place.setText(f"放料槽（左口）\n#{place}")
-        self.lbl_hero_pick.setText(f"取料槽（右口）\n#{pick}")
+        auto = i18n.tr("monitor.slot.auto") if p.get("auto_compute_slots") else i18n.tr("monitor.slot.plc")
+        lock = i18n.tr("monitor.slot.manual_lock") if p.get("manual_slot_lock") else auto
+        ready = i18n.tr("monitor.slot.ready") if p.get("pick_ready") else i18n.tr("monitor.slot.not_ready")
+        self.lbl_hero_place.setText(i18n.tr("monitor.hero.place", slot=place))
+        self.lbl_hero_pick.setText(i18n.tr("monitor.hero.pick", slot=pick))
         self.lbl_hero_slot_meta.setText(
-            f"顺序 {seq} ｜ {lock} ｜ 旋转到位={p.get('rotate_done')}  "
-            f"压合={p.get('press_done')}  取料槽{ready}"
+            i18n.tr(
+                "monitor.hero.meta",
+                seq=seq,
+                lock=lock,
+                rotate=p.get("rotate_done"),
+                press=p.get("press_done"),
+                ready=ready,
+            )
         )
         if hasattr(self, "cmb_mon_seq") and not self.cmb_mon_seq.hasFocus():
             self._syncing_slot_ui = True
@@ -1119,13 +1278,28 @@ class MonitorPage(QWidget):
         log_msg = self.ctx.cfg["robots"][which]["vel"]
         # 轻量提示：标签旁瞬时显示已保存（避免弹窗打断操作）
         if which == "robot1":
-            self.lbl_vel1.setText(f"上料机器人 {int(log_msg)}%（已保存）")
+            self.lbl_vel1.setText(
+                i18n.tr(
+                    "monitor.vel.saved",
+                    label=i18n.tr("monitor.vel.robot1", pct=int(log_msg)),
+                )
+            )
         else:
-            self.lbl_vel2.setText(f"下料机器人 {int(log_msg)}%（已保存）")
+            self.lbl_vel2.setText(
+                i18n.tr(
+                    "monitor.vel.saved",
+                    label=i18n.tr("monitor.vel.robot2", pct=int(log_msg)),
+                )
+            )
 
     def _save_vel_both(self) -> None:
         save_config(self.ctx.cfg)
-        self.lbl_vel_both.setText(f"两臂同步 {self.sld_vel_both.value()}%（已保存）")
+        self.lbl_vel_both.setText(
+            i18n.tr(
+                "monitor.vel.saved",
+                label=i18n.tr("monitor.vel.both", pct=self.sld_vel_both.value()),
+            )
+        )
 
     def _on_step_next(self) -> None:
         """单步推进：忙站发 StepPulse；无忙站时仅推进初始化。"""
@@ -1144,22 +1318,16 @@ class MonitorPage(QWidget):
         self.ctx.machine.set_mode(RunMode.AUTO)
         QMessageBox.information(
             self,
-            "空跑程序已就绪",
-            "已启用空跑屏蔽（光电/压机Mock；Station6 先压后转自动完成；相机模拟仍按通信配置），"
-            "并切到「自动」模式。\n\n"
-            "请按：初始化 → 启动。\n"
-            "若要逐步验证：模式切「单步」后点「单步：下一步」，"
-            "或到「工位调试」页武装后推进。",
+            i18n.tr("monitor.msg.dry_ready_title"),
+            i18n.tr("monitor.msg.dry_ready_body"),
         )
 
     def _on_dry_run_on(self) -> None:
         self.ctx.dry_run.enable()
         QMessageBox.information(
             self,
-            "空跑已启用",
-            "已启用空跑屏蔽（光电/相机/放料跟手/取料时序/压机先压后转）。\n"
-            "细节可到「空跑联调」页调整。\n"
-            "请「初始化」→「启动」验证。",
+            i18n.tr("monitor.msg.dry_on_title"),
+            i18n.tr("monitor.msg.dry_on_body"),
         )
 
     def _on_dry_run_off(self) -> None:
@@ -1232,13 +1400,13 @@ class MonitorPage(QWidget):
             if r.get("error"):
                 tip += f"\n{r['error']}"
             if r["mock"]:
-                text = f"{r['name']}\n模拟"
+                text = f"{r['name']}\n{i18n.tr('monitor.link.mock')}"
                 css = "background:#5d6d7e;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
             elif r.get("opening"):
-                text = f"{r['name']}\n正在连接…"
+                text = f"{r['name']}\n{i18n.tr('monitor.link.opening')}"
                 css = "background:#b9770e;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
             elif r["ok"]:
-                text = f"{r['name']}\n已连接"
+                text = f"{r['name']}\n{i18n.tr('monitor.link.ok')}"
                 css = "background:#1a7a37;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
             else:
                 text = f"{r['name']}\n{r['status']}"
@@ -1251,10 +1419,7 @@ class MonitorPage(QWidget):
             lb.setMinimumHeight(48)
         if missing:
             names = "、".join(f"{r['name']}({r['endpoint']})" for r in missing)
-            self.lbl_link_warn.setText(
-                f"⚠ 有设备未连接：{names}\n"
-                "非 Mock 设备将按间隔自动重连；请检查网线/IP/电源，或在「通信配置」改为 Mock。"
-            )
+            self.lbl_link_warn.setText(i18n.tr("monitor.link.warn", names=names))
             self.lbl_link_warn.setStyleSheet(
                 "background:#fdebd0;color:#922b21;padding:8px;border-radius:4px;font-weight:bold;"
             )
@@ -1262,26 +1427,155 @@ class MonitorPage(QWidget):
         else:
             self.lbl_link_warn.setVisible(False)
 
+
+    def refresh_fast(self) -> None:
+        """快刷：灯/记忆/工位/光电/压机到位（轻量，避免占满 UI 线程）。"""
+        if not self.isVisible():
+            return
+        lights = self.ctx.lights.snapshot()
+        self._set_light(self.light_r, lights["red"], "#ff2d2d")
+        self._set_light(self.light_y, lights["yellow"], "#ffd400")
+        self._set_light(self.light_g, lights["green"], "#19e05a")
+        mem = self.ctx.memory.snapshot()
+        for i, lamp in self.mem_lamps.items():
+            want = bool(mem.get(i, False))
+            if lamp:
+                if want:
+                    lamp.setText(f"M{i}  ON")
+                    lamp.setStyleSheet(
+                        "background:#27ae60;color:#111;padding:4px;border-radius:3px;"
+                        "font-weight:bold;font-size:13px;"
+                    )
+                else:
+                    lamp.setText(f"M{i}")
+                    lamp.setStyleSheet(
+                        "background:#555;color:#ccc;padding:4px;border-radius:3px;font-size:13px;"
+                    )
+        for s in self.coord.stations:
+            self.st_labels[s.name].setText(
+                f"{s.name}: {s.status_text()} | {s.current_step_name()}"
+            )
+        belt_on = bool(self.ctx.robot1.get_di(self._belt_di_id()))
+        belt_state = (
+            i18n.tr("monitor.mock.belt_true")
+            if belt_on
+            else i18n.tr("monitor.mock.belt_false")
+        )
+        self.lbl_belt.setText(
+            i18n.tr("monitor.mock.belt_status", id=self._belt_di_id(), state=belt_state)
+        )
+        if not self._syncing_belt_chk and self.chk_belt.isChecked() != belt_on:
+            self._syncing_belt_chk = True
+            self.chk_belt.blockSignals(True)
+            self.chk_belt.setChecked(belt_on)
+            self.chk_belt.blockSignals(False)
+            self._syncing_belt_chk = False
+        p = self.ctx.press.snapshot()
+        if not self._syncing_press_chk:
+            self._syncing_press_chk = True
+            if self.chk_rotate_done.isChecked() != p["rotate_done"]:
+                self.chk_rotate_done.blockSignals(True)
+                self.chk_rotate_done.setChecked(p["rotate_done"])
+                self.chk_rotate_done.blockSignals(False)
+            if self.chk_press_done.isChecked() != p["press_done"]:
+                self.chk_press_done.blockSignals(True)
+                self.chk_press_done.setChecked(p["press_done"])
+                self.chk_press_done.blockSignals(False)
+            self._syncing_press_chk = False
+
+    def _refresh_shoe_match(self) -> None:
+        mem = self.ctx.memory.snapshot()
+        m8, m9, m10 = bool(mem.get(8)), bool(mem.get(9)), bool(mem.get(10))
+        m2, m3, m4 = bool(mem.get(2)), bool(mem.get(3)), bool(mem.get(4))
+        from devices.pose_utils import is_left_shoe_flag
+        hand_is_left: bool | None
+        if m8 and not m9:
+            hand_is_left = True
+        elif m9 and not m8:
+            hand_is_left = False
+        elif m2:
+            snap0 = getattr(self.ctx.gvl, "BeltPickSnapshot", None) or self.ctx.gvl.PickPose
+            hand_is_left = is_left_shoe_flag(snap0.get("is_left_shoe", True))
+        else:
+            hand_is_left = None
+        if hand_is_left is True:
+            hand_txt = "左鞋"
+        elif hand_is_left is False:
+            hand_txt = "右鞋"
+        else:
+            hand_txt = "无鞋"
+        snap = getattr(self.ctx.gvl, "BeltPickSnapshot", None)
+        if isinstance(snap, dict) and m2:
+            hand_txt += f"(Y={float(snap.get('y', 0)):.1f})"
+        slot_is_left = bool(self.ctx.vision.mock_place_is_left)
+        slot_txt = "左鞋槽" if slot_is_left else "右鞋槽"
+        slot_empty = not bool(self.ctx.vision.mock_place_has_material)
+        rule = "规则:左鞋→左槽 / 右鞋→右槽，且空槽才可放"
+        if hand_is_left is None:
+            match_txt = (
+                f"{rule}\n手中无鞋 / Mock{slot_txt} | "
+                f"Mem3={int(m3)} Mem4={int(m4)} Mem10={int(m10)}"
+            )
+            css = "background:#e5e8e8;color:#1c2833;padding:6px;border-radius:4px;"
+        elif not slot_empty:
+            match_txt = (
+                f"{rule}\n手中{hand_txt} / Mock{slot_txt}【有料】→ 不可放料（转盘带压）"
+            )
+            css = "background:#fdebd0;color:#6e2c00;padding:6px;border-radius:4px;font-weight:bold;"
+        elif hand_is_left == slot_is_left:
+            match_txt = (
+                f"{rule}\n手中{hand_txt} ↔ Mock{slot_txt}【空槽·对应正确】→ 允许放料"
+            )
+            css = "background:#d5f5e3;color:#145a32;padding:6px;border-radius:4px;font-weight:bold;"
+        else:
+            match_txt = (
+                f"{rule}\n手中{hand_txt} ↔ Mock{slot_txt}【空槽·左右不对应】→ 禁止放料(Mem10)，"
+                f"只转不压 | Mem3={int(m3)} Mem4={int(m4)} Mem10={int(m10)}"
+            )
+            css = "background:#f5b7b1;color:#641e16;padding:6px;border-radius:4px;font-weight:bold;"
+        last_dec = getattr(self.ctx.gvl, "_last_place_decision", "") or ""
+        last_m10 = getattr(self.ctx.gvl, "_last_place_mem10", None)
+        if last_dec:
+            match_txt = (
+                f"{match_txt}\n上次Station3: {last_dec}"
+                + (f"（判定时Mem10={int(last_m10)}）" if last_m10 is not None else "")
+            )
+        self.lbl_shoe_match.setText(f"方向联锁: {match_txt}")
+        self.lbl_shoe_match.setStyleSheet(css)
+
     def refresh(self) -> None:
+        if not self.isVisible():
+            return
+        self.refresh_fast()
+        snap = self.ctx.machine.snapshot()
+        init_tag = (
+            i18n.tr("monitor.state.init_ok")
+            if (snap.get("init_ok") or self.ctx.gvl.Main.InitDone)
+            else i18n.tr("monitor.state.init_no")
+        )
+        self.lbl_state.setText(
+            i18n.tr(
+                "monitor.state.label",
+                state=snap["state"],
+                init=init_tag,
+                msg=self.ctx.init_message or "-",
+            )
+        )
+        self.lbl_mode.setText(i18n.tr("monitor.mode.label", mode=snap["mode"]))
+        self._refresh_hero_slots()
+        self._refresh_init_flag()
         mw = getattr(self.coord, "mobile_web", None)
         if mw is not None:
             tok = getattr(mw, "token", "") or ""
-            tip = f"手机监控: {mw.access_url()}"
-            if tok:
-                tip += f"  口令={tok}"
-            tip += "  （手机与工控机同一局域网；关闭改 yaml system.mobile_web.enabled=false）"
+            tip = i18n.tr(
+                "monitor.mobile.enabled",
+                url=mw.access_url(),
+                token=i18n.tr("monitor.mobile.token", token=tok) if tok else "",
+            )
             self.lbl_mobile.setText(tip)
         else:
-            self.lbl_mobile.setText(
-                "手机监控未启用。在 config/default.yaml 设 system.mobile_web.enabled: true 后重启。"
-            )
+            self.lbl_mobile.setText(i18n.tr("monitor.mobile.disabled"))
 
-        snap = self.ctx.machine.snapshot()
-        init_tag = "已初始化" if (snap.get("init_ok") or self.ctx.gvl.Main.InitDone) else "未初始化"
-        self.lbl_state.setText(
-            f"状态: {snap['state']}  |  {init_tag}  |  {self.ctx.init_message or '-'}"
-        )
-        self.lbl_mode.setText(f"模式: {snap['mode']}")
         tips = []
         for r in (self.ctx.robot1, self.ctx.robot2):
             detail = getattr(r, "last_auto_cleared", "") or ""
@@ -1290,35 +1584,87 @@ class MonitorPage(QWidget):
                 tips.append(f"{r.name}: {detail}")
         if tips:
             self.lbl_auto_clear.setText(
-                "示教器瞬态报警已自动消除（详情也在「报警」页标[瞬态]）\n" + "\n".join(tips)
+                i18n.tr("monitor.auto_clear", lines="\n".join(tips))
             )
             self.lbl_auto_clear.setVisible(True)
         else:
             self.lbl_auto_clear.setVisible(False)
         self._refresh_grip_labels()
         self._refresh_press_manual_label()
-        self._refresh_hero_slots()
-        lights = self.ctx.lights.snapshot()
-        self._set_light(self.light_r, lights["red"], "#ff2d2d")
-        self._set_light(self.light_y, lights["yellow"], "#ffd400")
-        self._set_light(self.light_g, lights["green"], "#19e05a")
-        self._refresh_init_flag()
-        self._refresh_link_panel()
+        self._refresh_shoe_match()
+        p = self.ctx.press.snapshot()
+        lock = i18n.tr("monitor.press.lock") if p.get("manual_slot_lock") else i18n.tr("monitor.press.auto")
+        seq = p.get("slot_sequence", "12341")
+        self.lbl_press.setText(
+            i18n.tr(
+                "monitor.press.status",
+                seq=seq,
+                place=p.get("place_slot"),
+                pick=p.get("pick_slot"),
+                lock=lock,
+                rotate=p["rotate_done"],
+                press=p["press_done"],
+                ready=p.get("pick_ready"),
+                cmd_rot=p["cmd_rotate"],
+                cmd_press=p["cmd_start_press"],
+            )
+        )
+        dry_on = bool(self.ctx.dry_run.enabled)
+        self.lbl_dry.setText(
+            (i18n.tr("monitor.mock.dry_label_on") if dry_on else i18n.tr("monitor.mock.dry_label_off"))
+            + " | ".join(self.ctx.dry_run.status_lines()[1:3])
+        )
+        self.lbl_dry.setStyleSheet(
+            (
+                "background:#d5f5e3;color:#145a32;padding:8px;border-radius:4px;font-weight:bold;"
+                if dry_on
+                else "background:#fadbd8;color:#7b241c;padding:8px;border-radius:4px;font-weight:bold;"
+            )
+        )
+        v = self.ctx.vision
+        if self.chk_place_mat.isChecked() != bool(v.mock_place_has_material):
+            self.chk_place_mat.blockSignals(True)
+            self.chk_place_mat.setChecked(bool(v.mock_place_has_material))
+            self.chk_place_mat.blockSignals(False)
+        if self.chk_place_left.isChecked() != bool(v.mock_place_is_left):
+            self.chk_place_left.blockSignals(True)
+            self.chk_place_left.setChecked(bool(v.mock_place_is_left))
+            self.chk_place_left.blockSignals(False)
+        if self.chk_pick_mat.isChecked() != bool(v.mock_pick_has_material):
+            self.chk_pick_mat.blockSignals(True)
+            self.chk_pick_mat.setChecked(bool(v.mock_pick_has_material))
+            self.chk_pick_mat.blockSignals(False)
+        self.lbl_belt_mock.setText(self.ctx.vision.belt_mock_status_text())
+        self._ui_tick = getattr(self, "_ui_tick", 0) + 1
+        if self._ui_tick % 3 == 1:
+            self._refresh_link_panel()
 
         ps = self.ctx.production.snapshot()
-        self.lbl_ct.setText(f"CT: {ps['last_ct_s']:.2f} s" if ps["last_ct_s"] > 0 else "CT: -- s")
-        self.lbl_uph.setText(f"UPH: {ps['uph_instant']:.1f}" if ps["uph_instant"] > 0 else "UPH: --")
-        self.lbl_uph_avg.setText(f"UPH均: {ps['uph_avg']:.1f}" if ps["uph_avg"] > 0 else "UPH均: --")
-        self.lbl_hour_cnt.setText(f"本小时: {ps['hour_count']}")
-        self.lbl_total_cnt.setText(f"总产量: {ps['total']}")
+        self.lbl_ct.setText(
+            i18n.tr("monitor.prod.ct", val=f"{ps['last_ct_s']:.2f} s")
+            if ps["last_ct_s"] > 0
+            else i18n.tr("monitor.prod.ct_empty")
+        )
+        self.lbl_uph.setText(
+            i18n.tr("monitor.prod.uph", val=f"{ps['uph_instant']:.1f}")
+            if ps["uph_instant"] > 0
+            else i18n.tr("monitor.prod.uph_empty")
+        )
+        self.lbl_uph_avg.setText(
+            i18n.tr("monitor.prod.uph_avg", val=f"{ps['uph_avg']:.1f}")
+            if ps["uph_avg"] > 0
+            else i18n.tr("monitor.prod.uph_avg_empty")
+        )
+        self.lbl_hour_cnt.setText(i18n.tr("monitor.prod.hour", n=ps["hour_count"]))
+        self.lbl_total_cnt.setText(i18n.tr("monitor.prod.total", n=ps["total"]))
 
         editable = self.ctx.machine.memory_editable
         if editable:
-            self.mem_box.setTitle("当前槽号 / 记忆（可改槽号、顺序、记忆）")
-            self.lbl_slot_edit_tip.setText("停止/暂停后可改槽号和顺序，改完点「应用槽号」。")
+            self.mem_box.setTitle(i18n.tr("monitor.mem.title_edit"))
+            self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_edit"))
         else:
-            self.mem_box.setTitle("当前槽号 / 记忆（自动运行中锁定）")
-            self.lbl_slot_edit_tip.setText("自动运行中槽号与顺序锁定，暂停或停止后可改。")
+            self.mem_box.setTitle(i18n.tr("monitor.mem.title_locked"))
+            self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_locked"))
         for w in (
             self.cmb_mon_seq,
             self.sp_mon_place,
@@ -1356,7 +1702,14 @@ class MonitorPage(QWidget):
             )
 
         belt_on = bool(self.ctx.robot1.get_di(self._belt_di_id()))
-        self.lbl_belt.setText(f"光电 DI[{self._belt_di_id()}]: {'到位 True' if belt_on else '无鞋 False'}")
+        belt_state = (
+            i18n.tr("monitor.mock.belt_true")
+            if belt_on
+            else i18n.tr("monitor.mock.belt_false")
+        )
+        self.lbl_belt.setText(
+            i18n.tr("monitor.mock.belt_status", id=self._belt_di_id(), state=belt_state)
+        )
         if not self._syncing_belt_chk and self.chk_belt.isChecked() != belt_on:
             self._syncing_belt_chk = True
             self.chk_belt.blockSignals(True)
@@ -1391,86 +1744,3 @@ class MonitorPage(QWidget):
             self.chk_pick_mat.blockSignals(True)
             self.chk_pick_mat.setChecked(bool(v.mock_pick_has_material))
             self.chk_pick_mat.blockSignals(False)
-        m8, m9, m10 = bool(mem.get(8)), bool(mem.get(9)), bool(mem.get(10))
-        m2, m3, m4 = bool(mem.get(2)), bool(mem.get(3)), bool(mem.get(4))
-        from devices.pose_utils import is_left_shoe_flag
-
-        # 规则：左鞋→左槽、右鞋→右槽，且空槽才可放料（勿用带后缀的字符串做 == 判断）
-        hand_is_left: bool | None
-        if m8 and not m9:
-            hand_is_left = True
-        elif m9 and not m8:
-            hand_is_left = False
-        elif m2:
-            snap0 = getattr(self.ctx.gvl, "BeltPickSnapshot", None) or self.ctx.gvl.PickPose
-            hand_is_left = is_left_shoe_flag(snap0.get("is_left_shoe", True))
-        else:
-            hand_is_left = None
-
-        if hand_is_left is True:
-            hand_txt = "左鞋"
-        elif hand_is_left is False:
-            hand_txt = "右鞋"
-        else:
-            hand_txt = "无鞋"
-        snap = getattr(self.ctx.gvl, "BeltPickSnapshot", None)
-        if isinstance(snap, dict) and m2:
-            hand_txt += f"(Y={float(snap.get('y', 0)):.1f})"
-
-        slot_is_left = bool(self.ctx.vision.mock_place_is_left)
-        slot_txt = "左鞋槽" if slot_is_left else "右鞋槽"
-        slot_empty = not bool(self.ctx.vision.mock_place_has_material)
-        rule = "规则:左鞋→左槽 / 右鞋→右槽，且空槽才可放"
-
-        if hand_is_left is None:
-            match_txt = (
-                f"{rule}\n手中无鞋 / Mock{slot_txt} | "
-                f"Mem3={int(m3)} Mem4={int(m4)} Mem10={int(m10)}"
-            )
-            css = "background:#e5e8e8;color:#1c2833;padding:6px;border-radius:4px;"
-        elif not slot_empty:
-            match_txt = (
-                f"{rule}\n手中{hand_txt} / Mock{slot_txt}【有料】→ 不可放料（转盘带压）"
-            )
-            css = "background:#fdebd0;color:#6e2c00;padding:6px;border-radius:4px;font-weight:bold;"
-        elif hand_is_left == slot_is_left:
-            match_txt = (
-                f"{rule}\n手中{hand_txt} ↔ Mock{slot_txt}【空槽·对应正确】→ 允许放料"
-            )
-            css = "background:#d5f5e3;color:#145a32;padding:6px;border-radius:4px;font-weight:bold;"
-        else:
-            match_txt = (
-                f"{rule}\n手中{hand_txt} ↔ Mock{slot_txt}【空槽·左右不对应】→ 禁止放料(Mem10)，"
-                f"只转不压 | Mem3={int(m3)} Mem4={int(m4)} Mem10={int(m10)}"
-            )
-            css = "background:#f5b7b1;color:#641e16;padding:6px;border-radius:4px;font-weight:bold;"
-        last_dec = getattr(self.ctx.gvl, "_last_place_decision", "") or ""
-        last_m10 = getattr(self.ctx.gvl, "_last_place_mem10", None)
-        if last_dec:
-            match_txt = (
-                f"{match_txt}\n上次Station3: {last_dec}"
-                + (f"（判定时Mem10={int(last_m10)}）" if last_m10 is not None else "")
-            )
-        self.lbl_shoe_match.setText(f"方向联锁: {match_txt}")
-        self.lbl_shoe_match.setStyleSheet(css)
-
-        p = self.ctx.press.snapshot()
-        lock = "锁定" if p.get("manual_slot_lock") else "自动"
-        seq = p.get("slot_sequence", "12341")
-        self.lbl_press.setText(
-            f"压鞋机: 顺序{seq} 放料#{p.get('place_slot')} 取料#{p.get('pick_slot')}({lock}) "
-            f"旋转到位={p['rotate_done']} 压合={p['press_done']} 可取={p.get('pick_ready')} "
-            f"旋令={p['cmd_rotate']} 压令={p['cmd_start_press']}"
-        )
-        # 同步 Mock 勾选（程序改信号时）
-        if not self._syncing_press_chk:
-            self._syncing_press_chk = True
-            if self.chk_rotate_done.isChecked() != p["rotate_done"]:
-                self.chk_rotate_done.blockSignals(True)
-                self.chk_rotate_done.setChecked(p["rotate_done"])
-                self.chk_rotate_done.blockSignals(False)
-            if self.chk_press_done.isChecked() != p["press_done"]:
-                self.chk_press_done.blockSignals(True)
-                self.chk_press_done.setChecked(p["press_done"])
-                self.chk_press_done.blockSignals(False)
-            self._syncing_press_chk = False

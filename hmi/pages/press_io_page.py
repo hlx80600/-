@@ -389,6 +389,8 @@ class PressIoPage(QWidget):
             )
 
     def refresh(self) -> None:
+        if not self.isVisible():
+            return
         p = self.ctx.press
         try:
             p.refresh_inputs()

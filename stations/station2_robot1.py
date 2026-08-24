@@ -206,9 +206,11 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s2a10_80", ctx.robot1)
 
         case 90:
-            # 取料完成后退出至进入点 pick_entry（MoveJ，仍用抓取TCP）
+            # 取料完成后退出至进入点 pick_entry —— 必须到位后再写记忆（禁止平滑提前放行）
             if pulse_cmd(gvl, "s2a10_90"):
-                ctx.move_to_point("robot1", "pick_entry", step_key="s2a10_90")
+                ctx.move_to_point(
+                    "robot1", "pick_entry", step_key="s2a10_90", precise=True
+                )
             if ctx.robot1.poll_move_done() and advance_step(st, single):
                 cmd_reset(gvl, "s2a10_90")
                 A[10] = 100
@@ -216,26 +218,29 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s2a10_90", ctx.robot1)
 
         case 100:
-            pick = _belt_pick_pose(gvl)
-            is_left = is_left_shoe_flag(pick.get("is_left_shoe", True))
-            # ★ 此处不切鞋头工具/TCP。示教点 pick_entry→place_entry 在工具1下，
-            #   若先切工具2再 MoveJ，法奥常报 err=154 关节指令点错误。
-            sync_mem(ctx, 1, False)
-            sync_mem(ctx, 2, True)
-            if is_left:
-                sync_mem(ctx, 8, True)
-                sync_mem(ctx, 9, False)
-            else:
-                sync_mem(ctx, 9, True)
-                sync_mem(ctx, 8, False)
-            gvl.PickPose["is_left_shoe"] = is_left
-            log.info(
-                "Station2: 取料完成 Mem8/9 → %s (X=%.1f Y=%.1f)，过渡仍用工具1",
-                "左鞋" if is_left else "右鞋",
-                pick.get("x", 0),
-                pick.get("y", 0),
-            )
+            # 仅在本步发令一次写记忆（已确认回到进入点）
+            if pulse_cmd(gvl, "s2a10_100"):
+                pick = _belt_pick_pose(gvl)
+                is_left = is_left_shoe_flag(pick.get("is_left_shoe", True))
+                # ★ 此处不切鞋头工具/TCP。示教点 pick_entry→place_entry 在工具1下，
+                #   若先切工具2再 MoveJ，法奥常报 err=154 关节指令点错误。
+                sync_mem(ctx, 1, False)
+                sync_mem(ctx, 2, True)
+                if is_left:
+                    sync_mem(ctx, 8, True)
+                    sync_mem(ctx, 9, False)
+                else:
+                    sync_mem(ctx, 9, True)
+                    sync_mem(ctx, 8, False)
+                gvl.PickPose["is_left_shoe"] = is_left
+                log.info(
+                    "Station2: 已回pick_entry，取料完成 Mem8/9 → %s (X=%.1f Y=%.1f)",
+                    "左鞋" if is_left else "右鞋",
+                    pick.get("x", 0),
+                    pick.get("y", 0),
+                )
             if advance_step(st, single):
+                cmd_reset(gvl, "s2a10_100")
                 A[10] = 0
                 cmd_reset_prefix(gvl, "s2a10_")
 
@@ -381,9 +386,11 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "s2a20_70", ctx.robot1)
 
         case 80:
-            # 放料完成后退出至进入点 place_entry（MoveJ）
+            # 放料完成后退出至进入点 place_entry —— 必须到位后再写记忆
             if pulse_cmd(gvl, "s2a20_80"):
-                ctx.move_to_point("robot1", "place_entry", step_key="s2a20_80")
+                ctx.move_to_point(
+                    "robot1", "place_entry", step_key="s2a20_80", precise=True
+                )
             if ctx.robot1.poll_move_done() and advance_step(st, single):
                 cmd_reset(gvl, "s2a20_80")
                 A[20] = 90
@@ -393,11 +400,14 @@ def cycle(ctx) -> None:
         case 90:
             # 放料完成：手爪空；槽侧有料待转；左右脚标志必须清掉，
             # 否则下一次 S3 若在异常/调试时仍读到旧 Mem8/9 会判错方向。
-            sync_mem(ctx, 2, False)
-            sync_mem(ctx, 3, True)
-            sync_mem(ctx, 8, False)
-            sync_mem(ctx, 9, False)
+            if pulse_cmd(gvl, "s2a20_90"):
+                sync_mem(ctx, 2, False)
+                sync_mem(ctx, 3, True)
+                sync_mem(ctx, 8, False)
+                sync_mem(ctx, 9, False)
+                log.info("Station2: 已回place_entry，放料完成 Mem2=0 Mem3=1 清Mem8/9")
             if advance_step(st, single):
+                cmd_reset(gvl, "s2a20_90")
                 A[20] = 0
                 cmd_reset_prefix(gvl, "s2a20_")
 

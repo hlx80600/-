@@ -1080,23 +1080,12 @@ class PointsPage(QWidget):
         self._path_pending_to = None
         self.lbl_dbg.setText("已停止调试运动")
 
-    def refresh(self) -> None:
-        self._refresh_undo_label()
-        robot = self._robot()
-        arm = "上料R1" if self._robot_key() == "robot1" else "下料R2"
-        try:
-            pose = numeric_pose(robot.current_pose)
-            self.lbl_pose.setText(
-                f"{arm} TCP: "
-                + ", ".join(f"{k}={pose[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
-                + f"  | 最近到达: {getattr(robot, '_last_arrived_label', '-')}"
-            )
-        except Exception:
-            pass
-        self._refresh_offset_preview()
-
+    def refresh_fast(self) -> None:
+        if not self.isVisible():
+            return
         if not self._dbg_busy:
             return
+        robot = self._robot()
         try:
             if robot.poll_move_done():
                 pending = getattr(self, "_path_pending_to", None)
@@ -1138,3 +1127,21 @@ class PointsPage(QWidget):
             self._path_pending_to = None
             self.lbl_dbg.setText(f"调试失败: {e}")
             QMessageBox.critical(self, "点位调试报警", str(e))
+
+    def refresh(self) -> None:
+        if not self.isVisible():
+            return
+        self.refresh_fast()
+        self._refresh_undo_label()
+        robot = self._robot()
+        arm = "上料R1" if self._robot_key() == "robot1" else "下料R2"
+        try:
+            pose = numeric_pose(robot.current_pose)
+            self.lbl_pose.setText(
+                f"{arm} TCP: "
+                + ", ".join(f"{k}={pose[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
+                + f"  | 最近到达: {getattr(robot, '_last_arrived_label', '-')}"
+            )
+        except Exception:
+            pass
+        self._refresh_offset_preview()

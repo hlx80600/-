@@ -1,4 +1,4 @@
-"""视觉采图：模型、采图训练、内参/手眼写入 json、视觉取料试走。"""
+"""采图训练（「视觉」总页子页签）：模型、采图训练、内参/手眼写入 json、视觉取料试走。"""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ class ZeroToPickPage(QWidget):
 
         tip = QLabel(
             "按①→⑤在本页做完：挂模型 → 采图/训练（分类）→ 内参与手眼写入 json → "
-            "测试皮带并 MoveL。预览点像素请开「视觉调试」或相机监控。"
+            f"测试皮带并 MoveL。预览点像素用上方预览区，或切到「手眼标定」页签。"
         )
         tip.setWordWrap(True)
         tip.setStyleSheet("color:#1a5276;font-weight:bold;")
@@ -65,11 +65,11 @@ class ZeroToPickPage(QWidget):
         chk_lay.addWidget(self.lbl_check)
         row = QHBoxLayout()
         b_ref = QPushButton("刷新进度")
-        b_vis = QPushButton(f"打开{T.VISION}")
+        b_vis = QPushButton("切到手眼标定")
         b_cam = QPushButton(f"打开{T.CAM_MONITOR}")
         style_many([(b_ref, "neutral"), (b_vis, "primary"), (b_cam, "motion")])
         b_ref.clicked.connect(self._refresh_checklist)
-        b_vis.clicked.connect(lambda: self._goto_tab(T.VISION))
+        b_vis.clicked.connect(self._goto_handeye_tab)
         b_cam.clicked.connect(self._open_cam_win)
         for b in (b_ref, b_vis, b_cam):
             row.addWidget(b, 0)
@@ -373,13 +373,34 @@ class ZeroToPickPage(QWidget):
 
     def _goto_tab(self, title: str) -> None:
         w = self.window()
+        fn = getattr(w, "goto_page", None)
+        if callable(fn):
+            fn(title)
+            return
+        # 兼容旧 Tab 结构
         tabs = getattr(w, "tabs", None)
         if tabs is None:
             return
-        for i in range(tabs.count()):
-            if tabs.tabText(i) == title:
-                tabs.setCurrentIndex(i)
+        if hasattr(tabs, "tabText"):
+            for i in range(tabs.count()):
+                if tabs.tabText(i) == title:
+                    tabs.setCurrentIndex(i)
+                    return
+
+    def _goto_handeye_tab(self) -> None:
+        """已在「视觉」总页内时切子页签；否则跳转导航。"""
+        parent = self.parent()
+        while parent is not None:
+            fn = getattr(parent, "select_tab", None)
+            if callable(fn) and fn("手眼标定"):
                 return
+            parent = parent.parent()
+        w = self.window()
+        fn = getattr(w, "goto_page", None)
+        if callable(fn):
+            fn(T.VISION, vision_tab="手眼标定")
+            return
+        self._goto_tab(T.VISION)
 
     def _open_cam_win(self) -> None:
         w = self.window()

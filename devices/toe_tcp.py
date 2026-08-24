@@ -53,6 +53,64 @@ def compose_toe_tcp_from_grasp(
     return [float(p[0]), float(p[1]), float(p[2]), g[3], g[4], g[5]]
 
 
+def _fmt_tcp(tcp: Sequence[float], *, n: int = 6) -> str:
+    vals = list(tcp)[:n]
+    while len(vals) < n:
+        vals.append(0.0)
+    return ",".join(f"{float(v):.1f}" for v in vals)
+
+
+def grasp_tcp_from_robot_cfg(cfg: Optional[dict], robot_key: str = "robot1") -> List[float]:
+    """从 yaml robots.*.payloads.empty.tcp 读抓鞋前（抓取中心）TCP。"""
+    root = cfg if isinstance(cfg, dict) else {}
+    rcfg = (root.get("robots") or {}).get(robot_key) or {}
+    payloads = rcfg.get("payloads") or {}
+    empty = payloads.get("empty") or {}
+    return _as6(empty.get("tcp") or [0, 0, 0, 0, 0, 0])
+
+
+def describe_grasp_to_toe_tcp(
+    grasp_tcp_flange: Sequence[float],
+    toe_offset_in_grasp_tcp: Sequence[float],
+    *,
+    shoe_length_mm: float = 0.0,
+) -> dict:
+    """中心→鞋头距离与抓鞋前/后 TCP（供监控与写工具坐标对照）。
+
+    Returns:
+        dict: center_toe_dist_mm、toe_offset、tcp_before_grasp、tcp_after_grasp、
+        ascii_lines（图上 ASCII）、label_zh（QLabel 中文）。
+    """
+    grasp = _as6(grasp_tcp_flange)
+    off = [float(x) for x in list(toe_offset_in_grasp_tcp)[:3]]
+    while len(off) < 3:
+        off.append(0.0)
+    toe = compose_toe_tcp_from_grasp(grasp, off)
+    dist = float(shoe_length_mm or 0.0)
+    if dist <= 1e-6:
+        dist = float(math.sqrt(off[0] ** 2 + off[1] ** 2 + off[2] ** 2))
+    ascii_lines = [
+        f"CTR-TOE {dist:.1f}mm",
+        f"OFF={off[0]:.0f},{off[1]:.0f},{off[2]:.0f}",
+        f"TCP0 {_fmt_tcp(grasp, n=3)}",
+        f"TCP1 {_fmt_tcp(toe, n=3)}",
+    ]
+    label_zh = (
+        f"中心→鞋头 {dist:.1f}mm  "
+        f"offset=[{off[0]:.1f},{off[1]:.1f},{off[2]:.1f}]\n"
+        f"抓鞋前TCP(工具1)=[{_fmt_tcp(grasp)}]\n"
+        f"抓鞋后TCP(工具2)=[{_fmt_tcp(toe)}]"
+    )
+    return {
+        "toe_offset_in_grasp_tcp": list(off),
+        "center_toe_dist_mm": dist,
+        "tcp_before_grasp": list(grasp),
+        "tcp_after_grasp": list(toe),
+        "ascii_lines": ascii_lines,
+        "label_zh": label_zh,
+    }
+
+
 def offset_from_snapshot(snap: Optional[dict]) -> Optional[List[float]]:
     if not isinstance(snap, dict):
         return None

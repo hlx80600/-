@@ -1,4 +1,7 @@
-"""报警历史列表（可选中 / 一键复制）。"""
+"""报警历史列表（可选中 / 一键复制）。
+
+刷新时若内容未变则不重绘；用户正在选中/聚焦列表时暂缓重建，避免选中被清掉。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QMessageBox,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -24,15 +28,31 @@ class AlarmPage(QWidget):
         super().__init__()
         self.coord = coord
         self.ctx = coord.ctx
+        self._list_fp = ""
+        self._banner_fp = ""
+        self._status_until = 0.0  # 复制成功提示保留到该时刻
         root = QVBoxLayout(self)
-        self.lbl = QLabel("当前无活动报警")
-        self.lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        self.lbl.setWordWrap(True)
+
+        tip = QLabel("可选中下方文字后 Ctrl+C，或点「复制」；刷新不会在选中时清掉选区。")
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color:#566573;")
+        root.addWidget(tip)
+
+        self.banner = QTextEdit()
+        self.banner.setReadOnly(True)
+        self.banner.setMaximumHeight(96)
+        self.banner.setPlaceholderText("当前无活动报警")
+        self.banner.setToolTip("活动报警全文，可直接拖选复制")
+        root.addWidget(self.banner)
+
         self.list = QListWidget()
+        self.list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.list.itemDoubleClicked.connect(self._copy_selected)
+        root.addWidget(self.list, 1)
+
+        self.lbl_status = QLabel("")
+        self.lbl_status.setStyleSheet("color:#1a5276;")
+        root.addWidget(self.lbl_status)
 
         row = QHBoxLayout()
         btn_reset = QPushButton("报警复位")
@@ -47,15 +67,36 @@ class AlarmPage(QWidget):
         row.addWidget(btn_copy)
         row.addWidget(btn_show)
         row.addStretch(1)
-
-        root.addWidget(self.lbl)
-        root.addWidget(self.list)
         root.addLayout(row)
 
+    def _user_selecting(self) -> bool:
+        """正在选文字或列表有焦点选中时，不要重建控件。"""
+        if self.banner.hasFocus():
+            cur = self.banner.textCursor()
+            if cur.hasSelection():
+                return True
+        if self.list.hasFocus() and bool(self.list.selectedItems()):
+            return True
+        # 拖选过程中焦点可能在 viewport
+        if self.banner.viewport().hasFocus():
+            cur = self.banner.textCursor()
+            if cur.hasSelection():
+                return True
+        return False
+
     def _selected_or_active_text(self) -> str:
+        items = self.list.selectedItems()
+        if items:
+            return "\n".join(it.text() for it in items)
         item = self.list.currentItem()
         if item is not None:
             return item.text()
+        cur = self.banner.textCursor()
+        if cur.hasSelection():
+            return cur.selectedText().replace("\u2029", "\n")
+        body = self.banner.toPlainText().strip()
+        if body and body != "当前无活动报警":
+            return body
         a = self.ctx.alarms.active
         if a:
             return format_alarm_text(a.code, a.station, a.step, a.message)
@@ -64,12 +105,15 @@ class AlarmPage(QWidget):
         return ""
 
     def _copy_selected(self) -> None:
+        import time
+
         text = self._selected_or_active_text()
         if not text:
-            self.lbl.setText("没有可复制的报警")
+            self.lbl_status.setText("没有可复制的报警")
             return
         QGuiApplication.clipboard().setText(text)
-        self.lbl.setText("已复制到剪贴板（不弹窗）")
+        self._status_until = time.monotonic() + 2.0
+        self.lbl_status.setText("已复制到剪贴板（不弹窗）")
 
     def _show_copyable(self) -> None:
         a = self.ctx.alarms.active
@@ -96,15 +140,24 @@ class AlarmPage(QWidget):
             QMessageBox.warning(self, "报警复位", text)
         else:
             QMessageBox.information(self, "报警复位", text)
+        self._list_fp = ""
+        self._banner_fp = ""
         self.refresh()
 
     def refresh(self) -> None:
+        import time
+
+        if self._status_until and time.monotonic() > self._status_until:
+            self._status_until = 0.0
+            self.lbl_status.setText("")
+
         a = self.ctx.alarms.active
         if a:
-            self.lbl.setText(f"活动报警: [{a.code}] {a.station} 步{a.step} {a.message}")
+            banner = format_alarm_text(a.code, a.station, a.step, a.message)
         else:
-            self.lbl.setText("当前无活动报警")
-        self.list.clear()
+            banner = "当前无活动报警"
+
+        rows: list[str] = []
         for item in list(self.ctx.alarms.history)[:50]:
             if item.active:
                 flag = "ACTIVE"
@@ -112,6 +165,33 @@ class AlarmPage(QWidget):
                 flag = "瞬态"
             else:
                 flag = "OK"
-            self.list.addItem(
+            rows.append(
                 f"{item.time} [{flag}] {item.code} {item.station}@{item.step} {item.message}"
             )
+        list_fp = "\n".join(rows)
+
+        # 用户正在选中：只更新状态栏提示到期，不碰 banner/list
+        if self._user_selecting():
+            return
+
+        if banner != self._banner_fp:
+            # 仅内容变化时改写，避免清掉选区
+            self._banner_fp = banner
+            self.banner.setPlainText(banner)
+
+        if list_fp == self._list_fp:
+            return
+        self._list_fp = list_fp
+
+        # 尽量保留原先选中行（按全文匹配）
+        keep = [it.text() for it in self.list.selectedItems()]
+        self.list.blockSignals(True)
+        self.list.clear()
+        for line in rows:
+            self.list.addItem(line)
+        if keep:
+            for i in range(self.list.count()):
+                it = self.list.item(i)
+                if it is not None and it.text() in keep:
+                    it.setSelected(True)
+        self.list.blockSignals(False)

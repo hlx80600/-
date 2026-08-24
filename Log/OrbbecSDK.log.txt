@@ -14382,3 +14382,664 @@
 [08/21 09:44:35.973848][info][10150][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
 [08/21 09:44:41.555345][warning][10194][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80
 [08/21 09:44:44.705133][warning][10200][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**16 logs in 3149ms, last: 09:44:44.081371**]
+[08/24 10:33:09.748692][info][55296][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:33:09.756149][info][55296][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:33:09.756179][info][55296][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:33:09.756188][info][55296][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:33:10.764483][info][55296][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:19.931958][info][55818][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:19.934924][info][55818][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:19.934944][info][55818][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:19.935088][info][55818][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:20.939546][info][55818][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:22.748876][info][55839][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:22.750832][info][55839][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:22.750855][info][55839][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:22.750862][info][55839][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:23.754981][info][55839][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:25.761431][info][55881][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:25.762178][info][55881][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:25.762190][info][55881][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:25.762194][info][55881][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:26.766472][info][55881][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:28.760146][info][55917][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:28.761433][info][55917][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:28.761446][info][55917][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:28.761450][info][55917][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:29.765500][info][55917][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:31.776849][info][55938][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:31.777578][info][55938][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:31.777592][info][55938][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:31.777597][info][55938][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:32.781745][info][55938][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:34.788674][info][55973][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:34.789062][info][55973][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:34.789071][info][55973][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:34.789075][info][55973][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:35.793675][info][55973][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:37.838061][info][56009][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:37.842454][info][56009][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:37.842482][info][56009][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 10:34:37.842489][info][56009][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:38.846985][info][56009][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 10:34:43.958572][info][56117][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:34:43.978382][info][56117][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:34:43.978647][info][56117][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 10:34:43.978657][info][56117][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 10:34:43.978665][info][56117][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:34:44.983953][info][56117][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 10:34:44.983994][info][56117][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 10:34:44.996106][info][56117][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 10:34:45.084183][info][56117][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 10:34:45.084224][info][56117][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 10:34:45.084227][info][56117][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 10:34:45.084229][info][56117][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 10:34:45.084231][info][56117][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 10:34:45.084233][info][56117][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 10:34:45.311777][info][56117][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 10:34:45.315662][info][56117][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x72A7A0149BF0
+[08/24 10:34:45.372096][info][56117][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 10:34:45.373451][info][56117][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 10:34:45.373493][info][56117][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 10:34:45.373516][info][56117][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 10:34:45.373526][info][56117][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 10:34:45.377994][info][56117][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 10:34:45.378008][info][56117][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 10:34:45.477705][warning][55263][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80
+[08/24 10:34:45.924429][info][56183][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 10:34:46.623039][warning][56187][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 10:34:48.605125][warning][56185][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**2 logs in 3127ms, last: 10:34:45.808071**]
+[08/24 10:34:49.686609][warning][56187][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**46 logs in 3063ms**]
+[08/24 10:34:50.952215][info][56183][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.230709fps
+[08/24 10:34:50.952395][info][56187][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.266827fps
+[08/24 10:34:55.715405][warning][56187][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**90 logs in 6028ms**]
+[08/24 10:34:55.981679][info][56183][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 10:34:55.981854][info][56187][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 10:35:01.011627][info][56183][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 10:35:01.011878][info][56187][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 10:35:06.042818][info][56183][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 10:35:06.043039][info][56187][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 10:35:07.749398][warning][56280][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**180 logs in 12033ms, last: 10:35:07.707025**]
+[08/24 10:35:11.070883][info][56183][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 10:35:11.071175][info][56187][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 10:52:41.938636][info][57823][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 10:52:42.093909][info][57823][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 10:52:42.093988][info][57823][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 10:52:42.093993][info][57823][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 10:52:42.093998][info][57823][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 10:52:43.101672][info][57823][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 10:52:43.101697][info][57823][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 10:52:43.133912][info][57823][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 10:52:43.141246][info][57823][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 10:52:43.141265][info][57823][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 10:52:43.141268][info][57823][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 10:52:43.141270][info][57823][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 10:52:43.141271][info][57823][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 10:52:43.141273][info][57823][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 10:52:43.346307][info][57823][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 10:52:43.368909][info][57823][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x7A8D28358870
+[08/24 10:52:43.400009][info][57823][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 10:52:43.401435][info][57823][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 10:52:43.401469][info][57823][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 10:52:43.401488][info][57823][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 10:52:43.401494][info][57823][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 10:52:43.405819][info][57823][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 10:52:43.405830][info][57823][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 10:52:56.763745][warning][57891][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80
+[08/24 10:52:59.944319][warning][57891][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**18 logs in 3180ms**]
+[08/24 10:53:05.982791][warning][57891][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**35 logs in 6038ms**]
+[08/24 10:53:18.014691][warning][57891][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**71 logs in 12031ms**]
+[08/24 10:53:42.046178][warning][57891][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**142 logs in 24031ms**]
+[08/24 10:53:50.317550][warning][57857][VideoSensor.cpp:226] [CV27561000FH] This frame will be dropped because the data size does not match the expectation! size=65471, expected=898880 @Color
+[08/24 10:53:50.370535][info][57857][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 10:53:50.770360][warning][58000][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 10:53:53.318172][warning][57999][VideoSensor.cpp:226] [CV27561000FH] This frame will be dropped because the data size does not match the expectation! size=32724, expected=898880 @Color [**8 logs in 3000ms, last: 10:53:50.343825**]
+[08/24 10:53:53.357850][info][57785][Pipeline.cpp:367] [CV27561000FH] Try to stop pipeline!
+[08/24 10:53:53.357880][info][57785][Pipeline.cpp:343] [CV27561000FH] Try to stop streams!
+[08/24 10:53:53.363231][info][57785][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STREAMING to STOPPING@Color
+[08/24 10:53:53.386662][info][57785][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPING to STOPPED@Color
+[08/24 10:53:53.386815][info][57785][Pipeline.cpp:357] [CV27561000FH] Sensor stream stopped, sensorType=Color
+[08/24 10:53:53.386819][info][57785][Pipeline.cpp:363] [CV27561000FH] Stop streams done!
+[08/24 10:53:53.406739][info][57785][Pipeline.cpp:393] [CV27561000FH] Stop pipeline done!
+[08/24 10:53:53.406825][info][57785][Pipeline.cpp:65] [CV27561000FH] Pipeline destroyed! @0x7A8D28358870
+[08/24 10:53:53.407122][info][57785][SensorBase.cpp:53] [CV27561000FH] SensorBase is destroyed
+[08/24 10:53:53.410847][info][57785][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 10:53:53.410865][info][57785][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 10:53:53.479152][info][57785][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 10:53:53.479168][info][57785][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 10:53:53.801964][warning][58006][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**65 logs in 3031ms, last: 10:53:53.299346**]
+[08/24 10:53:54.299692][warning][57986][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**41 logs in 12253ms, last: 10:53:50.279699**]
+[08/24 11:04:53.831800][info][59215][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:04:53.832792][info][59215][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:04:53.832806][info][59215][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:04:53.832811][info][59215][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:04:54.837628][info][59215][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:11.417038][info][59327][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:11.426506][info][59327][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:11.426536][info][59327][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:11.426546][info][59327][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:12.431476][info][59327][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:20.477769][info][59382][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:20.490047][info][59382][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:20.490085][info][59382][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:20.490093][info][59382][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:21.494996][info][59382][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:23.851561][info][59421][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:23.853058][info][59421][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:23.853077][info][59421][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:23.853084][info][59421][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:24.858256][info][59421][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:27.298654][info][59460][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:27.299376][info][59460][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:27.299391][info][59460][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:27.299396][info][59460][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:28.304401][info][59460][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:30.054530][info][59496][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:30.056134][info][59496][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:30.056175][info][59496][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:30.056186][info][59496][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:31.061243][info][59496][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:34.874914][info][59553][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:34.876500][info][59553][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:34.876518][info][59553][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:34.876526][info][59553][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:35.880942][info][59553][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:37.963923][info][59590][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:37.965502][info][59590][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:37.965528][info][59590][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:37.965536][info][59590][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:38.970238][info][59590][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:43.240592][info][59630][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:43.240996][info][59630][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:43.241011][info][59630][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:43.241016][info][59630][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:44.245307][info][59630][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:47.561779][info][59683][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:47.562141][info][59683][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:47.562150][info][59683][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:47.562154][info][59683][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:48.566428][info][59683][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:49.838461][info][59705][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:49.839198][info][59705][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:49.839217][info][59705][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:49.839227][info][59705][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:50.844314][info][59705][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:05:52.300890][info][59743][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:05:52.301545][info][59743][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:05:52.301565][info][59743][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 11:05:52.301569][info][59743][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:05:53.305966][info][59743][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 11:06:03.130620][info][59896][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:06:03.133825][info][59896][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:06:03.133855][info][59896][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 11:06:03.133859][info][59896][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 11:06:03.133865][info][59896][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:06:04.138640][info][59896][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 11:06:04.138681][info][59896][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 11:06:04.142681][info][59896][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 11:06:04.152648][info][59896][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 11:06:04.152668][info][59896][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 11:06:04.152673][info][59896][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 11:06:04.152677][info][59896][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 11:06:04.152681][info][59896][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 11:06:04.152685][info][59896][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 11:06:04.357476][info][59896][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 11:06:04.358475][info][59896][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x77B47835B950
+[08/24 11:06:04.409399][info][59896][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 11:06:04.410942][info][59896][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 11:06:04.410986][info][59896][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 11:06:04.411010][info][59896][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 11:06:04.411016][info][59896][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 11:06:04.416139][info][59896][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 11:06:04.416148][info][59896][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 11:06:04.575349][warning][59164][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80
+[08/24 11:06:04.976045][info][59947][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 11:06:05.341207][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 11:06:07.844419][warning][59949][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=80 [**1 logs in 3268ms, last: 11:06:04.844017**]
+[08/24 11:06:08.371150][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**81 logs in 3029ms**]
+[08/24 11:06:10.004044][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.230709fps
+[08/24 11:06:10.004338][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.236723fps
+[08/24 11:06:14.404884][warning][59980][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**161 logs in 6033ms, last: 11:06:14.367912**]
+[08/24 11:06:15.034316][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:06:15.034769][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:06:20.064454][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:06:20.064751][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:06:25.094523][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:06:25.094718][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:06:26.427770][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**324 logs in 12022ms**]
+[08/24 11:06:30.125645][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:06:30.125971][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:06:35.155246][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:06:35.155450][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:06:40.185839][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:06:40.186017][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:06:45.215913][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:06:45.216141][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:06:50.246273][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:06:50.246503][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:06:50.446313][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**644 logs in 24018ms**]
+[08/24 11:06:55.276490][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:06:55.276687][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:00.307123][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:07:00.307282][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:07:05.337211][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:07:05.337446][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:10.367788][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:07:10.368020][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:15.398329][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:07:15.398631][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:20.428457][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:07:20.428680][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:07:25.458093][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:07:25.458319][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:07:30.488406][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:07:30.488614][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:35.519639][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:07:35.519861][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:07:38.451649][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1293 logs in 48005ms**]
+[08/24 11:07:40.550928][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:07:40.551163][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:07:45.580070][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:07:45.580350][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:07:50.611317][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:07:50.611562][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:07:55.640497][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:07:55.640754][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:08:00.671113][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:08:00.671317][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:08:05.700089][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:08:05.700293][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:08:10.731852][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:08:10.732423][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:08:15.761009][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:08:15.761234][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:08:20.790782][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:08:20.791043][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:08:25.821315][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:08:25.821521][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:08:30.851393][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:08:30.851587][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:08:35.881366][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:08:35.881596][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:08:38.484128][warning][60950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1615 logs in 60032ms, last: 11:08:38.446368**]
+[08/24 11:08:40.911753][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:08:40.912051][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:08:45.942173][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:08:45.942400][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:08:50.971990][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:08:50.972193][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:08:56.001950][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:08:56.002129][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:01.033217][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:09:01.033485][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:09:06.063213][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:06.063462][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:09:11.092765][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:11.092966][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:16.122768][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:09:16.122986][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:21.153396][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:09:21.153719][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:09:26.183496][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:26.183660][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:09:31.213168][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:31.213365][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:36.244386][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:09:36.244577][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:09:38.508649][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1614 logs in 60024ms**]
+[08/24 11:09:41.273377][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:41.273542][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:46.303762][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:09:46.303975][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:09:51.333647][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:09:51.333888][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:09:56.366254][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.007948fps
+[08/24 11:09:56.367417][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.001987fps
+[08/24 11:10:01.394810][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:10:01.395023][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.037796fps
+[08/24 11:10:06.424739][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:10:06.424964][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:10:11.454803][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:11.455060][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:10:16.484190][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:10:16.484430][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:10:21.515143][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:21.515428][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:10:26.544444][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:10:26.544674][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:10:31.574615][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:31.574875][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:10:36.604444][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:10:36.604655][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:10:38.536881][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1612 logs in 60028ms**]
+[08/24 11:10:41.634892][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:41.635089][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:10:46.665051][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:10:46.665280][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:10:51.694834][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:51.695015][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:10:56.725251][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:10:56.725500][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:11:01.755139][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:11:01.755362][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:11:06.785762][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:11:06.786074][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:11:11.815206][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:11:11.815386][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:11:16.846363][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:11:16.846642][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:11:21.875445][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:11:21.875640][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:11:26.907607][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.007948fps
+[08/24 11:11:26.907997][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.007948fps
+[08/24 11:11:31.936408][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:11:31.936654][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:11:36.965811][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:11:36.966361][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:11:38.564467][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1384 logs in 60027ms**]
+[08/24 11:11:41.995516][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:11:41.995749][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:11:47.025934][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:11:47.026128][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:11:52.056385][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:11:52.056635][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:11:57.085633][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.031822fps
+[08/24 11:11:57.085871][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:02.116104][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:02.116292][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:07.145610][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:07.145830][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:12.175839][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:12:12.176055][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:17.206240][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:17.206447][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:22.235699][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:12:22.235880][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:27.266151][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:27.266341][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:32.296067][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:32.296441][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:37.326019][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:12:37.326184][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:38.625195][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1318 logs in 60060ms**]
+[08/24 11:12:42.356054][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:42.356286][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:47.386069][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:47.386329][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:12:52.415633][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:12:52.415842][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:12:57.446345][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:12:57.446635][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:02.476275][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:02.477314][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.013912fps
+[08/24 11:13:07.506093][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:13:07.506403][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.031822fps
+[08/24 11:13:12.536308][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:12.536925][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:17.565838][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:13:17.566186][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:13:22.596222][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:22.596504][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:27.626028][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:13:27.626246][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:32.656014][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:32.656251][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:13:37.685918][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:13:37.686128][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:38.658871][warning][64344][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1317 logs in 60033ms, last: 11:13:38.618190**]
+[08/24 11:13:42.715471][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:42.715731][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:13:47.745793][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:47.746038][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:13:52.775712][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:13:52.775933][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:13:57.806179][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:13:57.806374][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:02.835430][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:14:02.835635][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:14:07.865536][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:07.865757][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:12.895757][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:12.895988][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:17.925449][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:14:17.925677][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:14:22.957740][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.007948fps
+[08/24 11:14:22.957897][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.007948fps
+[08/24 11:14:27.985252][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.037796fps
+[08/24 11:14:27.985497][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.037796fps
+[08/24 11:14:33.015305][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:33.015530][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:38.045672][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:38.045937][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:38.679071][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1322 logs in 60020ms**]
+[08/24 11:14:43.075129][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:14:43.075332][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:14:48.105011][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:14:48.105389][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:14:53.135000][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:53.135253][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:14:58.165248][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:14:58.165586][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:15:03.166376][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=29.994001fps
+[08/24 11:15:03.170450][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=29.970030fps
+[08/24 11:15:08.191275][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.055731fps
+[08/24 11:15:08.191492][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.073690fps
+[08/24 11:15:13.221472][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:15:13.221783][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:15:18.251147][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:15:18.251329][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:15:23.281685][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.013912fps
+[08/24 11:15:23.281894][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:15:28.311115][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:15:28.311357][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:15:33.343886][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.007948fps
+[08/24 11:15:33.346127][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=29.996027fps
+[08/24 11:15:38.370777][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.037796fps
+[08/24 11:15:38.370966][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.049751fps
+[08/24 11:15:38.704655][warning][59950][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**1325 logs in 60025ms**]
+[08/24 11:15:43.401025][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:15:43.401200][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:15:48.431012][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:15:48.431253][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:15:53.461156][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:15:53.461392][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:15:58.491054][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:15:58.491296][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:16:03.521367][info][59947][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:16:03.521563][info][59950][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:16:10.948954][info][66916][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 11:16:11.112362][info][66916][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 11:16:11.112435][info][66916][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 11:16:11.112441][info][66916][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 11:16:11.112460][info][66916][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 11:16:12.118706][info][66916][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 11:16:12.118761][info][66916][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 11:16:12.126121][info][66916][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 11:16:12.133887][info][66916][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 11:16:12.133910][info][66916][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 11:16:12.133914][info][66916][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 11:16:12.133917][info][66916][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 11:16:12.133920][info][66916][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 11:16:12.133923][info][66916][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 11:16:12.338027][info][66916][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 11:16:12.341610][info][66916][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x76E43C358860
+[08/24 11:16:12.387109][info][66916][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 11:16:12.388556][info][66916][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 11:16:12.388591][info][66916][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 11:16:12.388616][info][66916][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 11:16:12.388623][info][66916][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: YUYV, width: 848, height: 530, fps: 30}
+[08/24 11:16:12.393778][info][66916][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 11:16:12.393787][info][66916][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 11:16:26.783571][warning][66965][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=25
+[08/24 11:16:29.823603][warning][66965][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=25 [**43 logs in 3040ms**]
+[08/24 11:16:35.154886][warning][66939][VideoSensor.cpp:226] [CV27561000FH] This frame will be dropped because the data size does not match the expectation! size=32672, expected=898880 @Color
+[08/24 11:16:35.210842][warning][66940][ObException.cpp:32] A unrecoverable_exception has occurred!
+ - where: Frame.cpp(88)
+ - msg: Update data size(929737) > data buffer size! (898880)
+ - type: MEMORY
+ - status: 104
+[08/24 11:16:35.216722][warning][66940][ObLibuvcDevicePort.cpp:474] Execute failure! A libobsensor_exception has occurred!
+ - where: ObLibuvcDevicePort.cpp(474):onFrameCallback
+ - msg: Update data size(929737) > data buffer size! (898880)
+ - type: N11libobsensor23unrecoverable_exceptionE
+ - status: 104
+[08/24 11:16:35.242429][info][66939][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 11:16:35.918315][warning][66973][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=25 [**72 logs in 6094ms, last: 11:16:35.189718**]
+[08/24 11:16:36.539390][warning][66985][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 11:16:38.155667][warning][66984][VideoSensor.cpp:226] [CV27561000FH] This frame will be dropped because the data size does not match the expectation! size=32635, expected=898880 @Color [**9 logs in 3000ms, last: 11:16:35.172365**]
+[08/24 11:16:39.603929][warning][66985][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**30 logs in 3064ms**]
+[08/24 11:16:40.170405][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=31.704885fps
+[08/24 11:16:40.270398][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.230709fps
+[08/24 11:16:45.199857][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:16:45.300432][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:16:45.700404][warning][66985][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**57 logs in 6096ms**]
+[08/24 11:16:50.230081][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:16:50.330158][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:16:55.259826][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:16:55.360717][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:16:57.834490][warning][67098][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**47 logs in 12134ms, last: 11:16:56.992127**]
+[08/24 11:17:00.290001][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.019880fps
+[08/24 11:17:00.389772][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.025850fps
+[08/24 11:17:05.319853][info][66939][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=30.025850fps
+[08/24 11:17:05.420042][info][66985][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=30.019880fps
+[08/24 11:17:10.176637][info][66880][Pipeline.cpp:367] [CV27561000FH] Try to stop pipeline!
+[08/24 11:17:10.176678][info][66880][Pipeline.cpp:343] [CV27561000FH] Try to stop streams!
+[08/24 11:17:10.176723][info][66880][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STREAMING to STOPPING@Color
+[08/24 11:17:10.197131][info][66880][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPING to STOPPED@Color
+[08/24 11:17:10.197450][info][66880][Pipeline.cpp:357] [CV27561000FH] Sensor stream stopped, sensorType=Color
+[08/24 11:17:10.197457][info][66880][Pipeline.cpp:363] [CV27561000FH] Stop streams done!
+[08/24 11:17:10.217133][info][66880][Pipeline.cpp:393] [CV27561000FH] Stop pipeline done!
+[08/24 11:17:10.222899][info][66880][Pipeline.cpp:65] [CV27561000FH] Pipeline destroyed! @0x76E43C358860
+[08/24 11:17:10.223245][info][66880][SensorBase.cpp:53] [CV27561000FH] SensorBase is destroyed
+[08/24 11:17:10.225886][info][66880][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 11:17:10.225898][info][66880][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 11:17:10.292903][info][66880][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 11:17:10.292922][info][66880][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 11:17:11.180931][warning][67209][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**54 logs in 13346ms, last: 11:17:10.116892**]
+[08/24 16:10:06.228821][info][20881][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:06.231407][info][20881][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:06.231423][info][20881][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 16:10:06.231427][info][20881][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:07.238488][info][20881][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 16:10:08.347489][info][20905][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:08.349709][info][20905][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:08.349736][info][20905][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 16:10:08.349744][info][20905][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:09.355230][info][20905][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 16:10:12.421911][info][20924][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:12.423279][info][20924][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:12.423397][info][20924][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 16:10:12.423409][info][20924][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:13.428718][info][20924][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 16:10:15.443825][info][20943][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:15.443981][info][20943][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:15.443988][info][20943][DeviceManager.cpp:25] Current found device(s): (0)
+[08/24 16:10:15.443990][info][20943][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:16.447589][info][20943][DeviceManager.cpp:25] Current device(s) list: (0)
+[08/24 16:10:18.478673][info][21054][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:18.486499][info][21054][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:18.486531][info][21054][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 16:10:18.486537][info][21054][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 16:10:18.486543][info][21054][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:19.493058][info][21054][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 16:10:19.493086][info][21054][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 16:10:19.504084][info][21054][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 16:10:19.519348][info][21054][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 16:10:19.519371][info][21054][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 16:10:19.519375][info][21054][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 16:10:19.519378][info][21054][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 16:10:19.519381][info][21054][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 16:10:19.519383][info][21054][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 16:10:19.727192][info][21054][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 16:10:19.728262][info][21054][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x7790780EF390
+[08/24 16:10:19.760730][info][21054][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 16:10:19.762192][info][21054][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 16:10:19.762231][info][21054][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 16:10:19.762254][info][21054][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 16:10:19.762260][info][21054][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 16:10:19.766318][info][21054][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 16:10:19.766326][info][21054][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 16:10:19.781951][warning][21093][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8
+[08/24 16:10:21.912483][info][19358][Pipeline.cpp:367] [CV27561000FH] Try to stop pipeline!
+[08/24 16:10:21.912539][info][19358][Pipeline.cpp:343] [CV27561000FH] Try to stop streams!
+[08/24 16:10:21.917823][info][19358][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STOPPING@Color
+[08/24 16:10:21.947789][info][19358][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPING to STOPPED@Color
+[08/24 16:10:21.947891][info][19358][Pipeline.cpp:357] [CV27561000FH] Sensor stream stopped, sensorType=Color
+[08/24 16:10:21.947896][info][19358][Pipeline.cpp:363] [CV27561000FH] Stop streams done!
+[08/24 16:10:21.953195][info][19358][Pipeline.cpp:393] [CV27561000FH] Stop pipeline done!
+[08/24 16:10:21.954503][info][19358][Pipeline.cpp:65] [CV27561000FH] Pipeline destroyed! @0x7790780EF390
+[08/24 16:10:21.954627][info][19358][SensorBase.cpp:53] [CV27561000FH] SensorBase is destroyed
+[08/24 16:10:21.956639][info][19358][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 16:10:21.956645][info][19358][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 16:10:22.021991][info][19358][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 16:10:22.022023][info][19358][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 16:10:22.503565][warning][21094][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**203 logs in 2721ms, last: 16:10:21.917579**]
+[08/24 16:10:23.243619][info][21119][HostTimestampProvider.cpp:36] Update clock type to: realtime(0)
+[08/24 16:10:23.246306][info][21119][LinuxUsbPal.cpp:334] Create PollingDeviceWatcher!
+[08/24 16:10:23.246351][info][21119][DeviceManager.cpp:25] Current found device(s): (1)
+[08/24 16:10:23.246358][info][21119][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 16:10:23.246366][info][21119][DeviceManager.cpp:463] Enable net device enumeration: true
+[08/24 16:10:24.251668][info][21119][DeviceManager.cpp:25] Current device(s) list: (1)
+[08/24 16:10:24.251709][info][21119][DeviceManager.cpp:34] 	- Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH, Connection: USB3.2
+[08/24 16:10:24.261203][info][21119][G305Device.cpp:616] UVCAutoRebootOnFault=true for device: Gemini 305
+[08/24 16:10:24.273168][info][21119][DeviceBase.cpp:742] key: AppSlot,value:1
+[08/24 16:10:24.273186][info][21119][DeviceBase.cpp:742] key: HwType,value:S1
+[08/24 16:10:24.273409][info][21119][DeviceBase.cpp:742] key: HwVer,value:V1.3
+[08/24 16:10:24.273445][info][21119][DeviceBase.cpp:742] key: IspFwVer,value:20260424
+[08/24 16:10:24.273449][info][21119][DeviceBase.cpp:742] key: IspNeedVer,value:20250920
+[08/24 16:10:24.273453][info][21119][DeviceBase.cpp:742] key: PresetVer,value:0.0.9
+[08/24 16:10:24.475042][info][21119][DeviceManager.cpp:200] Device created successfully! Name: Gemini 305, PID: 0x0840, SN/ID: CV27561000FH FW: 1.0.70
+[08/24 16:10:24.487061][info][21119][Pipeline.cpp:54] [CV27561000FH] Pipeline created with device: {name: Gemini 305, sn: CV27561000FH}, @0x77906415CEF0
+[08/24 16:10:24.530998][info][21119][Pipeline.cpp:228] [CV27561000FH] Check and set config done!
+[08/24 16:10:24.532566][info][21119][Pipeline.cpp:266] [CV27561000FH] Try to start streams!
+[08/24 16:10:24.532616][info][21119][VideoSensor.cpp:61] [CV27561000FH] Try to start stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 16:10:24.532643][info][21119][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPED to STARTING@Color
+[08/24 16:10:24.532654][info][21119][VideoSensor.cpp:130] [CV27561000FH] Start backend stream: {type: Color, format: MJPG, width: 1280, height: 720, fps: 60}
+[08/24 16:10:24.536780][info][21119][Pipeline.cpp:293] [CV27561000FH] Start streams done!
+[08/24 16:10:24.536784][info][21119][Pipeline.cpp:250] [CV27561000FH] Pipeline start done!
+[08/24 16:10:24.546555][warning][21153][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8
+[08/24 16:10:27.552462][warning][21153][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**287 logs in 3005ms**]
+[08/24 16:10:28.574056][info][21151][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STARTING to STREAMING@Color
+[08/24 16:10:33.565837][warning][21162][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**244 logs in 6013ms, last: 16:10:33.518398**]
+[08/24 16:10:33.586110][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.255386fps
+[08/24 16:10:33.586212][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.255386fps
+[08/24 16:10:38.598809][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.043884fps
+[08/24 16:10:38.599245][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.043884fps
+[08/24 16:10:43.611508][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:10:43.611659][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 16:10:45.656897][warning][21153][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**205 logs in 12091ms**]
+[08/24 16:10:48.623819][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.043884fps
+[08/24 16:10:48.623931][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.043884fps
+[08/24 16:10:51.155652][warning][21169][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 16:10:53.636510][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:10:53.636652][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 16:10:54.189790][warning][21247][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**27 logs in 3034ms, last: 16:10:52.139544**]
+[08/24 16:10:58.650028][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.031910fps
+[08/24 16:10:58.650212][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.031910fps
+[08/24 16:11:03.661893][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:11:03.662348][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 16:11:03.711957][warning][21169][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset!
+[08/24 16:11:06.747029][warning][21287][Pipeline.cpp:324] [CV27561000FH] Output frameset queue is full, drop oldest frameset! [**6 logs in 3035ms, last: 16:11:03.963714**]
+[08/24 16:11:08.674250][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:11:08.674436][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 16:11:09.675032][warning][21153][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**191 logs in 24018ms**]
+[08/24 16:11:13.686878][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:11:13.687118][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.043884fps
+[08/24 16:11:18.699188][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.043884fps
+[08/24 16:11:18.699305][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.055866fps
+[08/24 16:11:23.711890][info][21151][VideoSensor.cpp:180] [CV27561000FH] Color backend frame callback, frameRate=60.055866fps
+[08/24 16:11:23.712748][info][21169][SensorBase.cpp:405] [CV27561000FH] Color Streaming... frameRate=60.043884fps
+[08/24 16:11:28.232593][info][19358][Pipeline.cpp:367] [CV27561000FH] Try to stop pipeline!
+[08/24 16:11:28.232614][info][19358][Pipeline.cpp:343] [CV27561000FH] Try to stop streams!
+[08/24 16:11:28.232640][info][19358][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STREAMING to STOPPING@Color
+[08/24 16:11:28.244675][info][19358][SensorBase.cpp:216] [CV27561000FH] Stream state changed from STOPPING to STOPPED@Color
+[08/24 16:11:28.244899][info][19358][Pipeline.cpp:357] [CV27561000FH] Sensor stream stopped, sensorType=Color
+[08/24 16:11:28.244904][info][19358][Pipeline.cpp:363] [CV27561000FH] Stop streams done!
+[08/24 16:11:28.259972][info][19358][Pipeline.cpp:393] [CV27561000FH] Stop pipeline done!
+[08/24 16:11:28.260012][info][19358][Pipeline.cpp:65] [CV27561000FH] Pipeline destroyed! @0x77906415CEF0
+[08/24 16:11:28.260220][info][19358][SensorBase.cpp:53] [CV27561000FH] SensorBase is destroyed
+[08/24 16:11:28.264509][info][19358][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 16:11:28.264527][info][19358][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 16:11:28.328895][info][19358][ObLibuvcDevicePort.cpp:87] uvc_close done.
+[08/24 16:11:28.328922][info][19358][ObLibuvcDevicePort.cpp:88] ~ObLibuvcDevicePort done
+[08/24 16:11:29.317071][warning][21479][Pipeline.cpp:335] [CV27561000FH] Wait for frame timeout, you can try to increase the wait time! current timeout=8 [**240 logs in 19641ms, last: 16:11:28.238952**]

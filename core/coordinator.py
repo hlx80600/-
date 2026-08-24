@@ -357,18 +357,21 @@ class Coordinator:
 
     def cmd_init(self) -> Optional[str]:
         """返回拒绝原因（None=已开始初始化）。"""
+        self.ctx.link_alarm_armed = True
         if self.ctx.machine.state == MachineState.ESTOP:
             return "急停中，请先急停复位"
         if self.ctx.machine.state == MachineState.ALARM or self.ctx.alarms.has_alarm:
             return "报警中，请先报警复位（需设备已全部连接）"
         err = self.ctx.require_all_linked()
         if err:
+            self.ctx.raise_link_failures_if_needed()
             return err
         init_sequence.start_init(self.ctx)
         return None
 
     def cmd_start(self) -> Optional[str]:
         """返回拒绝原因（None=已启动/继续）。"""
+        self.ctx.link_alarm_armed = True
         m = self.ctx.machine
         gvl = self.ctx.gvl
         if m.state == MachineState.ESTOP:
@@ -377,6 +380,7 @@ class Coordinator:
             return "报警中，请先报警复位（需设备已全部连接）"
         err = self.ctx.require_all_linked()
         if err:
+            self.ctx.raise_link_failures_if_needed()
             return err
         if not gvl.Main.InitDone and m.state != MachineState.READY:
             return "请先完成初始化"
@@ -509,10 +513,25 @@ class Coordinator:
                 any_fail = True
                 log.warning("控制器消警未完全成功: %s", tip)
 
+        # 夹爪：清 GRIP_* 错误状态并尝试重连
+        try:
+            for line in self.ctx.clear_gripper_faults():
+                tips.append(line)
+                if "仍未连接" in line or "复位异常" in line:
+                    any_fail = True
+        except Exception as e:
+            tips.append(f"夹爪复位异常: {e}")
+            any_fail = True
+
         was_link = bool(
-            self.ctx.alarms.active and self.ctx.alarms.active.code == "LINK"
+            self.ctx.alarms.active
+            and self.ctx.alarms.active.code in ("LINK", "GRIP_LINK")
         )
-        need_reinit = was_link or (not self.ctx.machine.init_ok) or (
+        was_grip = bool(
+            self.ctx.alarms.active
+            and str(self.ctx.alarms.active.code or "").startswith("GRIP")
+        )
+        need_reinit = was_link or was_grip or (not self.ctx.machine.init_ok) or (
             not self.ctx.gvl.Main.InitDone
         )
 
@@ -543,7 +562,7 @@ class Coordinator:
         if any_fail:
             tips.append("程序侧报警已清除；示教器若仍报红，请按提示处理急停/外部故障后再点一次报警复位。")
         elif need_reinit:
-            tips.append("程序侧报警已清除。请重新「初始化」，完成后再「启动」。")
+            tips.append("程序侧报警已清除（含夹爪 GRIP_*）。请重新「初始化」，完成后再「启动」。")
         else:
-            tips.append("程序侧报警已清除，状态为暂停，请再点「启动」。")
+            tips.append("程序侧报警已清除（含夹爪 GRIP_*），状态为暂停，请再点「启动」。")
         return tips

@@ -93,7 +93,7 @@ def steps_text(cid: str) -> str:
             "【cam1 皮带 从 0 到用】彩色+深度 → YOLO鞋OBB → 左右脚分类 → 楦OBB → "
             "像素+深度→相机XYZ → 手眼4×4 → 机器人毫米(x,y,z,yaw)，鞋头距作 TCP 的 +Y。\n"
             "1. 出真图：皮带上能看清整只鞋。roi_ratio 在 shoe_vision_config.json。\n"
-            "2. 在「视觉采图」或「视觉调试」计算手眼 4×4，写入 shoe_vision_config.json 的 handeye.mat。\n"
+            "2. 在「视觉」页「手眼标定」计算手眼 4×4，写入 shoe_vision_config.json 的 handeye.mat。\n"
             "3. 内参 fx/fy/cx/cy 与皮带相机一致（可先用旧值，再棋盘格重标写入 json）。\n"
             "4. 「测试皮带拍照」应打出楦心基座 XYZ、左右脚、鞋头距 mm。这就是自动取料坐标。\n"
             "5. YOLO 未装或模型缺失时保持 Mock，用「屏蔽取料」。"
