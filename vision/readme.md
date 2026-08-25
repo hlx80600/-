@@ -1,0 +1,43 @@
+# vision — 视觉业务层
+
+> 相机取流、标定、手眼、VisionService；**算法实现**在 `algorithm_module/`（门面 `algo`）。
+
+---
+
+## 主要文件
+
+| 文件 | 作用 |
+|------|------|
+| `vision_service.py` | 业务入口：取图、Mock、调 `algo`、发监控帧 |
+| `camera_orbbec.py` | Orbbec 四路相机（需 `pyorbbecsdk`） |
+| `commission_actions.py` | HMI 标定动作：内参、手眼采样、PickPose 写入 |
+| `handeye_solve.py` | 手眼矩阵求解 |
+| `calib.py` | 棋盘格内参 |
+| `roi.py` | ROI 读写 `config/roi/` |
+| `pixel_to_robot.py` | 像素 → 机器人坐标 |
+| `legacy_pipeline.py` | YOLO / 旧管线实现 |
+| `monitor_frames.py` | 监控帧发布 |
+| `template_match.py` / `shape_match.py` | 模板 / 形状匹配 |
+| `belt_toe.py` / `cls_crop.py` | 皮带鞋头、分类裁切 |
+| `model_store.py` | 模型路径解析 |
+
+---
+
+## 配置与数据
+
+| 路径 | 内容 |
+|------|------|
+| `config/default.yaml` → `cameras` / `vision` | serial、手眼参数 |
+| `config/roi/camN.json` | 各相机 ROI |
+| `config/calib/` | 内参、手眼采样备份 |
+| `shoe_vision_config.json` | 生产用 cam1 皮带配置 |
+| `models/` | YOLO 权重（见 [models/readme.md](../models/readme.md)） |
+
+---
+
+## 阅读顺序
+
+1. [algorithm_module/readme.md](../algorithm_module/readme.md) — API 与调用图  
+2. `vision_service.py`  
+3. HMI 视觉工作区：`hmi/pages/vision_workspace.py`  
+4. 现场操作：[docs/界面操作手册.md](../docs/界面操作手册.md) § 视觉 / 手眼
