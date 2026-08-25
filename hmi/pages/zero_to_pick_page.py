@@ -242,7 +242,7 @@ class ZeroToPickPage(QWidget):
         r3b.addStretch(1)
         l3.addLayout(r3b)
         hint = QLabel(
-采样：皮带放鞋 → ① 记录对准位姿 → 手动移开 → ② 拍照 → ③ 完成采样 → 按路径回夹验证。
+            "采样：皮带放鞋 → ① 记录对准位姿 → 手动移开 → ② 拍照 → ③ 完成采样 → 按路径回夹验证。\n"
             "换位置至少 3 点；cam1 建议 ≥8 点。"
         )
         hint.setWordWrap(True)

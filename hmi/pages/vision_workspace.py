@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -45,6 +46,7 @@ from core.config_loader import save_config
 from core.camera_config import preview_interval_ms
 from core.coordinator import Coordinator
 from hmi import i18n
+from hmi.load_progress import run_load_task
 from hmi.style import apply_page_chrome, style_button, style_many
 from hmi.scroll_util import disable_tab_bar_wheel
 from hmi.tab_titles import T
@@ -243,6 +245,12 @@ class VisionWorkspace(QWidget):
         self.lbl_stack.setWordWrap(True)
         self.lbl_stack.setStyleSheet("color:#6b3a00;font-weight:bold;")
         root.addWidget(self.lbl_stack)
+        self._stack_progress = QProgressBar()
+        self._stack_progress.setRange(0, 0)
+        self._stack_progress.setFixedHeight(16)
+        self._stack_progress.setTextVisible(False)
+        self._stack_progress.hide()
+        root.addWidget(self._stack_progress)
 
         # —— 常驻：相机 + 预览 ——
         top = QHBoxLayout()
@@ -305,6 +313,7 @@ class VisionWorkspace(QWidget):
         self._sync_bind_fields()
         # 重活延后，避免点开瞬间卡死
         self.lbl_stack.setText("YOLO 栈检查中…")
+        self._stack_progress.show()
         self.lbl_check.setText("检查清单加载中…")
         self._handeye_samples = []
         self._commission_tick = 0
@@ -326,17 +335,30 @@ class VisionWorkspace(QWidget):
         builder = self._tab_builders.get(name)
         if builder is None:
             return
+        tab_index = -1
         for i in range(self.inner_tabs.count()):
-            if self.inner_tabs.tabText(i) != name:
-                continue
+            if self.inner_tabs.tabText(i) == name:
+                tab_index = i
+                break
+        if tab_index < 0:
+            return
+
+        def _build_tab() -> QWidget:
             widget = builder()
-            old = self.inner_tabs.widget(i)
-            self.inner_tabs.removeTab(i)
-            self.inner_tabs.insertTab(i, widget, name)
+            old = self.inner_tabs.widget(tab_index)
+            self.inner_tabs.removeTab(tab_index)
+            self.inner_tabs.insertTab(tab_index, widget, name)
             if old is not None:
                 old.deleteLater()
             self._tabs_built.add(name)
-            return
+            return widget
+
+        run_load_task(
+            self,
+            i18n.tr("load.progress.tab", name=name),
+            i18n.tr("load.progress.build_ui"),
+            _build_tab,
+        )
 
     def _on_inner_tab_changed(self, idx: int) -> None:
         if idx < 0:
@@ -756,6 +778,8 @@ class VisionWorkspace(QWidget):
         if self._commission_busy:
             return
         self._commission_busy = True
+        if hasattr(self, "_stack_progress"):
+            self._stack_progress.show()
         ctx = self.ctx
 
         def _run() -> None:
@@ -771,6 +795,8 @@ class VisionWorkspace(QWidget):
 
     def _on_commission_done(self, stack: str, models: str) -> None:
         self._commission_busy = False
+        if hasattr(self, "_stack_progress"):
+            self._stack_progress.hide()
         if hasattr(self, "lbl_stack"):
             self.lbl_stack.setText(stack)
         if hasattr(self, "lbl_models"):

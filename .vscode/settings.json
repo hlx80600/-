@@ -1,9 +1,0 @@
-{
-  "python.defaultInterpreterPath": "/usr/bin/python3",
-  "python.analysis.extraPaths": [
-    "/home/hlx8060/.local/lib/python3.12/site-packages"
-  ],
-  "python.autoComplete.extraPaths": [
-    "/home/hlx8060/.local/lib/python3.12/site-packages"
-  ]
-}

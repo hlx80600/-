@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEventLoop, QTimer, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QCloseEvent, QGuiApplication, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -24,6 +24,7 @@ from core.coordinator import Coordinator
 from hmi import i18n
 from hmi.i18n import fonts as i18n_fonts
 from hmi.alarm_dialog import show_copyable_alarm
+from hmi.load_progress import run_with_progress
 from hmi.pages.monitor_page import MonitorPage
 from hmi.scroll_util import MONITOR_WHEEL_SCALE, harden_wheel, wrap_in_scroll
 from hmi.style import style_button
@@ -265,6 +266,7 @@ class MainWindow(QMainWindow):
         cam_bar.addStretch(1)
         right_lay.addLayout(cam_bar)
         right_lay.addWidget(self.stack, 1)
+        self._content_host = right
 
         wrap = QWidget()
         lay = QHBoxLayout(wrap)
@@ -337,41 +339,74 @@ class MainWindow(QMainWindow):
         if idx < 0 or idx >= len(_NAV_SPEC):
             return
         title, wrap, wheel = _NAV_SPEC[idx]
-        inner = _create_page(title, self.coord)
-        self._page_cache[title] = inner
-        if title == T.STEP_DEBUG:
-            self.step_page = inner
-        elif title == T.VISION:
-            self.vision = inner
-        elif title == T.POINTS:
-            self.points = inner
-        elif title == T.SHIELD_PICK:
-            self.shield_pick = inner
-        elif title == T.SETTINGS:
-            self.settings = inner
-        if wrap:
-            widget = wrap_in_scroll(
-                inner,
-                wheel_scale=wheel if wheel is not None else None,
-            )
-        else:
-            widget = inner
-        old = self.stack.widget(idx)
-        self.stack.removeWidget(old)
-        old.deleteLater()
-        self.stack.insertWidget(idx, widget)
-        self._loaded_indices.add(idx)
-        harden_wheel(widget)
+        page_name = nav_title(title)
+        built: dict[str, QWidget] = {}
+
+        def _build_page() -> QWidget:
+            inner = _create_page(title, self.coord)
+            built["inner"] = inner
+            if title == T.STEP_DEBUG:
+                self.step_page = inner
+            elif title == T.VISION:
+                self.vision = inner
+            elif title == T.POINTS:
+                self.points = inner
+            elif title == T.SHIELD_PICK:
+                self.shield_pick = inner
+            elif title == T.SETTINGS:
+                self.settings = inner
+            self._page_cache[title] = inner
+            return inner
+
+        def _layout_page() -> QWidget:
+            inner = built.get("inner")
+            if inner is None:
+                inner = _build_page()
+            if wrap:
+                widget = wrap_in_scroll(
+                    inner,
+                    wheel_scale=wheel if wheel is not None else None,
+                )
+            else:
+                widget = inner
+            old = self.stack.widget(idx)
+            self.stack.removeWidget(old)
+            old.deleteLater()
+            self.stack.insertWidget(idx, widget)
+            self._loaded_indices.add(idx)
+            harden_wheel(widget)
+            return widget
+
+        run_with_progress(
+            self,
+            i18n.tr("load.progress.page", name=page_name),
+            [
+                (25, i18n.tr("load.progress.build_ui"), _build_page),
+                (75, i18n.tr("load.progress.layout"), _layout_page),
+            ],
+        )
 
     def _ensure_cam_win(self):
-        if self._cam_win is None:
+        if self._cam_win is not None:
+            return self._cam_win
+        from hmi.load_progress import run_load_task
+
+        def _create() -> QWidget:
             from hmi.pages.vision_monitor_page import VisionMonitorWindow
 
-            self._cam_win = VisionMonitorWindow(self.coord, parent=None)
-            self.cam_monitor = self._cam_win.page
+            win = VisionMonitorWindow(self.coord, parent=None)
+            self._cam_win = win
+            self.cam_monitor = win.page
             font, _ = i18n.apply_ui_font()
             i18n_fonts.apply_font_to_widget(self._cam_win, font)
-        return self._cam_win
+            return win
+
+        return run_load_task(
+            self,
+            i18n.tr("nav.cam_monitor"),
+            i18n.tr("load.progress.cam_monitor"),
+            _create,
+        )
 
     @property
     def cam_win(self):
@@ -400,24 +435,15 @@ class MainWindow(QMainWindow):
         if idx < 0:
             return
         nav_id = self._nav_ids[idx] if 0 <= idx < len(self._nav_ids) else ""
-        heavy = nav_id == T.VISION
-        if heavy:
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        try:
-            self._load_page_if_needed(idx)
-            self.stack.setCurrentIndex(idx)
-            if 0 <= idx < len(self._nav_ids):
-                self.lbl_page.setText(nav_title(self._nav_ids[idx]))
-            w = self.stack.currentWidget()
-            if w is not None:
-                harden_wheel(w)
-            if heavy:
-                QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-            if nav_id != T.VISION:
-                self._refresh_visible_page(force=True)
-        finally:
-            if heavy:
-                QApplication.restoreOverrideCursor()
+        self._load_page_if_needed(idx)
+        self.stack.setCurrentIndex(idx)
+        if 0 <= idx < len(self._nav_ids):
+            self.lbl_page.setText(nav_title(self._nav_ids[idx]))
+        w = self.stack.currentWidget()
+        if w is not None:
+            harden_wheel(w)
+        if nav_id != T.VISION:
+            self._refresh_visible_page(force=True)
 
     def retranslate_ui(self) -> None:
         """语言切换后刷新导航、字体与已加载页。"""

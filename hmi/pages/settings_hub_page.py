@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QLabel, QTabWidget, QVBoxLayout, QWidget
 
 from core.coordinator import Coordinator
 from hmi import i18n
+from hmi.load_progress import run_load_task
 from hmi.pages.settings_interface_page import SettingsInterfacePage
 from hmi.pages.settings_language_page import SettingsLanguagePage
 from hmi.scroll_util import disable_tab_bar_wheel
@@ -104,11 +105,21 @@ class SettingsHubPage(QWidget):
     def _ensure_comm_page(self) -> None:
         if self._comm_page is not None:
             return
-        from hmi.pages.config_page import ConfigPage
 
-        page = ConfigPage(self.coord)
-        self._comm_page = page
-        lay = self._comm_host.layout()
-        assert lay is not None
-        self._comm_placeholder.setParent(None)
-        lay.addWidget(page)
+        def _create() -> QWidget:
+            from hmi.pages.config_page import ConfigPage
+
+            page = ConfigPage(self.coord)
+            self._comm_page = page
+            lay = self._comm_host.layout()
+            assert lay is not None
+            self._comm_placeholder.setParent(None)
+            lay.addWidget(page)
+            return page
+
+        run_load_task(
+            self,
+            i18n.tr("load.progress.comm"),
+            i18n.tr("load.progress.build_ui"),
+            _create,
+        )

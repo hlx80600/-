@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from core.coordinator import Coordinator
+from hmi import i18n
+from hmi.load_progress import run_load_task
 from hmi.style import apply_page_chrome
 from hmi.pages.vision_workspace import (
     TAB_CAMERA_ROI,
@@ -102,14 +104,24 @@ class VisionHubPage(QWidget):
         """首次切入「采图训练」再构造 ZeroToPickPage，减轻首开卡顿。"""
         if self._train_page is not None:
             return
-        from hmi.pages.zero_to_pick_page import ZeroToPickPage
 
-        page = ZeroToPickPage(self.coord)
-        self._train_page = page
-        lay = self._train_host.layout()
-        assert lay is not None
-        self._train_placeholder.setParent(None)
-        lay.addWidget(page)
+        def _create() -> QWidget:
+            from hmi.pages.zero_to_pick_page import ZeroToPickPage
+
+            page = ZeroToPickPage(self.coord)
+            self._train_page = page
+            lay = self._train_host.layout()
+            assert lay is not None
+            self._train_placeholder.setParent(None)
+            lay.addWidget(page)
+            return page
+
+        run_load_task(
+            self,
+            i18n.tr("load.progress.train"),
+            i18n.tr("load.progress.build_ui"),
+            _create,
+        )
 
     def _open_cam_win(self) -> None:
         w = self.window()

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QSlider,
     QSpinBox,
@@ -103,6 +104,12 @@ class MonitorPage(QWidget):
         root.addWidget(self.lbl_init_flag)
         self._init_flag_text = ""
         self._init_flag_css = ""
+        self._init_progress = QProgressBar()
+        self._init_progress.setRange(0, 100)
+        self._init_progress.setFormat("%p%")
+        self._init_progress.setFixedHeight(18)
+        self._init_progress.hide()
+        root.addWidget(self._init_progress)
         self._refresh_init_flag()
 
         self.btn_init.clicked.connect(self._on_init)
@@ -840,6 +847,9 @@ class MonitorPage(QWidget):
             css = base % "#b9770e" + "background:#fdebd0;color:#6e2c00;"
             start_tip = i18n.tr("monitor.start_tip.init_wait")
             start_ok = False
+            step_pct = {10: 25, 20: 50, 30: 75, 40: 90}.get(step, 10)
+            self._init_progress.setValue(step_pct)
+            self._init_progress.show()
         elif init_done and state in (
             MachineState.READY,
             MachineState.RUNNING,
@@ -877,6 +887,9 @@ class MonitorPage(QWidget):
             css = base % "#7f8c8d" + "background:#e5e8e8;color:#1c2833;"
             start_ok = False
             start_tip = i18n.tr("monitor.start_tip.need_init")
+
+        if state != MachineState.INITIALIZING and not gvl.Main.Initializing:
+            self._init_progress.hide()
 
         selecting = False
         edit = self.lbl_init_flag
