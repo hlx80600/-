@@ -757,16 +757,17 @@ class AppContext:
             opts["vel"] = float(vel)
         if acc is not None:
             opts["acc"] = float(acc)
+        joints = extract_joints(raw if isinstance(raw, dict) else None)
         if linear:
             robot.move_l(
                 pose,
                 label=tag,
                 from_label=from_label,
                 precise=precise,
+                joints=joints,
                 **opts,
             )
         else:
-            joints = extract_joints(raw if isinstance(raw, dict) else None)
             robot.move_j(
                 pose,
                 joints=joints,

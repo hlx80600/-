@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
+import time
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSlider,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -38,6 +40,8 @@ from devices.pose_utils import (
     validate_via_name,
 )
 from hmi.style import apply_page_chrome, style_button, style_many
+
+_POINT_HOLD_MS = 200
 
 
 class NoWheelSpinBox(QDoubleSpinBox):
@@ -126,6 +130,20 @@ class PointsPage(QWidget):
         self._dbg_linear = False
         self._path_pending_to = None
         self._robot_key_cur = "robot1"
+        self._hold_pending = False
+        self._hold_moving = False
+        self._hold_await_arrive = False
+        self._hold_linear = False
+        self._hold_tag = ""
+        self._hold_btn: QPushButton | None = None
+        self._hold_timer = QTimer(self)
+        self._hold_timer.setSingleShot(True)
+        self._hold_timer.setInterval(_POINT_HOLD_MS)
+        self._hold_timer.timeout.connect(self._start_hold_to_point)
+        self._hold_watch = QTimer(self)
+        self._hold_watch.setInterval(40)
+        self._hold_watch.timeout.connect(self._on_hold_watch)
+        self._last_move_poll_at = 0.0
 
         outer = QVBoxLayout(self)
 
@@ -135,7 +153,14 @@ class PointsPage(QWidget):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         for _key, title, _, _ in ROBOT_TABS:
             self.tabs.addTab(title)
-        outer.addWidget(self.tabs)
+        head = QHBoxLayout()
+        head.addWidget(self.tabs, 1)
+        self.btn_pendant = QPushButton("打开示教器")
+        self.btn_pendant.setToolTip("独立窗口点动机械臂，不必切到法奥示教器")
+        style_button(self.btn_pendant, "accent")
+        self.btn_pendant.clicked.connect(self._open_pendant)
+        head.addWidget(self.btn_pendant)
+        outer.addLayout(head)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -260,21 +285,48 @@ class PointsPage(QWidget):
         root.addWidget(box_via)
         self._refresh_undo_label()
 
-        box1 = QGroupBox("单点调试（只动当前标签页对应的那台臂）")
+        box1 = QGroupBox("单点调试（按住才动，松开即停；只动当前标签页那台臂）")
         b1 = QVBoxLayout(box1)
         self.lbl_pose = QLabel("当前TCP: -")
         self.lbl_pose.setWordWrap(True)
+        self.lbl_pose.setMinimumHeight(40)
         b1.addWidget(self.lbl_pose)
+        vel_row = QHBoxLayout()
+        self.lbl_vel = QLabel("试跑速度 8%")
+        self.lbl_vel.setStyleSheet("font-size:15px;font-weight:bold;color:#1a5276;min-width:118px;")
+        self.sld_vel = QSlider(Qt.Orientation.Horizontal)
+        self.sld_vel.setRange(1, 25)
+        self.sld_vel.setValue(8)
+        self.sld_vel.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.sld_vel.setTickInterval(5)
+        self.sld_vel.setToolTip(
+            "仅本页按住到点 / 偏移 / 路径试跑。不改运行监控全局速度，也不影响自动流程。"
+        )
+        self.sld_vel.valueChanged.connect(self._on_teach_vel_changed)
+        self.sld_vel.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
+        vel_row.addWidget(self.lbl_vel)
+        vel_row.addWidget(self.sld_vel, 1)
+        b1.addLayout(vel_row)
         mv = QHBoxLayout()
-        btn_j = QPushButton("MoveJ 到此点")
-        btn_l = QPushButton("MoveL 到此点")
+        self.btn_move_j = QPushButton("按住 MoveJ 到此点")
+        self.btn_move_l = QPushButton("按住 MoveL 到此点")
         btn_stop = QPushButton("停止运动")
-        btn_j.clicked.connect(lambda: self._move_to_selected(linear=False))
-        btn_l.clicked.connect(lambda: self._move_to_selected(linear=True))
+        for btn in (self.btn_move_j, self.btn_move_l):
+            btn.setAutoRepeat(False)
+            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip("按住才发令，松开立刻停。点按不会动。到位会弹窗。")
+            btn.setMinimumHeight(44)
+        self.btn_move_j.pressed.connect(lambda: self._on_hold_to_point_pressed(linear=False))
+        self.btn_move_l.pressed.connect(lambda: self._on_hold_to_point_pressed(linear=True))
+        self.btn_move_j.released.connect(self._on_hold_to_point_released)
+        self.btn_move_l.released.connect(self._on_hold_to_point_released)
         btn_stop.clicked.connect(self._stop_move)
-        style_many([(btn_j, "motion"), (btn_l, "motion"), (btn_stop, "danger")])
-        mv.addWidget(btn_j)
-        mv.addWidget(btn_l)
+        style_many(
+            [(self.btn_move_j, "motion"), (self.btn_move_l, "motion"), (btn_stop, "danger")]
+        )
+        mv.addWidget(self.btn_move_j)
+        mv.addWidget(self.btn_move_l)
         mv.addWidget(btn_stop)
         b1.addLayout(mv)
         root.addWidget(box1)
@@ -333,6 +385,7 @@ class PointsPage(QWidget):
 
         self.lbl_dbg = QLabel("调试状态: 空闲")
         self.lbl_dbg.setWordWrap(True)
+        self.lbl_dbg.setMinimumHeight(52)
         self.lbl_dbg.setStyleSheet("padding:6px;background:#f5f5f5;border-radius:4px;")
         root.addWidget(self.lbl_dbg)
 
@@ -347,9 +400,17 @@ class PointsPage(QWidget):
         self._apply_tab_style(0)
         self._reload_points()
 
+    def _open_pendant(self) -> None:
+        """打开独立示教器，臂与当前 R1/R2 标签对齐。"""
+        from hmi.pages.jog_pendant import open_jog_pendant_from
+
+        open_jog_pendant_from(self, robot_key=self._robot_key_cur)
+
     def _on_tab_changed(self, idx: int) -> None:
         if idx < 0 or idx >= len(ROBOT_TABS):
             return
+        if self._hold_pending or self._hold_moving or self._dbg_busy:
+            self._stop_move()
         self._robot_key_cur = ROBOT_TABS[idx][0]
         self._apply_tab_style(idx)
         self._reload_points()
@@ -369,6 +430,13 @@ class PointsPage(QWidget):
         en = bool(self.chk_blend.isChecked() if on is None else on)
         self.sp_pt_blend_t.setEnabled(en)
         self.sp_pt_blend_r.setEnabled(en)
+
+    def _on_teach_vel_changed(self, value: int) -> None:
+        self.lbl_vel.setText(f"试跑速度 {int(value)}%")
+
+    def _teach_vel(self) -> float:
+        """本页试跑速度百分比（1～25），只用于点位调试发令。"""
+        return float(self.sld_vel.value())
 
     def _ui_blend_kwargs(self) -> dict:
         """界面当前平滑选项（可含未保存的本点 T/R）。"""
@@ -501,13 +569,13 @@ class PointsPage(QWidget):
     def _refresh_offset_preview(self) -> None:
         got = self._compute_offset_target()
         if not got:
-            self.lbl_off_result.setText("合成目标: （请选择基点与偏移）")
-            return
-        target, base_tag, off_tag = got
-        axes = ", ".join(f"{k}={target[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
-        self.lbl_off_result.setText(
-            f"合成目标 = {base_tag} + {off_tag}\n{axes}"
-        )
+            text = "合成目标: （请选择基点与偏移）"
+        else:
+            target, base_tag, off_tag = got
+            axes = ", ".join(f"{k}={target[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
+            text = f"合成目标 = {base_tag} + {off_tag}\n{axes}"
+        if self.lbl_off_result.text() != text:
+            self.lbl_off_result.setText(text)
 
     def _move_offset_target(self, *, linear: bool) -> None:
         if self._dbg_busy:
@@ -535,9 +603,9 @@ class PointsPage(QWidget):
         robot = self._robot()
         try:
             if linear:
-                robot.move_l(target, label=label, **blend_kw)
+                robot.move_l(target, label=label, vel=self._teach_vel(), **blend_kw)
             else:
-                robot.move_j(target, label=label, **blend_kw)
+                robot.move_j(target, label=label, vel=self._teach_vel(), **blend_kw)
         except Exception as e:
             QMessageBox.critical(self, "发令失败", str(e))
             return
@@ -889,10 +957,37 @@ class PointsPage(QWidget):
             self, "已删除", f"已从配置移除 points.{key}.{pname}\n可点「撤回路点操作」恢复。"
         )
 
+    def _set_dbg_text(self, text: str, *, kind: str = "idle") -> None:
+        """改状态字，避免无变化也 setText 把滚动区顶跳。"""
+        colors = {
+            "idle": "padding:6px;background:#f5f5f5;border-radius:4px;",
+            "hold": (
+                "padding:6px;background:#fdebd0;border-radius:4px;"
+                "font-weight:bold;min-height:40px;"
+            ),
+            "ok": (
+                "padding:6px;background:#d5f5e3;border-radius:4px;"
+                "font-weight:bold;min-height:40px;"
+            ),
+            "err": (
+                "padding:6px;background:#f5b7b1;border-radius:4px;"
+                "font-weight:bold;min-height:40px;"
+            ),
+        }
+        qss = colors.get(kind, colors["idle"])
+        if self.lbl_dbg.styleSheet() != qss:
+            self.lbl_dbg.setStyleSheet(qss)
+        if self.lbl_dbg.text() != text:
+            self.lbl_dbg.setText(text)
+
     def _refresh_undo_label(self) -> None:
         n = self.ctx.point_undo.depth()
-        self.lbl_undo.setText(f"可撤回步数: {n}" if n else "撤回：无")
-        self.btn_point_undo.setEnabled(n > 0)
+        text = f"可撤回步数: {n}" if n else "撤回：无"
+        if self.lbl_undo.text() != text:
+            self.lbl_undo.setText(text)
+        want = n > 0
+        if self.btn_point_undo.isEnabled() != want:
+            self.btn_point_undo.setEnabled(want)
 
     def _undo_point_op(self) -> None:
         if not self.ctx.point_undo.can_undo():
@@ -942,78 +1037,160 @@ class PointsPage(QWidget):
         ans = QMessageBox.question(
             self,
             title,
-            detail + "\n\n请确认周边安全、速度合适。继续？",
+            detail + f"\n试跑速度 {int(self.sld_vel.value())}%（仅本页）。\n\n请确认周边安全。继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         return ans == QMessageBox.Yes
 
-    def _move_to_selected(self, *, linear: bool) -> None:
+    def _on_hold_to_point_pressed(self, *, linear: bool) -> None:
+        """按住：200ms 后才发令，防止点按误动。"""
         if self._dbg_busy:
-            QMessageBox.information(self, "忙", "上一段调试未完成，可点「停止运动」。")
+            self._stop_move()
+        self._hold_linear = linear
+        self._hold_pending = True
+        self._hold_moving = False
+        self._hold_await_arrive = False
+        self._hold_btn = self.btn_move_l if linear else self.btn_move_j
+        how = "MoveL" if linear else "MoveJ"
+        self._set_dbg_text(f"按住中… 松开即停（{how}）", kind="hold")
+        self._hold_timer.start()
+        self._hold_watch.start()
+
+    def _on_hold_to_point_released(self) -> None:
+        """松开立刻停；未到 200ms 则取消发令。"""
+        self._hold_timer.stop()
+        self._hold_watch.stop()
+        pending = self._hold_pending
+        moving = self._hold_moving
+        self._hold_pending = False
+        if moving:
+            self._halt_hold_to_point(stopped_by_user=True)
             return
+        if pending:
+            self._set_dbg_text("已松开，未启动（请按住）", kind="hold")
+
+    def _on_hold_watch(self) -> None:
+        if not (self._hold_pending or self._hold_moving):
+            self._hold_watch.stop()
+            return
+        btn = self._hold_btn
+        if btn is not None and not btn.isDown():
+            self._on_hold_to_point_released()
+
+    def _halt_hold_to_point(self, *, stopped_by_user: bool) -> None:
+        self._hold_timer.stop()
+        self._hold_watch.stop()
+        self._hold_pending = False
+        self._hold_moving = False
+        self._hold_await_arrive = False
+        self._dbg_busy = False
+        self._path_pending_to = None
+        try:
+            self._robot().halt_motion(hard=True, rounds=1)
+        except Exception:
+            try:
+                self._robot().halt_motion(hard=False)
+            except Exception:
+                pass
+        if stopped_by_user:
+            self._set_dbg_text("已松开，运动已停止", kind="hold")
+
+    def _start_hold_to_point(self) -> None:
+        """按住确认后发非阻塞 MoveJ/MoveL。"""
+        if not self._hold_pending:
+            return
+        btn = self._hold_btn
+        if btn is not None and not btn.isDown():
+            self._hold_pending = False
+            return
+        linear = self._hold_linear
         key = self._robot_key()
         pname = self._current_point_key()
         if not pname:
+            self._hold_pending = False
+            self.lbl_dbg.setText("未选点")
             return
-        # 偏移点不是绝对坐标：改走「基点+偏移」
         if self._is_offset_key(pname):
             self._reload_offset_combos(prefer_offset=pname)
-            ans = QMessageBox.question(
-                self,
-                "这是偏移量",
-                f"「{pname}」是相对偏移（如 Z+80），不是绝对点位。\n"
-                "将按下方「偏移量试跑」：基点 + 当前偏移 运动。\n继续？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
-            )
-            if ans != QMessageBox.Yes:
+            got = self._compute_offset_target()
+            if not got:
+                self._hold_pending = False
+                self.lbl_dbg.setText("这是偏移量：请先在下方选好基点+偏移，再按住")
                 return
-            self._move_offset_target(linear=linear)
-            return
-        entry = self.ctx.cfg["points"][key][pname]
-        entry["name"] = self.ed_name.text().strip() or entry.get("name", pname)
-        for k, sp in self.spins.items():
-            entry[k] = float(sp.value())
-        tag = self.ctx.named_point_tag(key, pname)
+            target, base_tag, off_tag = got
+            tag = f"{base_tag}+偏移({off_tag})"
+            pose = target
+            joints = None
+        else:
+            entry = self.ctx.cfg["points"][key][pname]
+            tag = self.ctx.named_point_tag(key, pname)
+            pose = self._spin_pose()
+            if self._joints_valid:
+                joints = [float(self.joint_spins[k].value()) for k in JOINT_AXES]
+            else:
+                joints = extract_joints(entry)
         how = "MoveL" if linear else "MoveJ"
         arm = "上料R1" if key == "robot1" else "下料R2"
-        joints = extract_joints(entry) if not linear else None
-        if not linear and not joints:
-            ans = QMessageBox.warning(
-                self,
-                "无示教关节",
-                f"「{tag}」未保存 j1..j6。\n"
-                "MoveJ 将回退 MoveCart，路径可能与示教不同。\n仍要继续？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if ans != QMessageBox.Yes:
-                return
-        if not self._confirm_move(f"{how} 单点", f"臂={arm}\n目标={tag}"):
-            return
-        blend_kw = self._ui_blend_kwargs()
         robot = self._robot()
+        self._hold_pending = False
+        self._hold_moving = True
+        self._hold_await_arrive = True
+        self._hold_tag = tag
+        self._dbg_busy = True
+        self._dbg_linear = linear
         try:
             if linear:
                 robot.move_l(
-                    self.ctx.pose(key, pname), label=tag, **blend_kw
+                    pose,
+                    label=tag,
+                    async_rpc=True,
+                    vel=self._teach_vel(),
+                    joints=joints,
                 )
             else:
-                # 用界面当前值（含未保存的关节）
-                pose = self._spin_pose()
-                j = (
-                    [float(self.joint_spins[k].value()) for k in JOINT_AXES]
-                    if self._joints_valid
-                    else extract_joints(entry)
+                robot.move_j(
+                    pose, joints=joints, label=tag, async_rpc=True, vel=self._teach_vel()
                 )
-                robot.move_j(pose, joints=j, label=tag, **blend_kw)
         except Exception as e:
+            self._hold_moving = False
+            self._hold_await_arrive = False
+            self._dbg_busy = False
+            self._set_dbg_text(f"发令失败: {e}", kind="err")
             QMessageBox.critical(self, "发令失败", str(e))
             return
-        self._dbg_busy = True
-        self._dbg_linear = linear
-        self.lbl_dbg.setText(f"调试中[{arm}]: {robot.path_hint() or (how + ' → ' + tag)}")
+        if btn is not None and not btn.isDown():
+            self._halt_hold_to_point(stopped_by_user=True)
+            return
+        self._set_dbg_text(
+            f"按住运动中，松开即停[{arm}]: {robot.path_hint() or (how + ' → ' + tag)}",
+            kind="hold",
+        )
+
+    def _notify_hold_arrived(self) -> None:
+        """按住走到点：到位提示。"""
+        tag = self._hold_tag or getattr(self._robot(), "_last_arrived_label", "")
+        robot = self._robot()
+        try:
+            pose = numeric_pose(getattr(robot, "current_pose", {}) or {})
+        except Exception:
+            pose = {}
+        xyz = (
+            f"X {float(pose.get('x', 0)):.1f}  Y {float(pose.get('y', 0)):.1f}  "
+            f"Z {float(pose.get('z', 0)):.1f}"
+        )
+        rpy = (
+            f"Rx={float(pose.get('rx', 0)):.1f}°  "
+            f"Ry={float(pose.get('ry', 0)):.1f}°  "
+            f"Rz={float(pose.get('rz', 0)):.1f}°"
+        )
+        how = "MoveL" if self._hold_linear else "MoveJ"
+        self._set_dbg_text(f"✓ 移动完成  已到 {tag}\n{xyz}", kind="ok")
+        QMessageBox.information(
+            self,
+            "移动完成",
+            f"{how} 已到达「{tag}」。\n\n{xyz}\n{rpy}",
+        )
 
     def _move_path(self, *, linear: bool) -> None:
         if self._dbg_busy:
@@ -1064,6 +1241,7 @@ class PointsPage(QWidget):
                 joints=extract_joints(raw_a),
                 label=ta,
                 from_label="调试当前位置",
+                vel=self._teach_vel(),
                 **self.ctx.point_blend_kwargs(key, a),
             )
             self._path_pending_to = (key, b, tb, linear)
@@ -1075,16 +1253,35 @@ class PointsPage(QWidget):
         self.lbl_dbg.setText(f"[{arm}] 第1段→{ta}，到位后→{tb}")
 
     def _stop_move(self) -> None:
-        self._robot().halt_motion()
+        self._hold_timer.stop()
+        self._hold_watch.stop()
+        self._hold_pending = False
+        self._hold_moving = False
+        self._hold_await_arrive = False
+        try:
+            self._robot().halt_motion(hard=True, rounds=1)
+        except Exception:
+            try:
+                self._robot().halt_motion()
+            except Exception:
+                pass
         self._dbg_busy = False
         self._path_pending_to = None
-        self.lbl_dbg.setText("已停止调试运动")
+        self._set_dbg_text("已停止调试运动", kind="idle")
 
     def refresh_fast(self) -> None:
         if not self.isVisible():
             return
+        if self._hold_pending or self._hold_moving:
+            btn = self._hold_btn
+            if btn is not None and not btn.isDown():
+                self._on_hold_to_point_released()
         if not self._dbg_busy:
             return
+        now = time.monotonic()
+        if now - self._last_move_poll_at < 0.15:
+            return
+        self._last_move_poll_at = now
         robot = self._robot()
         try:
             if robot.poll_move_done():
@@ -1101,6 +1298,8 @@ class PointsPage(QWidget):
                                 numeric_pose(raw_b),
                                 label=tb,
                                 from_label=ta,
+                                vel=self._teach_vel(),
+                                joints=extract_joints(raw_b),
                                 **bkw,
                             )
                         else:
@@ -1109,39 +1308,54 @@ class PointsPage(QWidget):
                                 joints=extract_joints(raw_b),
                                 label=tb,
                                 from_label=ta,
+                                vel=self._teach_vel(),
                                 **bkw,
                             )
                     except Exception as e:
                         self._dbg_busy = False
-                        self.lbl_dbg.setText(f"第2段发令失败: {e}")
+                        self._set_dbg_text(f"第2段发令失败: {e}", kind="err")
                         QMessageBox.critical(self, "路径试跑失败", str(e))
                         return
-                    self.lbl_dbg.setText(f"路径试跑第2段: {robot.path_hint()}")
+                    self._set_dbg_text(f"路径试跑第2段: {robot.path_hint()}", kind="hold")
                     return
                 self._dbg_busy = False
-                self.lbl_dbg.setText(
-                    f"调试到位: {robot._last_arrived_label}\n可用「读入当前TCP」核对。"
+                if self._hold_await_arrive:
+                    self._hold_moving = False
+                    self._hold_await_arrive = False
+                    self._hold_watch.stop()
+                    self._notify_hold_arrived()
+                    return
+                self._set_dbg_text(
+                    f"调试到位: {robot._last_arrived_label}\n可用「读入当前TCP」核对。",
+                    kind="ok",
                 )
         except Exception as e:
             self._dbg_busy = False
+            self._hold_moving = False
+            self._hold_await_arrive = False
             self._path_pending_to = None
-            self.lbl_dbg.setText(f"调试失败: {e}")
+            self._set_dbg_text(f"调试失败: {e}", kind="err")
             QMessageBox.critical(self, "点位调试报警", str(e))
 
     def refresh(self) -> None:
         if not self.isVisible():
             return
+        holding = self._hold_pending or self._hold_moving
         self.refresh_fast()
+        if holding:
+            return
         self._refresh_undo_label()
         robot = self._robot()
         arm = "上料R1" if self._robot_key() == "robot1" else "下料R2"
         try:
             pose = numeric_pose(robot.current_pose)
-            self.lbl_pose.setText(
+            text = (
                 f"{arm} TCP: "
                 + ", ".join(f"{k}={pose[k]:.1f}" for k in ("x", "y", "z", "rx", "ry", "rz"))
                 + f"  | 最近到达: {getattr(robot, '_last_arrived_label', '-')}"
             )
+            if self.lbl_pose.text() != text:
+                self.lbl_pose.setText(text)
         except Exception:
             pass
         self._refresh_offset_preview()

@@ -121,6 +121,7 @@ def _sections_zh_cn() -> List[Section]:
                 [
                     f"<b>{_L(T.MONITOR)}</b>：启停、灯、记忆、槽号、速度、夹爪/压机手动",
                     f"<b>{_L(T.CAM_MONITOR)}</b>：独立窗，四路原图+推演（含中心→鞋头/抓鞋前后TCP）",
+                    f"<b>{_L(T.JOG)}</b>：独立示教器窗口（顶栏打开），点动机械臂，可与示教点位同时开",
                     f"<b>{_L(T.PRODUCTION)}</b>：记件 / CT / UPH",
                     f"<b>{_L(T.STEP_DEBUG)}</b>：按工位单步",
                     f"<b>{_L(T.MOTION)}</b>：按程序步 vel/平滑",
@@ -382,13 +383,51 @@ def _sections_zh_cn() -> List[Section]:
                 ],
                 used_by=[
                     "Station2/5 经 ctx.pose / move_to_point 读这些点",
-                    f"步速度不在本页设，在「{_L(T.MOTION)}」",
+                    f"自动流程步速度在「{_L(T.MOTION)}」；本页试跑用上方速度条（1%～25%）",
                 ],
             )
             + _h("常用点名")
             + _p("R1：home, pick_entry, pick_above_offset, place_entry, place_slot, place_above_offset。")
             + _p("R2：home, slot_pick_entry, slot_pick, slot_pick_above_offset, belt_place_entry, belt_place, …")
-            + _p("皮带取料 XYR 常由视觉写入 runtime_pick；*_above_offset 为相对偏移。"),
+            + _p("皮带取料 XYR 常由视觉写入 runtime_pick；*_above_offset 为相对偏移。")
+            + _h("单点调试")
+            + _p(
+                "「按住 MoveJ/MoveL 到此点」：按住才动，松开立刻停；到位弹窗。"
+                "点按不会动。偏移点请先选好基点+偏移再按住。"
+                "试跑速度用本页速度条（默认 8%，上限 25%），不改自动运行。"
+            ),
+        ),
+        (
+            "jog",
+            _L(T.JOG),
+            _io_block(
+                purpose=(
+                    "独立示教器窗口封装机械臂点动（基座/工具笛卡尔或关节），"
+                    "不必切到法奥示教器，也不必离开当前主界面页。"
+                    "默认「按住连续」：按住才动，松开立刻 ImmStopJOG；"
+                    "「点按一步」按设定 mm/° 走一次。"
+                ),
+                impl=[
+                    f"{_code('hmi/pages/jog_pendant.py')} JogPendantWindow / JogPendantPanel",
+                    f"{_code('hmi/main_window.py')} 顶栏「示教器」show_jog_pendant",
+                ],
+                refs=[
+                    f"{_code('devices/robot_fr5.py')} start_jog / stop_jog → 法奥 StartJOG / StopJOG",
+                    "自动运行、急停、报警时锁定",
+                ],
+                used_by=[
+                    "主界面顶栏「示教器」；「示教点位」页「打开示教器」",
+                    f"示教点保存仍在「{_L(T.POINTS)}」读当前 TCP/关节",
+                ],
+            )
+            + _h("注意")
+            + _ul(
+                [
+                    "速度上限 25%，建议先 8%。周围清人，急停随时可拍。",
+                    "工具坐标系随当前激活 TCP 变化；夹爪开合仍用夹爪页/运行监控。",
+                    "关示教器窗口或关主程序会停止点动。",
+                ]
+            ),
         ),
         (
             "shield",

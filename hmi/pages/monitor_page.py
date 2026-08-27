@@ -1057,10 +1057,22 @@ class MonitorPage(QWidget):
         )
         err1 = "" if g1.last_ok else i18n.tr("monitor.grip.err_suffix", err=g1.last_error)
         err2 = "" if g2.last_ok else i18n.tr("monitor.grip.err_suffix", err=g2.last_error)
+        pos1 = g1.position_display() if hasattr(g1, "position_display") else "—"
+        pos2 = g2.position_display() if hasattr(g2, "position_display") else "—"
+        tick = getattr(self, "_grip_pos_tick", 0) + 1
+        self._grip_pos_tick = tick
+        if tick % 5 == 0:
+            if hasattr(g1, "poll_feedback"):
+                g1.poll_feedback(query=True)
+            if hasattr(g2, "poll_feedback"):
+                g2.poll_feedback(query=True)
+            pos1 = g1.position_display() if hasattr(g1, "position_display") else pos1
+            pos2 = g2.position_display() if hasattr(g2, "position_display") else pos2
         self.lbl_g1.setText(
             i18n.tr(
                 "monitor.grip.feed1",
                 status=busy1,
+                pos=pos1,
                 open=g1.open_speed,
                 close=g1.close_speed,
                 err=err1,
@@ -1070,6 +1082,7 @@ class MonitorPage(QWidget):
             i18n.tr(
                 "monitor.grip.feed2",
                 status=busy2,
+                pos=pos2,
                 open=g2.open_speed,
                 close=g2.close_speed,
                 err=err2,

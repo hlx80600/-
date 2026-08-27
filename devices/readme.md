@@ -10,7 +10,7 @@
 
 | 文件 | 设备 | 说明 |
 |------|------|------|
-| `robot_fr5.py` | 法奥 FR5 ×2 | MoveL、TCP、Mock；依赖 `fairino` SDK |
+| `robot_fr5.py` | 法奥 FR5 ×2 | MoveL/MoveJ、TCP、StartJOG 点动、Mock；依赖 `fairino` SDK |
 | `gripper_can.py` | 单路夹爪 CAN | SocketCAN + DM 电机协议 |
 | `gripper_bank.py` | 多夹爪管理 | 上/下料臂各爪实例 |
 | `press_modbus.py` | 压鞋机 | Modbus TCP 槽位、压合信号 |

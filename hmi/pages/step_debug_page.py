@@ -542,7 +542,7 @@ class StepDebugPage(QWidget):
             pose = numeric_pose(raw)
             want = self.ctx.point_blend_kwargs(rk, pname)
             if linear:
-                robot.move_l(pose, label=tag, **want)
+                robot.move_l(pose, label=tag, joints=extract_joints(raw), **want)
             else:
                 robot.move_j(
                     pose, joints=extract_joints(raw), label=tag, **want

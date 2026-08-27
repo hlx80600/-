@@ -93,8 +93,8 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.grip.title": (
             "夹爪手动（停止/暂停/单步时可操作；等张开完成/夹紧完成，不再固定延时）"
         ),
-        "monitor.grip.feed1": "上料夹爪: {status} | spd开={open:.0f}/关={close:.0f}{err}",
-        "monitor.grip.feed2": "下料夹爪: {status} | spd开={open:.0f}/关={close:.0f}{err}",
+        "monitor.grip.feed1": "上料夹爪: {status} | 位置 {pos} | spd开={open:.0f}/关={close:.0f}{err}",
+        "monitor.grip.feed2": "下料夹爪: {status} | 位置 {pos} | spd开={open:.0f}/关={close:.0f}{err}",
         "monitor.grip.err_suffix": " | 错:{err}",
         "monitor.grip.busy": "动作中…",
         "monitor.grip.open": "张开",
@@ -309,8 +309,8 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.grip.title": (
             "Gripper manual (when stopped/paused/step; wait for open/close done, no fixed delay)"
         ),
-        "monitor.grip.feed1": "Load gripper: {status} | open={open:.0f}/close={close:.0f}{err}",
-        "monitor.grip.feed2": "Unload gripper: {status} | open={open:.0f}/close={close:.0f}{err}",
+        "monitor.grip.feed1": "Load gripper: {status} | pos {pos} | spd open={open:.0f}/close={close:.0f}{err}",
+        "monitor.grip.feed2": "Unload gripper: {status} | pos {pos} | spd open={open:.0f}/close={close:.0f}{err}",
         "monitor.grip.err_suffix": " | err:{err}",
         "monitor.grip.busy": "Moving…",
         "monitor.grip.open": "Open",

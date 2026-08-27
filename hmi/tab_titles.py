@@ -12,6 +12,7 @@ class NavId:
     MOTION = "motion"
     VISION = "vision"
     POINTS = "points"
+    JOG = "jog"  # 独立示教器窗口，不在左侧导航
     SHIELD_PICK = "shield_pick"
     DRY_RUN = "dry_run"
     PAYLOAD = "payload"

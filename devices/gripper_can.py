@@ -1011,8 +1011,37 @@ class GripperCAN:
         self.last_ok = True
         self.last_error = ""
 
-    def status_snapshot(self) -> Dict[str, Any]:
-        """调试页状态快照。"""
+    def poll_feedback(self, timeout: float = 0.0, *, query: bool = False) -> None:
+        """更新编码器反馈。query=True 时主动发查询；否则只收已有帧（不阻塞 UI）。"""
+        if self.use_mock or self._busy or self._ctrl is None:
+            return
+        try:
+            if query:
+                self._ctrl.refresh_feedback(timeout=max(float(timeout), 0.05))
+            else:
+                self._ctrl._receive_feedback_frame(timeout=float(timeout))
+        except Exception:
+            pass
+
+    def position_display(self) -> str:
+        """HMI 用：当前位置文案。"""
+        if self.use_mock:
+            return "模拟"
+        ctrl = self._ctrl
+        if ctrl is None:
+            return "—"
+        rad = getattr(ctrl, "last_position_rad", None)
+        if rad is None:
+            return "—"
+        raw = getattr(ctrl, "last_raw_position", None)
+        if raw is None:
+            return f"{float(rad):.3f} rad"
+        return f"{float(rad):.3f} rad  (raw {int(raw)})"
+
+    def status_snapshot(self, *, poll: bool = False) -> Dict[str, Any]:
+        """调试页状态快照。poll=True 时先向驱动要一帧反馈。"""
+        if poll:
+            self.poll_feedback()
         snap: Dict[str, Any] = {
             "name": self.name,
             "motor_index": int(self.motor_index),
@@ -1032,6 +1061,10 @@ class GripperCAN:
             "claw_state": "-",
             "hold_state": "-",
             "position_rad": None,
+            "position_raw": None,
+            "open_target_rad": None,
+            "close_target_rad": None,
+            "position_text": self.position_display(),
             "torque_nm": None,
             "driver_status": "-",
             "drop_detected": False,
@@ -1042,6 +1075,10 @@ class GripperCAN:
                 snap["claw_state"] = getattr(ctrl.claw_state, "name", "-")
                 snap["hold_state"] = getattr(ctrl.hold_state, "name", "-")
                 snap["position_rad"] = ctrl.last_position_rad
+                snap["position_raw"] = ctrl.last_raw_position
+                snap["open_target_rad"] = getattr(ctrl, "open_target_rad", None)
+                snap["close_target_rad"] = getattr(ctrl, "close_target_rad", None)
+                snap["position_text"] = self.position_display()
                 snap["torque_nm"] = ctrl.last_torque_raw_signed
                 snap["driver_status"] = ctrl.last_status_name or "-"
                 snap["drop_detected"] = bool(ctrl.is_drop_detected())

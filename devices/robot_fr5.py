@@ -29,11 +29,21 @@ _FAIRINO_ERR_HINT = {
     22: "奇异点附近",
     29: "关节超限",
     38: "奇异位姿",
+    112: "给定位姿不可达(直线中间无解。Rx≈±180时易按360°插补；近距离还可能是平滑半径大于剩余行程)",
     154: "关节指令点错误(工具号/TCP刚切换后用旧笛卡尔+关节最常见；过渡点请用示教关节MoveJ且先别切鞋头工具)",
     74: "直线指令点错误(换鞋头工具后仍走工具1示教绝对点最常见；压跟只许改姿态/相对下压)",
     185: "故障信号触发(常见：刚按停止/急停后未消警，或碰撞/外部故障；请点「报警复位」后再启动)",
     186: "急停信号触发，运动已停止",
 }
+
+# MoveL：已在目标附近则不再发令（单位 mm / °）
+_MOVEL_ALREADY_XYZ_MM = 0.8
+_MOVEL_ALREADY_RPY_DEG = 0.5
+# 示教关节与当前关节足够近才直接用，否则以邻近逆解为准
+_MOVEL_TAUGHT_JOINT_NEAR_DEG = 25.0
+# MoveL 仍 112 时：近距离改关节补一段（±180 插补被控制器折回时）
+_MOVEL_SHORT_HOP_XYZ_MM = 80.0
+_MOVEL_SHORT_HOP_RPY_DEG = 30.0
 
 
 def _format_move_err(err: int) -> str:
@@ -127,6 +137,8 @@ class RobotFR5:
         self._move_from_label: str = "当前位置"
         self._move_to_label: str = ""
         self._last_arrived_label: str = "未知位置（上电后）"
+        self._jogging = False
+        self._jog_ref = 0
         # 负载/工具：empty=手爪(负载1+工具1)；with_shoe=抓鞋(负载2+工具2)
         self._payload_profiles: Dict[str, dict] = {}
         self._payload_mode: str = "empty"
@@ -822,6 +834,71 @@ class RobotFR5:
             err = err[0]
         return int(err)
 
+    def _current_joints_ref(self) -> Optional[list[float]]:
+        """读当前关节；失败则退回缓存。"""
+        try:
+            aj = self.get_actual_joint_pos()
+            if aj and len(aj) == 6:
+                return [float(v) for v in aj]
+        except Exception:
+            pass
+        cached = getattr(self, "current_joints", None)
+        if cached and len(cached) == 6:
+            return [float(v) for v in cached]
+        return None
+
+    def _ik_joints_near(
+        self, desc: list[float], ref: Optional[list[float]]
+    ) -> Optional[list[float]]:
+        """用当前关节作参考做邻近逆解，再把结果展开到当前关节附近。"""
+        from devices.pose_utils import unwrap_joints_near
+
+        if ref is None or not hasattr(self._robot, "GetInverseKinRef"):
+            return None
+        try:
+            ret = self._robot.GetInverseKinRef(0, desc, ref)
+            joint_pos = self._parse_ik_joints(ret)
+            if joint_pos is None:
+                log.warning(
+                    "[%s] GetInverseKinRef 无解/解析失败 ret=%s desc=%s",
+                    self.name,
+                    ret,
+                    desc,
+                )
+                return None
+            return unwrap_joints_near(joint_pos, ref)
+        except Exception as e:
+            log.warning("[%s] GetInverseKinRef 异常: %s", self.name, e)
+            return None
+
+    def _pick_movel_joints(
+        self,
+        desc: list[float],
+        *,
+        taught: Optional[list[float]],
+        ref: Optional[list[float]],
+    ) -> tuple[Optional[list[float]], str]:
+        """选 MoveL 目标关节：近距离优先示教关节，否则邻近逆解。"""
+        from devices.pose_utils import joints_max_abs_diff_deg, unwrap_joints_near
+
+        if taught is not None and len(taught) == 6:
+            taught6 = [float(v) for v in taught]
+            if ref is not None:
+                taught6 = unwrap_joints_near(taught6, ref)
+                if joints_max_abs_diff_deg(taught6, ref) <= _MOVEL_TAUGHT_JOINT_NEAR_DEG:
+                    return taught6, "taught"
+            else:
+                return taught6, "taught"
+        ik = self._ik_joints_near(desc, ref)
+        if ik is not None:
+            return ik, "ref"
+        if taught is not None and len(taught) == 6:
+            taught6 = [float(v) for v in taught]
+            if ref is not None:
+                taught6 = unwrap_joints_near(taught6, ref)
+            return taught6, "taught-far"
+        return None, "sdk"
+
     def _send_movel(
         self,
         pose: Dict,
@@ -832,51 +909,94 @@ class RobotFR5:
         blend_r_mm: Optional[float] = None,
         vel: Optional[float] = None,
         acc: Optional[float] = None,
+        async_rpc: bool = False,
+        joints: Optional[list] = None,
     ) -> None:
-        from devices.pose_utils import numeric_pose
+        from devices.pose_utils import (
+            extract_joints,
+            numeric_pose,
+            pose_near,
+            pose_rpy_max_abs_diff_deg,
+            pose_xyz_distance_mm,
+            unwrap_pose_rpy_near,
+        )
 
         self._require_real()
-        pose = numeric_pose(pose)
-        desc = pose_to_list(pose)
+        pose_raw = numeric_pose(pose)
+        taught = joints if joints is not None else extract_joints(pose)
         move_vel = max(1.0, min(100.0, float(vel if vel is not None else 100.0)))
         move_acc = max(0.0, min(100.0, float(acc if acc is not None else 100.0)))
-        _use, _bt, blend_r, wait_arr = self._resolve_blend(
-            blend=blend,
-            precise=precise,
-            blend_t_ms=blend_t_ms,
-            blend_r_mm=blend_r_mm,
-        )
-        if wait_arr:
-            self._sync_before_precise_move()
-        # 有当前关节时用 GetInverseKinRef，并正确解析 (err, joints) 返回值
-        joint_pos = None
-        ref = None
+        if async_rpc:
+            # 法奥 blendR=-1 会阻塞 XML-RPC 直到到位；示教器必须立刻返回才能处理松开。
+            # 用 0 而不是 1mm：剩余行程常小于 1mm，平滑半径大于行程会直接 112。
+            blend_r = 0.0
+            wait_arr = True
+        else:
+            _use, _bt, blend_r, wait_arr = self._resolve_blend(
+                blend=blend,
+                precise=precise,
+                blend_t_ms=blend_t_ms,
+                blend_r_mm=blend_r_mm,
+            )
+            if wait_arr:
+                self._sync_before_precise_move()
+
+        cur_tcp = None
         try:
-            aj = self.get_actual_joint_pos()
-            if aj and len(aj) == 6:
-                ref = [float(v) for v in aj]
-        except Exception:
-            if getattr(self, "current_joints", None) and len(self.current_joints) == 6:
-                ref = [float(v) for v in self.current_joints]
-        if ref is not None and hasattr(self._robot, "GetInverseKinRef"):
-            try:
-                ret = self._robot.GetInverseKinRef(0, desc, ref)
-                joint_pos = self._parse_ik_joints(ret)
-                if joint_pos is None:
-                    log.warning(
-                        "[%s] GetInverseKinRef 无解/解析失败 ret=%s desc=%s",
-                        self.name,
-                        ret,
-                        desc,
-                    )
-            except Exception as e:
-                log.warning("[%s] GetInverseKinRef 异常: %s", self.name, e)
+            cur_tcp = numeric_pose(self.get_actual_tcp_pose())
+        except Exception as e:
+            log.debug("[%s] MoveL 读当前 TCP 失败: %s", self.name, e)
+        pose_cmd = pose_raw
+        if cur_tcp is not None:
+            pose_cmd = unwrap_pose_rpy_near(pose_raw, cur_tcp)
+            remain_xyz = pose_xyz_distance_mm(cur_tcp, pose_raw)
+            remain_rpy = pose_rpy_max_abs_diff_deg(cur_tcp, pose_raw)
+            if pose_near(
+                cur_tcp,
+                pose_raw,
+                xyz_mm=_MOVEL_ALREADY_XYZ_MM,
+                rpy_deg=_MOVEL_ALREADY_RPY_DEG,
+            ):
+                log.info(
+                    "[%s] MoveL 已在目标附近，跳过发令 剩余XYZ=%.2fmm 姿态=%.2f° %s → %s",
+                    self.name,
+                    remain_xyz,
+                    remain_rpy,
+                    self._move_from_label,
+                    self._move_to_label,
+                )
+                self._mark_move_started(pose_raw, wait_arrival=wait_arr)
+                return
+            # 平滑半径不能大于剩余直线行程，否则近距离 MoveL 常 112
+            if float(blend_r) >= 0.0 and remain_xyz <= float(blend_r) + 0.5:
+                log.info(
+                    "[%s] MoveL 剩余XYZ=%.2fmm ≤ blendR=%.1f，改为 blendR=0",
+                    self.name,
+                    remain_xyz,
+                    blend_r,
+                )
+                blend_r = 0.0
+            if any(
+                abs(pose_cmd[k] - pose_raw[k]) > 0.05 for k in ("rx", "ry", "rz")
+            ):
+                log.info(
+                    "[%s] MoveL RPY就近展开 raw=%s cmd=%s（避免±180绕圈）",
+                    self.name,
+                    [round(pose_raw[k], 3) for k in ("rx", "ry", "rz")],
+                    [round(pose_cmd[k], 3) for k in ("rx", "ry", "rz")],
+                )
+        else:
+            remain_xyz = -1.0
+            remain_rpy = -1.0
+
+        desc = pose_to_list(pose_cmd)
+        ref = self._current_joints_ref()
+        joint_pos, ik_mode = self._pick_movel_joints(desc, taught=taught, ref=ref)
 
         err = self._call_movel_once(
             desc, joint_pos=joint_pos, move_vel=move_vel, move_acc=move_acc, blend_r=blend_r
         )
-        if int(err) == 185:
-            # 残留故障信号：消警后重试一次（常见于报警复位后又 StopMotion）
+        if int(err) == 185 and not async_rpc:
             path = self.path_hint()
             ok, tip = self.clear_motion_fault_after_stop(
                 reason=f"MoveL返回185 路径={path or '-'}",
@@ -891,13 +1011,74 @@ class RobotFR5:
                     move_acc=move_acc,
                     blend_r=blend_r,
                 )
+        if int(err) == 112 and float(blend_r) > 0.0:
+            log.warning(
+                "[%s] MoveL 112，blendR=%.1f→0 再试 剩余XYZ=%.2fmm",
+                self.name,
+                blend_r,
+                remain_xyz,
+            )
+            blend_r = 0.0
+            err = self._call_movel_once(
+                desc, joint_pos=joint_pos, move_vel=move_vel, move_acc=move_acc, blend_r=0.0
+            )
+        if int(err) == 112 and ik_mode != "ref":
+            ik_retry = self._ik_joints_near(desc, ref)
+            if ik_retry is not None and ik_retry != joint_pos:
+                log.warning("[%s] MoveL 112，改邻近逆解再试", self.name)
+                joint_pos = ik_retry
+                ik_mode = "ref-retry"
+                err = self._call_movel_once(
+                    desc,
+                    joint_pos=joint_pos,
+                    move_vel=move_vel,
+                    move_acc=move_acc,
+                    blend_r=blend_r,
+                )
+        # 近距离直线仍 112：多半是 Rx≈±180 被控制器折回后绕远路。关节补一段几何上等价。
+        if (
+            int(err) == 112
+            and joint_pos is not None
+            and remain_xyz >= 0.0
+            and remain_xyz <= _MOVEL_SHORT_HOP_XYZ_MM
+            and remain_rpy <= _MOVEL_SHORT_HOP_RPY_DEG
+        ):
+            blend_t = 1.0 if async_rpc else -1.0
+            log.warning(
+                "[%s] MoveL 112 近距离改 MoveJ 补一段 剩余XYZ=%.2fmm 姿态=%.2f°",
+                self.name,
+                remain_xyz,
+                remain_rpy,
+            )
+            try:
+                err_j = self._robot.MoveJ(
+                    list(joint_pos),
+                    self.tool,
+                    self.user,
+                    desc_pos=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                    vel=move_vel,
+                    acc=move_acc,
+                    blendT=float(blend_t),
+                )
+                if isinstance(err_j, (list, tuple)):
+                    err_j = err_j[0]
+                err = int(err_j)
+                ik_mode = f"{ik_mode}+movej"
+            except Exception as e:
+                log.warning("[%s] MoveL112 后 MoveJ 补段异常: %s", self.name, e)
         if int(err) != 0:
+            extra = ""
+            if int(err) == 112:
+                extra = (
+                    f" 剩余XYZ={remain_xyz:.1f}mm 姿态差={remain_rpy:.1f}°"
+                    f" ik={ik_mode} blendR={blend_r}"
+                )
             raise RuntimeError(
                 self._with_path(
-                    f"{self.name} MoveL 失败 {_format_move_err(err)} pose={desc}"
+                    f"{self.name} MoveL 失败 {_format_move_err(err)} pose={desc}{extra}"
                 )
             )
-        self._mark_move_started(pose, wait_arrival=wait_arr)
+        self._mark_move_started(pose_raw, wait_arrival=wait_arr)
         if joint_pos is not None:
             self.current_joints = [float(v) for v in joint_pos]
         log.info(
@@ -907,7 +1088,7 @@ class RobotFR5:
             move_acc,
             blend_r,
             wait_arr,
-            "ref" if joint_pos else "sdk",
+            ik_mode,
             self.vel,
             self._move_from_label,
             self._move_to_label,
@@ -924,6 +1105,7 @@ class RobotFR5:
         blend_r_mm: Optional[float] = None,
         vel: Optional[float] = None,
         acc: Optional[float] = None,
+        async_rpc: bool = False,
     ) -> None:
         """
         MoveJ：有示教关节角时走真正的 MoveJ(关节)；
@@ -936,14 +1118,19 @@ class RobotFR5:
         desc = pose_to_list(pose)
         move_vel = max(1.0, min(100.0, float(vel if vel is not None else 100.0)))
         move_acc = max(0.0, min(100.0, float(acc if acc is not None else 100.0)))
-        _use, blend_t, _br, wait_arr = self._resolve_blend(
-            blend=blend,
-            precise=precise,
-            blend_t_ms=blend_t_ms,
-            blend_r_mm=blend_r_mm,
-        )
-        if wait_arr:
-            self._sync_before_precise_move()
+        if async_rpc:
+            # 法奥 blendT=-1 会阻塞 XML-RPC 直到到位；示教器/点位按住必须立刻返回。
+            blend_t = 1.0
+            wait_arr = True
+        else:
+            _use, blend_t, _br, wait_arr = self._resolve_blend(
+                blend=blend,
+                precise=precise,
+                blend_t_ms=blend_t_ms,
+                blend_r_mm=blend_r_mm,
+            )
+            if wait_arr:
+                self._sync_before_precise_move()
         taught = joints if joints is not None else extract_joints(pose)
         joint_pos = None
         if taught is not None and len(taught) == 6:
@@ -1029,7 +1216,7 @@ class RobotFR5:
         if isinstance(err, (list, tuple)):
             err = err[0]
         err = int(err)
-        if err == 185:
+        if err == 185 and not async_rpc:
             path = self.path_hint()
             ok, tip = self.clear_motion_fault_after_stop(
                 reason=f"MoveJ返回185 路径={path or '-'}",
@@ -1115,6 +1302,7 @@ class RobotFR5:
         blend_r_mm: Optional[float] = None,
         vel: Optional[float] = None,
         acc: Optional[float] = None,
+        async_rpc: bool = False,
     ) -> None:
         if self.estop_active:
             raise RuntimeError(f"{self.name} 急停中，禁止运动")
@@ -1126,6 +1314,8 @@ class RobotFR5:
             blend_t_ms=blend_t_ms,
             blend_r_mm=blend_r_mm,
         )
+        if async_rpc:
+            wait_arr = True
         if self.use_mock:
             dur = 0.25 if not wait_arr else self._mock_move_duration(0.6)
             # mock 时长按本段 vel 粗略缩放
@@ -1155,6 +1345,7 @@ class RobotFR5:
             blend_r_mm=blend_r_mm,
             vel=vel,
             acc=acc,
+            async_rpc=async_rpc,
         )
 
     def move_l(
@@ -1169,7 +1360,10 @@ class RobotFR5:
         blend_r_mm: Optional[float] = None,
         vel: Optional[float] = None,
         acc: Optional[float] = None,
+        async_rpc: bool = False,
+        joints: Optional[list] = None,
     ) -> None:
+        """笛卡尔直线。有示教关节时传入 joints，近距离/±180 姿态由底层就近展开。"""
         if self.estop_active:
             raise RuntimeError(f"{self.name} 急停中，禁止运动")
         self._set_move_context(label, from_label)
@@ -1179,6 +1373,8 @@ class RobotFR5:
             blend_t_ms=blend_t_ms,
             blend_r_mm=blend_r_mm,
         )
+        if async_rpc:
+            wait_arr = True
         if self.use_mock:
             dur = 0.2 if not wait_arr else self._mock_move_duration(0.5)
             if vel is not None:
@@ -1205,6 +1401,8 @@ class RobotFR5:
             blend_r_mm=blend_r_mm,
             vel=vel,
             acc=acc,
+            async_rpc=async_rpc,
+            joints=joints,
         )
 
     def poll_move_done(self) -> bool:
@@ -1286,13 +1484,182 @@ class RobotFR5:
             self._last_fault_key = None
         log.warning("[%s] 模拟故障=%s", self.name, message)
 
-    def halt_motion(self, *, hard: bool = False) -> None:
+    # 法奥 StartJOG ref → StopJOG ref（文档：停用 1/3/5/9）
+    _JOG_STOP_REF = {0: 1, 2: 3, 4: 5, 8: 9}
+
+    def start_jog(
+        self,
+        *,
+        ref: int,
+        axis: int,
+        positive: bool,
+        max_dis: float,
+        vel_pct: float = 8.0,
+        acc_pct: float = 40.0,
+    ) -> None:
+        """点动：法奥 StartJOG。
+
+        Args:
+            ref: 0 关节，2 基座，4 工具。
+            axis: 1～6（关节号或 XYZRxRyRz）。
+            positive: True 正方向。
+            max_dis: 单次最大行程（关节 ° / 笛卡尔 mm）。
+            vel_pct: 速度百分比 0～100。
+            acc_pct: 加速度百分比 0～100。
+        """
+        if self.estop_active:
+            raise RuntimeError(f"{self.name} 急停中，禁止点动")
+        axis_i = int(axis)
+        if axis_i < 1 or axis_i > 6:
+            raise ValueError(f"点动轴非法: {axis}")
+        ref_i = int(ref)
+        if ref_i not in (0, 2, 4, 8):
+            raise ValueError(f"点动坐标系非法: {ref}")
+        dis = abs(float(max_dis))
+        if dis <= 0:
+            raise ValueError("点动行程必须 > 0")
+        vel = max(1.0, min(30.0, float(vel_pct)))
+        acc = max(10.0, min(100.0, float(acc_pct)))
+        direction = 1 if positive else 0
+
+        if self.use_mock:
+            self._mock_jog_once(ref_i, axis_i, positive, dis)
+            self._jogging = True
+            self._jog_ref = ref_i
+            return
+
+        self._require_real()
+        if self._need_premove_clear and not self._jogging:
+            self.ensure_ready_before_move()
+        if self._robot is None or not hasattr(self._robot, "StartJOG"):
+            # 无连续点动时只能单步 Move；禁止把「按住」的大行程一次发出去
+            inch_cap = 20.0 if ref_i == 0 else 50.0
+            if dis > inch_cap:
+                raise RuntimeError(
+                    f"{self.name} 无 StartJOG，不能连续点动；请改用「点按一步」"
+                    f"（关节≤20° / 直线≤50mm）"
+                )
+            self._jog_by_incremental_move(ref_i, axis_i, positive, dis, vel)
+            return
+        if self._jogging and self._jog_ref != ref_i:
+            self.stop_jog(immediate=True)
+        # 法奥：StartJOG(ref, nb, dir, max_dis, vel, acc)
+        err = self._robot.StartJOG(ref_i, axis_i, direction, dis, vel, acc)
+        if err not in (0, None) and int(err) == 185:
+            self.clear_motion_fault_after_stop(
+                reason="StartJOG 返回185（多为松开急停残留）",
+                stop_first=False,
+            )
+            err = self._robot.StartJOG(ref_i, axis_i, direction, dis, vel, acc)
+        if err not in (0, None):
+            raise RuntimeError(f"{self.name} StartJOG 失败: {err}")
+        self._jogging = True
+        self._jog_ref = ref_i
+        log.info(
+            "[%s] StartJOG ref=%s axis=%s dir=%s dis=%.2f vel=%.1f",
+            self.name,
+            ref_i,
+            axis_i,
+            direction,
+            dis,
+            vel,
+        )
+
+    def stop_jog(self, *, immediate: bool = False) -> None:
+        """点动停止。未在点动则直接返回，避免空 ImmStop 触发 185。
+
+        immediate=True：先 ImmStopJOG（松开立刻停），再 StopJOG。
+        immediate=False：仅 StopJOG 减速停。
+        """
+        was = self._jogging
+        self._jogging = False
+        if not was or self.use_mock or self._robot is None:
+            return
+        if immediate:
+            try:
+                if hasattr(self._robot, "ImmStopJOG"):
+                    err = self._robot.ImmStopJOG()
+                    log.info("[%s] ImmStopJOG（松开即停）→ %s", self.name, err)
+                    self._need_premove_clear = True
+            except Exception as e:
+                log.error("[%s] ImmStopJOG 失败: %s", self.name, e)
+        stop_ref = int(self._JOG_STOP_REF.get(self._jog_ref, 1))
+        try:
+            if hasattr(self._robot, "StopJOG"):
+                err = self._robot.StopJOG(stop_ref)
+                log.info("[%s] StopJOG ref=%s → %s", self.name, stop_ref, err)
+        except Exception as e:
+            log.error("[%s] StopJOG 失败: %s", self.name, e)
+            if not immediate:
+                try:
+                    if hasattr(self._robot, "ImmStopJOG"):
+                        self._robot.ImmStopJOG()
+                        self._need_premove_clear = True
+                except Exception:
+                    pass
+        try:
+            self.get_actual_tcp_pose()
+            self.get_actual_joint_pos()
+        except Exception:
+            pass
+
+    def _mock_jog_once(self, ref: int, axis: int, positive: bool, max_dis: float) -> None:
+        """Mock：把行程一次性加到当前关节或 TCP。"""
+        delta = float(max_dis) if positive else -float(max_dis)
+        idx = axis - 1
+        if ref == 0:
+            joints = [float(v) for v in self.current_joints]
+            if len(joints) != 6:
+                joints = [0.0] * 6
+            joints[idx] = joints[idx] + delta
+            self.current_joints = joints
+            return
+        from devices.pose_utils import POSE_AXES, numeric_pose
+
+        pose = numeric_pose(self.current_pose)
+        key = POSE_AXES[idx]
+        pose[key] = float(pose.get(key, 0.0)) + delta
+        self.current_pose = pose
+
+    def _jog_by_incremental_move(
+        self,
+        ref: int,
+        axis: int,
+        positive: bool,
+        max_dis: float,
+        vel_pct: float,
+    ) -> None:
+        """无 StartJOG 时退化为单步 MoveJ/MoveL。"""
+        delta = float(max_dis) if positive else -float(max_dis)
+        idx = axis - 1
+        if ref == 0:
+            joints = list(self.get_actual_joint_pos())
+            joints[idx] = float(joints[idx]) + delta
+            pose = self.get_actual_tcp_pose()
+            self.move_j(
+                pose,
+                joints=joints,
+                label="点动关节",
+                precise=True,
+                vel=vel_pct,
+            )
+            return
+        from devices.pose_utils import POSE_AXES, numeric_pose
+
+        pose = numeric_pose(self.get_actual_tcp_pose())
+        key = POSE_AXES[idx]
+        pose[key] = float(pose.get(key, 0.0)) + delta
+        self.move_l(pose, label="点动笛卡尔", precise=True, vel=vel_pct)
+
+    def halt_motion(self, *, hard: bool = False, rounds: int | None = None) -> None:
         """
         立刻停运动（不清急停标志）。
         hard=False（普通停止）：只 StopMotion，避免 ImmStop 留下故障需消警才能再动。
-        hard=True（急停）：ImmStopJOG + 多次 StopMotion。
+        hard=True（急停）：ImmStopJOG + StopMotion。
+        rounds：RPC 轮数；示教器松开停用 1 轮，避免界面卡住。
         停完后标记需「发Move前安静消警」，禁止用再次 StopMotion 去消警（会再触发185）。
         """
+        self._jogging = False
         self._moving = False
         self._move_cmd_sent = False
         self._wait_arrival = False
@@ -1301,8 +1668,9 @@ class RobotFR5:
         self._need_premove_clear = True
         if self.use_mock or self._robot is None:
             return
-        rounds = 3 if hard else 1
-        for i in range(rounds):
+        n = int(rounds) if rounds is not None else (3 if hard else 1)
+        n = max(1, min(3, n))
+        for i in range(n):
             if hard:
                 try:
                     if hasattr(self._robot, "ImmStopJOG"):

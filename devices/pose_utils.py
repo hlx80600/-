@@ -90,6 +90,100 @@ def apply_xyr(base: Dict, x: float, y: float, rz: float) -> Dict[str, float]:
     return out
 
 
+def angle_diff_deg(a: float, b: float) -> float:
+    """两角最短差的绝对值（度）。"""
+    return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
+
+
+def unwrap_angle_near(value: float, reference: float) -> float:
+    """把 value 加减 360° 整数倍，落到离 reference 最近的等价角。
+
+    例：value=-178、reference=+182 → +182（同一姿态，避免 MoveL 绕一整圈）。
+    """
+    ref = float(reference)
+    return ref + ((float(value) - ref + 180.0) % 360.0 - 180.0)
+
+
+def unwrap_pose_rpy_near(target: Dict, reference: Dict) -> Dict[str, float]:
+    """目标 Rx/Ry/Rz 按最短角展开到当前姿态附近。
+
+    home 一类 Rx≈±180 的点，示教器读数常在 -178 与 +182 之间跳；
+    若不展开，MoveL 会按数值直线插补约 360°，近距离也报不可达。
+    """
+    out = numeric_pose(target)
+    ref = numeric_pose(reference)
+    for key in ("rx", "ry", "rz"):
+        out[key] = unwrap_angle_near(out[key], ref[key])
+    return out
+
+
+def unwrap_joints_near(target: List[float], reference: List[float]) -> List[float]:
+    """目标关节按最短角展开到当前关节附近。"""
+    tgt = [float(v) for v in target]
+    if len(tgt) != 6 or len(reference) != 6:
+        return tgt
+    return [unwrap_angle_near(tgt[i], float(reference[i])) for i in range(6)]
+
+
+def pose_xyz_distance_mm(a: Dict, b: Dict) -> float:
+    """两 TCP 的 XYZ 欧氏距离 [mm]。"""
+    aa = numeric_pose(a)
+    bb = numeric_pose(b)
+    dx = aa["x"] - bb["x"]
+    dy = aa["y"] - bb["y"]
+    dz = aa["z"] - bb["z"]
+    return (dx * dx + dy * dy + dz * dz) ** 0.5
+
+
+def pose_rpy_max_abs_diff_deg(a: Dict, b: Dict) -> float:
+    """Rx/Ry/Rz 最短角差的最大值 [°]。"""
+    aa = numeric_pose(a)
+    bb = numeric_pose(b)
+    return max(angle_diff_deg(aa[k], bb[k]) for k in ("rx", "ry", "rz"))
+
+
+def pose_near(
+    a: Dict,
+    b: Dict,
+    *,
+    xyz_mm: float = 1.0,
+    rpy_deg: float = 1.0,
+) -> bool:
+    """XYZ 与姿态都足够近（姿态按最短角）。"""
+    return pose_xyz_distance_mm(a, b) <= float(xyz_mm) and pose_rpy_max_abs_diff_deg(
+        a, b
+    ) <= float(rpy_deg)
+
+
+def joints_max_abs_diff_deg(a: List[float], b: List[float]) -> float:
+    """两套关节角最短差的最大值 [°]。缺轴则视为很远。"""
+    n = min(len(a), len(b), 6)
+    if n <= 0:
+        return 999.0
+    return max(angle_diff_deg(float(a[i]), float(b[i])) for i in range(n))
+
+
+def pose_tcp_parallel_to_base(pose: Dict) -> Dict[str, float]:
+    """XYZ 与 Rz 不变，把 Rx/Ry 打平，使工具 XY 与基座 XY 平行。
+
+    在 rx=0（工具 Z 朝上）与 rx=±180（工具 Z 朝下）里选离当前更近的，
+    避免把已朝下的夹爪再翻一整圈。
+    """
+    out = numeric_pose(pose)
+    rx = float(out["rx"])
+    ry = float(out["ry"])
+    score_up = angle_diff_deg(rx, 0.0) + angle_diff_deg(ry, 0.0)
+    rx_down = -180.0 if rx < 0.0 else 180.0
+    score_down = angle_diff_deg(rx, rx_down) + angle_diff_deg(ry, 0.0)
+    if score_down <= score_up:
+        out["rx"] = rx_down
+        out["ry"] = 0.0
+    else:
+        out["rx"] = 0.0
+        out["ry"] = 0.0
+    return out
+
+
 # 点位英文键 → 默认中文名（按机器人分开，避免上料/下料混淆）
 DEFAULT_POINT_NAMES_R1: Dict[str, str] = {
     "home": "【上料R1】初始位（回零/待机）",

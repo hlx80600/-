@@ -26,6 +26,7 @@
 | `pages/monitor_page.py` | 运行监控 |
 | `pages/vision_hub_page.py` / `vision_workspace.py` | 视觉中心 |
 | `pages/points_page.py` | 示教点位 |
+| `pages/jog_pendant.py` | 独立示教器窗口（点动封装） |
 | `pages/step_debug_page.py` | 运动步调试 |
 | `pages/config_page.py` | 通信与设备 |
 | `pages/settings_*` | 设置（语言、界面） |

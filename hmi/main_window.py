@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
         self._loaded_indices: set[int] = set()
         self._cam_win = None
         self.cam_monitor = None
+        self._jog_win = None
         self._nav_ids = [spec[0] for spec in _NAV_SPEC]
 
         # 启动只建「运行监控」，其余页首次点开再加载
@@ -260,6 +261,11 @@ class MainWindow(QMainWindow):
         style_button(self.btn_cam_win, "motion")
         self.btn_cam_win.clicked.connect(self.show_cam_monitor)
         cam_bar.addWidget(self.btn_cam_win, 0)
+        self.btn_jog_win = QPushButton()
+        self.btn_jog_win.setToolTip("")
+        style_button(self.btn_jog_win, "accent")
+        self.btn_jog_win.clicked.connect(lambda: self.show_jog_pendant())
+        cam_bar.addWidget(self.btn_jog_win, 0)
         self.lbl_page = QLabel()
         self.lbl_page.setStyleSheet("font-size:16px;font-weight:bold;color:#1a5276;")
         cam_bar.addWidget(self.lbl_page, 0)
@@ -454,6 +460,8 @@ class MainWindow(QMainWindow):
         self.lbl_nav_title.setText(i18n.tr("nav.title"))
         self.btn_cam_win.setText(i18n.tr("nav.cam_monitor_btn"))
         self.btn_cam_win.setToolTip(i18n.tr("nav.cam_monitor_tip"))
+        self.btn_jog_win.setText(i18n.tr("nav.jog_btn"))
+        self.btn_jog_win.setToolTip(i18n.tr("nav.jog_tip"))
         row = int(self.nav.currentRow())
         for i, nav_id in enumerate(self._nav_ids):
             item = self.nav.item(i)
@@ -471,6 +479,11 @@ class MainWindow(QMainWindow):
                     pass
         if self._cam_win is not None:
             i18n_fonts.apply_font_to_widget(self._cam_win, font)
+        if self._jog_win is not None:
+            i18n_fonts.apply_font_to_widget(self._jog_win, font)
+            fn_jog = getattr(self._jog_win, "retranslate_ui", None)
+            if callable(fn_jog):
+                fn_jog()
 
     def apply_hmi_refresh_settings(self) -> None:
         """设置页保存后更新定时器间隔。"""
@@ -606,14 +619,47 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         self._fast_timer.stop()
         self._slow_timer.stop()
+        for robot in (self.ctx.robot1, self.ctx.robot2):
+            try:
+                robot.stop_jog(immediate=True)
+            except Exception:
+                pass
         if self._cam_win is not None:
             self._cam_win.shutdown()
+        if self._jog_win is not None:
+            self._jog_win.shutdown()
         super().closeEvent(event)
+
+    def show_jog_pendant(self, robot_key: str | None = None) -> None:
+        """打开独立示教器（不切走当前主界面页）。"""
+        win = self._ensure_jog_win()
+        if robot_key:
+            win.panel.select_robot(str(robot_key))
+        self._place_jog_window()
+
+    def _ensure_jog_win(self):
+        if self._jog_win is not None:
+            return self._jog_win
+        from hmi.pages.jog_pendant import JogPendantWindow
+
+        win = JogPendantWindow(self.coord, parent=None)
+        self._jog_win = win
+        font, _ = i18n.apply_ui_font()
+        i18n_fonts.apply_font_to_widget(win, font)
+        return win
+
+    def _place_jog_window(self) -> None:
+        """打开示教器：记住上次大小位置，不再每次重置。"""
+        win = self._ensure_jog_win()
+        win.show_and_raise()
 
     def goto_page(self, title: str, *, vision_tab: str | None = None) -> bool:
         """按 nav id / 旧中文标题 / 显示名跳转。"""
         raw = str(title or "").strip()
         nav_id = raw
+        if raw in (T.JOG, "jog", "点动示教", "示教器"):
+            self.show_jog_pendant()
+            return True
         if raw in (T.VISION, T.VISION_SETUP, "视觉采图", "视觉调试", "vision", "vision_setup"):
             nav_id = T.VISION
         elif raw in (T.CONFIG, "通信配置", "config", "communication"):

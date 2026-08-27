@@ -63,6 +63,7 @@ def build_sections_en() -> List[Section]:
                 [
                     f"<b>{_L(T.MONITOR)}</b>: start/stop, lights, memory, slots, speed, manual gripper/press",
                     f"<b>{_L(T.CAM_MONITOR)}</b>: separate window, 4 cameras + inference overlay",
+                    f"<b>{_L(T.JOG)}</b>: separate teach-pendant window (top bar), jog while teach-points stay open",
                     f"<b>{_L(T.PRODUCTION)}</b>: count / CT / UPH",
                     f"<b>{_L(T.STEP_DEBUG)}</b>: per-station single step",
                     f"<b>{_L(T.MOTION)}</b>: per-step vel / blend",
@@ -252,6 +253,39 @@ def build_sections_en() -> List[Section]:
                     f"{_code('devices/robot_fr5.py')}",
                 ],
                 used_by=["Station2/5 via ctx.pose / move_to_point"],
+            ),
+        ),
+        (
+            "jog",
+            _L(T.JOG),
+            _io_block(
+                purpose=(
+                    "Separate teach-pendant window wrapping arm jog "
+                    "(base/tool Cartesian or joints). Stay on the current HMI page "
+                    "instead of switching to the Fairino pendant. "
+                    "Default is hold-to-run: motion only while pressed, ImmStopJOG on release. "
+                    "Inch mode moves the set mm/deg once."
+                ),
+                impl=[
+                    f"{_code('hmi/pages/jog_pendant.py')} JogPendantWindow / JogPendantPanel",
+                    f"{_code('hmi/main_window.py')} top-bar show_jog_pendant",
+                ],
+                refs=[
+                    f"{_code('devices/robot_fr5.py')} start_jog / stop_jog → StartJOG / StopJOG",
+                    "Locked during auto run, e-stop, and alarm",
+                ],
+                used_by=[
+                    "Top-bar Pendant button; Teach Points page Open pendant",
+                    f"Saving taught points still uses {_L(T.POINTS)} (read current TCP/joints)",
+                ],
+            )
+            + _h("Notes")
+            + _ul(
+                [
+                    "Speed cap 25%; start around 8%. Keep people clear; e-stop ready.",
+                    "Tool frame follows the active TCP. Gripper open/close stays on the gripper page.",
+                    "Closing the pendant or the main window stops jogging.",
+                ]
             ),
         ),
         (

@@ -105,6 +105,18 @@ class GripperDebugPage(QWidget):
         # —— 状态 ——
         box_st = QGroupBox("当前电机状态")
         vst = QVBoxLayout(box_st)
+        self.lbl_pos = QLabel("当前位置: —")
+        self.lbl_pos.setAlignment(Qt.AlignCenter)
+        self.lbl_pos.setMinimumHeight(48)
+        self.lbl_pos.setStyleSheet(
+            "background:#0e2a3a;color:#2ecc71;padding:10px;border-radius:6px;"
+            "font-size:22px;font-weight:bold;"
+        )
+        vst.addWidget(self.lbl_pos)
+        self.lbl_pos_target = QLabel("目标: 开 — / 关 —")
+        self.lbl_pos_target.setAlignment(Qt.AlignCenter)
+        self.lbl_pos_target.setStyleSheet("color:#85c1e9;font-size:13px;")
+        vst.addWidget(self.lbl_pos_target)
         self.lbl_status = QLabel("-")
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setStyleSheet(
@@ -125,9 +137,9 @@ class GripperDebugPage(QWidget):
         # —— 启用电机一览 ——
         box_list = QGroupBox("启用电机一览")
         vl = QVBoxLayout(box_list)
-        self.tbl = QTableWidget(0, 6)
+        self.tbl = QTableWidget(0, 7)
         self.tbl.setHorizontalHeaderLabels(
-            ["序号", "名称", "接口", "can_id", "连接/状态", "错误"]
+            ["序号", "名称", "接口", "can_id", "连接/状态", "位置(rad)", "错误"]
         )
         self.tbl.horizontalHeader().setStretchLastSection(True)
         self.tbl.setMinimumHeight(160)
@@ -347,11 +359,31 @@ class GripperDebugPage(QWidget):
     def _refresh_status(self) -> None:
         g = self._gripper()
         if g is None:
+            self.lbl_pos.setText("当前位置: 无实例")
+            self.lbl_pos_target.setText("目标: 开 — / 关 —")
             self.lbl_status.setText("无实例")
             self._set_lamp(self.lamp_open, False, "#2ecc71")
             self._set_lamp(self.lamp_close, False, "#f39c12")
             return
-        snap = g.status_snapshot() if hasattr(g, "status_snapshot") else {}
+        snap = (
+            g.status_snapshot(poll=True)
+            if hasattr(g, "status_snapshot")
+            else {}
+        )
+        tick = getattr(self, "_ui_tick", 0)
+        if tick % 8 == 0 and hasattr(g, "poll_feedback"):
+            g.poll_feedback(query=True)
+            snap = g.status_snapshot(poll=False) if hasattr(g, "status_snapshot") else snap
+        pos_txt = snap.get("position_text") or "—"
+        self.lbl_pos.setText(f"当前位置: {pos_txt}")
+        open_t = snap.get("open_target_rad")
+        close_t = snap.get("close_target_rad")
+        if open_t is None or close_t is None:
+            self.lbl_pos_target.setText("目标: 开 — / 关 —（Mock 无编码器）")
+        else:
+            self.lbl_pos_target.setText(
+                f"目标: 开 {float(open_t):.3f} rad  /  关 {float(close_t):.3f} rad"
+            )
         alarm = self.ctx.alarms.active
         alarm_txt = (
             f"\n当前报警: [{alarm.code}] {alarm.message}"
@@ -391,16 +423,20 @@ class GripperDebugPage(QWidget):
             if g is None:
                 st = "无实例"
                 err = ""
+                pos = "—"
             elif g.use_mock:
                 st = "模拟"
                 err = g.last_error or ""
+                pos = "模拟"
             else:
                 st = "已连接" if g.connected else "未连接"
                 if g.busy:
                     st += "/动作中"
                 err = g.last_error or ""
+                pos = g.position_display() if hasattr(g, "position_display") else "—"
             self.tbl.setItem(r, 4, QTableWidgetItem(st))
-            self.tbl.setItem(r, 5, QTableWidgetItem(err))
+            self.tbl.setItem(r, 5, QTableWidgetItem(pos))
+            self.tbl.setItem(r, 6, QTableWidgetItem(err))
 
     def refresh(self) -> None:
         """主窗周期刷新（仅当前页可见时）。"""
@@ -429,14 +465,23 @@ class GripperDebugPage(QWidget):
                     continue
                 if g.use_mock:
                     st = "模拟"
+                    pos = "模拟"
                 else:
                     st = "已连接" if g.connected else "未连接"
                     if g.busy:
                         st += "/动作中"
+                    pos = g.position_display() if hasattr(g, "position_display") else "—"
                 err = g.last_error or ""
                 it = self.tbl.item(r, 4)
                 if it and it.text() != st:
                     it.setText(st)
-                ite = self.tbl.item(r, 5)
-                if ite and ite.text() != err:
+                itp = self.tbl.item(r, 5)
+                if itp is None:
+                    self.tbl.setItem(r, 5, QTableWidgetItem(pos))
+                elif itp.text() != pos:
+                    itp.setText(pos)
+                ite = self.tbl.item(r, 6)
+                if ite is None:
+                    self.tbl.setItem(r, 6, QTableWidgetItem(err))
+                elif ite.text() != err:
                     ite.setText(err)
