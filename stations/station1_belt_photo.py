@@ -103,6 +103,7 @@ def cycle(ctx) -> None:
                         # 抓取中心→鞋头（抓取TCP系 mm）；每只鞋不同，Station2 据此改工具TCP
                         "toe_offset_in_grasp_tcp": toe_off,
                         "shoe_length_mm": length_mm,
+                        "vision_snap_id": str(getattr(r, "snap_id", "") or ""),
                     }
                     gvl.PickPose.update(
                         {
@@ -117,6 +118,7 @@ def cycle(ctx) -> None:
                     )
                     # 锁定本拍结果，Station2 取料全程只认这份，不被后续拍照/HMI 改写
                     gvl.BeltPickSnapshot = dict(snap)
+                    gvl._vision_load_snap_id = str(snap.get("vision_snap_id") or "")
                     ctx.runtime_pick.update(gvl.PickPose)
                     # 无论是否识别为 shield_mock，cam1 Mock 拍照成功后都推进轮询
                     if snap["source"] == "shield_mock" or ctx.vision.cam_is_mock("cam1"):

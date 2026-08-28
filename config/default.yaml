@@ -313,6 +313,9 @@ vision:
     repick_vel: 20.0
   photo_retry: 3
   photo_retry_interval_s: 1.0
+  # 生产拍照落盘 logs/vision_snaps/；运送完成回写 transport。监视刷新不存
+  save_runtime_snaps: true
+  snap_keep_days: 7
   guide_retry: 3
   toe_align_mock_tries: 3
   toe_align_mock_step_mm: 8.0

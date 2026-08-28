@@ -28,6 +28,7 @@ from core.coordinator import Coordinator
 from devices.pose_utils import numeric_pose
 from hmi.pages.obb_label_widget import ObbLabelPanel
 from hmi.pages.cls_preview_widget import ClassifyPreviewPanel
+from hmi.pages.points_page import NoWheelComboBox
 from hmi.style import apply_page_chrome, style_button, style_many
 from hmi.tab_titles import T
 from vision import commission_actions as cact
@@ -101,7 +102,9 @@ class ZeroToPickPage(QWidget):
         self.lbl_cuda.setStyleSheet("color:#34495e;padding:2px 0;")
         l1.addWidget(self.lbl_cuda)
         r1b = QHBoxLayout()
-        self.cmb_slot = QComboBox()
+        self.cmb_slot = NoWheelComboBox()
+        self.cmb_slot.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.cmb_slot.setMaximumWidth(280)
         for sid, meta in mstore.SLOTS.items():
             self.cmb_slot.addItem(meta["label"], sid)
         self.cmb_slot.currentIndexChanged.connect(self._on_slot)
@@ -111,9 +114,10 @@ class ZeroToPickPage(QWidget):
         b_pick.clicked.connect(lambda: self._install_pt(copy=False))
         b_copy.clicked.connect(lambda: self._install_pt(copy=True))
         r1b.addWidget(QLabel("槽位"), 0)
-        r1b.addWidget(self.cmb_slot, 1)
+        r1b.addWidget(self.cmb_slot, 0)
         r1b.addWidget(b_pick, 0)
         r1b.addWidget(b_copy, 0)
+        r1b.addStretch(1)
         l1.addLayout(r1b)
         root.addWidget(g1)
 
@@ -128,10 +132,16 @@ class ZeroToPickPage(QWidget):
         l2.addWidget(self.lbl_job)
 
         r2 = QHBoxLayout()
-        self.cmb_cls = QComboBox()
+        self.cmb_cls = NoWheelComboBox()
+        self.cmb_cls.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.cmb_cls.setMinimumContentsLength(6)
         self.cmb_cls.currentIndexChanged.connect(self._on_cls)
+        self.lbl_cls_hint = QLabel()
+        self.lbl_cls_hint.setWordWrap(True)
+        self.lbl_cls_hint.setStyleSheet("color:#566573;")
         r2.addWidget(QLabel("类别"), 0)
-        r2.addWidget(self.cmb_cls, 1)
+        r2.addWidget(self.cmb_cls, 0)
+        r2.addWidget(self.lbl_cls_hint, 1)
         l2.addLayout(r2)
 
         r2c = QHBoxLayout()
@@ -185,7 +195,7 @@ class ZeroToPickPage(QWidget):
         self.sp_ep = QSpinBox()
         self.sp_ep.setRange(1, 400)
         self.sp_ep.setValue(40)
-        self.cmb_dev = QComboBox()
+        self.cmb_dev = NoWheelComboBox()
         # 显示文案给现场选；实际 device 存在 itemData
         self.cmb_dev.addItem("CPU（不加GPU）", "cpu")
         self.cmb_dev.addItem("GPU（CUDA:0）", "0")
@@ -328,6 +338,8 @@ class ZeroToPickPage(QWidget):
         self.cmb_cls.clear()
         classes = list(meta.get("classes") or [])
         if classes:
+            self.lbl_cls_hint.hide()
+            self.cmb_cls.show()
             for c in classes:
                 self.cmb_cls.addItem(mstore.class_label(c), c)
             self.cmb_cls.setEnabled(self._job not in ("train", "pip"))
@@ -335,8 +347,11 @@ class ZeroToPickPage(QWidget):
             if idx >= 0:
                 self.cmb_cls.setCurrentIndex(idx)
         else:
-            self.cmb_cls.addItem("（找鞋/楦/压杆：不用选类，下面圈图）", "")
-            self.cmb_cls.setEnabled(False)
+            self.cmb_cls.hide()
+            self.lbl_cls_hint.setText(
+                "本任务是画框（找鞋 / 鞋楦 / 压杆），没有类别可选；在下方预览里圈图即可。"
+            )
+            self.lbl_cls_hint.show()
         self.cmb_cls.blockSignals(False)
         self._refresh_counts()
         if hasattr(self, "cls_preview"):

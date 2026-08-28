@@ -118,6 +118,9 @@ class GVL:
         self._last_place_result = None
         self._last_pick_result = None
         self._last_belt_result = None
+        # 本拍视觉快照 id：上料(cam1) / 下料(cam4)，运送完成后再回写结果
+        self._vision_load_snap_id = ""
+        self._vision_unload_snap_id = ""
         self._last_guide = None
         self._last_toe_align = None
 

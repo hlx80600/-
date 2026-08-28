@@ -252,10 +252,10 @@ python3 main.py
 |--------|------|
 | 知道程序怎么跑起来 | [docs/程序总览.md](docs/程序总览.md) |
 | 改 IP、CAN、压机地址 | [docs/操作说明.md](docs/操作说明.md) + `config/default.yaml` |
-| 学 HMI 怎么点、手眼标定 | [docs/界面操作手册.md](docs/界面操作手册.md) |
+| 学 HMI 怎么点、手眼标定、运行快照 | [docs/界面操作手册.md](docs/界面操作手册.md)（§14.4 报警记录 · 运行快照） |
 | 查视觉函数谁调谁 | [algorithm_module/readme.md](algorithm_module/readme.md) |
 | 夹爪接线与试夹 | [docs/夹爪使用说明.md](docs/夹爪使用说明.md) |
-| 界面里搜说明 | 运行程序 → 左侧 **Help / 使用说明** |
+| 界面里搜说明 | 运行程序 → 左侧 **Help / 使用说明**（含专章「报警记录 · 运行快照」） |
 
 ---
 

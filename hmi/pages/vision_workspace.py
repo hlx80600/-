@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-import subprocess
 import threading
 import time
 
@@ -20,8 +19,8 @@ except ImportError:
     cv2 = None  # type: ignore
     np = None  # type: ignore
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QImage, QMouseEvent, QPixmap
+from PySide6.QtCore import Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QImage, QMouseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -46,7 +45,6 @@ from core.config_loader import save_config
 from core.camera_config import preview_interval_ms
 from core.coordinator import Coordinator
 from hmi import i18n
-from hmi.load_progress import run_load_task
 from hmi.style import apply_page_chrome, style_button, style_many
 from hmi.scroll_util import disable_tab_bar_wheel
 from hmi.tab_titles import T
@@ -289,15 +287,18 @@ class VisionWorkspace(QWidget):
         self.lbl_img = QLabel("图像: -")
         root.addWidget(self.lbl_img)
 
-        # —— 子页签（Hub 可再追加「采图训练」；除首项外懒加载）——
+        # —— 子页签（Hub 再追加「采图训练」）——
+        # 四个标定页都是轻量表单，一次建完。不要先放「加载中…」再 removeTab：
+        # QTabWidget.removeTab(当前页) 会把当前项甩到下一张（棋盘格内参），
+        # 看起来像永远卡在「加载中…」，必须切走再点回来才会真正构建。
         self.inner_tabs = QTabWidget()
         self.inner_tabs.setDocumentMode(True)
+        self.inner_tabs.blockSignals(True)
         for tab_name in (TAB_CAMERA_ROI, TAB_CHESSBOARD, TAB_HANDEYE, TAB_DETECT):
-            ph = QWidget()
-            ph_lay = QVBoxLayout(ph)
-            ph_lay.addWidget(QLabel("加载中…"))
-            self.inner_tabs.addTab(ph, tab_name)
-        self._ensure_inner_tab(TAB_CAMERA_ROI)
+            self.inner_tabs.addTab(self._tab_builders[tab_name](), tab_name)
+            self._tabs_built.add(tab_name)
+        self.inner_tabs.setCurrentIndex(0)
+        self.inner_tabs.blockSignals(False)
         self.inner_tabs.currentChanged.connect(self._on_inner_tab_changed)
         disable_tab_bar_wheel(self.inner_tabs)
         root.addWidget(self.inner_tabs, 1)
@@ -329,7 +330,10 @@ class VisionWorkspace(QWidget):
             self.btn_cam_win.setText(i18n.tr("nav.cam_monitor_btn"))
 
     def _ensure_inner_tab(self, name: str) -> None:
-        """首次进入子页签再构建，减轻首开卡顿。"""
+        """补建尚未构造的子页签。采图训练由 Hub 负责，这里没有 builder。
+
+        替换页签时必须挡住信号并还原 currentIndex：removeTab 会把当前项改到下一张。
+        """
         if name in self._tabs_built:
             return
         builder = self._tab_builders.get(name)
@@ -342,23 +346,26 @@ class VisionWorkspace(QWidget):
                 break
         if tab_index < 0:
             return
+        widget = builder()
+        tabs = self.inner_tabs
+        tabs.blockSignals(True)
+        current = tabs.currentIndex()
+        old = tabs.widget(tab_index)
+        tabs.removeTab(tab_index)
+        tabs.insertTab(tab_index, widget, name)
+        want = current if 0 <= current < tabs.count() else 0
+        tabs.setCurrentIndex(want)
+        tabs.blockSignals(False)
+        if old is not None:
+            old.deleteLater()
+        self._tabs_built.add(name)
 
-        def _build_tab() -> QWidget:
-            widget = builder()
-            old = self.inner_tabs.widget(tab_index)
-            self.inner_tabs.removeTab(tab_index)
-            self.inner_tabs.insertTab(tab_index, widget, name)
-            if old is not None:
-                old.deleteLater()
-            self._tabs_built.add(name)
-            return widget
-
-        run_load_task(
-            self,
-            i18n.tr("load.progress.tab", name=name),
-            i18n.tr("load.progress.build_ui"),
-            _build_tab,
-        )
+    def _ensure_visible_inner_tab(self) -> None:
+        """当前可见子页签若仍是占位，立刻建好（不要求先切走再点回来）。"""
+        idx = self.inner_tabs.currentIndex()
+        if idx < 0:
+            return
+        self._ensure_inner_tab(self.inner_tabs.tabText(idx))
 
     def _on_inner_tab_changed(self, idx: int) -> None:
         if idx < 0:
@@ -417,7 +424,15 @@ class VisionWorkspace(QWidget):
         bind.addWidget(self.ed_serial, 1)
         bind.addWidget(QLabel("index:"), 0)
         bind.addWidget(self.sp_index, 0)
-        for b in (b_enum, b_bind, b_copy, b_open_snap, b_open_cal, b_open_models, self.btn_cam_win):
+        for b in (
+            b_enum,
+            b_bind,
+            b_copy,
+            b_open_snap,
+            b_open_cal,
+            b_open_models,
+            self.btn_cam_win,
+        ):
             bind.addWidget(b, 0)
         comm_lay.addLayout(bind)
         self.lbl_check = QLabel("-")
@@ -820,6 +835,7 @@ class VisionWorkspace(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._ensure_visible_inner_tab()
         self._sync_preview_timer_interval()
         # 不在 show 当拍同步刷图；等 deferred / 定时器
         if not self._preview_timer.isActive():
@@ -918,10 +934,9 @@ class VisionWorkspace(QWidget):
 
     def _open_dir(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
-        try:
-            subprocess.Popen(["xdg-open", str(path)])
-        except Exception as e:
-            QMessageBox.information(self, "打开目录", f"{path}\n{e}")
+        if QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))):
+            return
+        QMessageBox.information(self, "打开目录", f"无法自动打开，请手动进入：\n{path}")
 
     def _enum_devices(self) -> None:
         try:

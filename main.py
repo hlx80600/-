@@ -68,11 +68,10 @@ log = logging.getLogger(__name__)
 
 
 def setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    """控制台 + logs/ 落盘 + 黑匣子（退出后仍可查）。"""
+    from core.blackbox import install
+
+    install()
 
 
 class BootSplash(QWidget):

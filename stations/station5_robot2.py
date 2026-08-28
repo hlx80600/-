@@ -19,6 +19,7 @@ from core.plc_util import (
     sync_mem,
 )
 from devices.pose_utils import apply_offset, numeric_pose
+from vision.vision_journal import record_transport
 
 
 def _slot_pick_pose(ctx) -> dict:
@@ -264,6 +265,13 @@ def cycle(ctx) -> None:
                 A[20] = 0
                 cmd_reset_prefix(gvl, "s5a20_")
                 ctx.production.record_unload()
+                record_transport(
+                    str(getattr(gvl, "_vision_unload_snap_id", "") or ""),
+                    stage="unload",
+                    ok=True,
+                    message="下料放到皮带完成",
+                    extra={"pick_slot": int(getattr(ctx.press, "pick_slot", 0) or 0)},
+                )
 
         case _:
             pass

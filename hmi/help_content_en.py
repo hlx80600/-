@@ -51,7 +51,7 @@ def build_sections_en() -> List[Section]:
                     f"<b>{_L(T.POINTS)}</b>: teach entry, slot, offsets → save",
                     f"<b>{_L(T.MOTION)}</b>: step speeds; disable blend on retreat if needed",
                     f"<b>{_L(T.PRESS_IO)}</b>: slot sequence & addresses",
-                    f"<b>{_L(T.VISION)}</b>: models; ROI → intrinsics → hand-eye → test → capture/train",
+                    f"<b>{_L(T.VISION)}</b>: models; ROI → intrinsics → hand-eye → test → run snaps → capture/train",
                     f"<b>{_L(T.SHIELD_PICK)}</b>: teach pick when cam1 Mock",
                     f"<b>{_L(T.GRIPPER)}</b>: verify open/close",
                     f"<b>{_L(T.DRY_RUN)}</b> / <b>{_L(T.STEP_DEBUG)}</b>: dry-run or single step",
@@ -75,7 +75,7 @@ def build_sections_en() -> List[Section]:
                     f"<b>{_L(T.PRESS_IO)}</b>: press slots & Modbus",
                     f"<b>{_L(T.GRIPPER)}</b>: gripper debug & GRIP_* reset",
                     f"<b>{_L(T.SETTINGS)}</b>: language, UI, comm",
-                    f"<b>{_L(T.ALARM)}</b>: alarms",
+                    f"<b>{_L(T.ALARM)}</b>: this-run / saved errors / black box / run snaps (JPEG names include camera and time)",
                 ]
             )
             + _h("Stack lights")
@@ -158,6 +158,7 @@ def build_sections_en() -> List[Section]:
                 used_by=[
                     f"Top bar {_L(T.CAM_MONITOR)} button",
                     f"{_L(T.VISION)} monitor button",
+                    "Live inference does not write run snaps; browse history on Alarms → Run snaps",
                 ],
             ),
         ),
@@ -219,7 +220,7 @@ def build_sections_en() -> List[Section]:
             _L(T.VISION),
             _io_block(
                 purpose=(
-                    "Vision hub: preview + tabs for ROI, chessboard intrinsics, hand-eye, detection test, capture/train."
+                    "Vision hub: preview + tabs for ROI, chessboard, hand-eye, detection test, capture/train."
                 ),
                 impl=[
                     f"{_code('hmi/pages/vision_hub_page.py')}",
@@ -230,7 +231,10 @@ def build_sections_en() -> List[Section]:
                     f"{_code('vision/vision_service.py')}",
                     f"{_code('algorithm_module')}",
                 ],
-                used_by=["Commission before production; auto flow uses same VisionService"],
+                used_by=[
+                    "Commission before production; auto flow uses same VisionService",
+                    "Production photos: browse Alarms → Run snaps (manual §14.4)",
+                ],
             )
             + _h("Four cameras")
             + _ul(
@@ -239,6 +243,154 @@ def build_sections_en() -> List[Section]:
                     "<b>cam2</b>: toe align classify → Station2 MoveL",
                     "<b>cam3</b>: place slot occupied (Station3)",
                     "<b>cam4</b>: pick slot + rod offset (Station4→5)",
+                ]
+            )
+            + _h("Run snaps (on Alarms page)")
+            + _p(
+                "Auto-flow photos and this page's detection tests save raw, overlay, and detect results under "
+                + _code("logs/vision_snaps/")
+                + ". JPEG names include camera and time, e.g. "
+                + _code("cam1_20260828_140455_635_belt_pick_raw.jpg")
+                + ". After place/slot-check/unload the <b>same</b> record is updated. "
+                "Browse on <b>Alarms → Run snaps</b>. "
+                "Camera-monitor live inference does <b>not</b> save. "
+                "Full detail is in the next chapter and paper manual "
+                + _code("docs/界面操作手册.md")
+                + " §14.4."
+            ),
+        ),
+        (
+            "vision_snaps",
+            "Alarms · run snaps (history / transport / open log)",
+            _h("Purpose")
+            + _p(
+                "Bind “what the camera saw” to “where it was carried and whether that succeeded”, "
+                "so you can debug from the HMI without hunting folders on the IPC."
+            )
+            + _p(
+                "At photo time: JPEGs named with camera + time + kind, plus detect fields. "
+                "After the robot finishes place-into-slot or unload-to-belt: write back onto that same record. "
+                "Browse under Alarms → Run snaps, or open the vision log folder."
+            )
+            + _h("Implementation")
+            + _ul(
+                [
+                    f"{_code('hmi/pages/vision_snap_page.py')} — list, images, detail, open folder",
+                    f"{_code('hmi/pages/alarm_page.py')} — fourth tab Run snaps",
+                    f"{_code('vision/vision_journal.py')} — save, transport write-back, listing",
+                    f"{_code('vision/vision_service.py')} — photo_* persist=True by default; monitor persist=False",
+                    f"{_code('stations/station1_belt_photo.py')} — stores vision_snap_id on confirm",
+                    f"{_code('stations/station2_robot1.py')} — place write-back",
+                    f"{_code('stations/station3_place_slot_photo.py')} — slot_check write-back",
+                    f"{_code('stations/station4_pick_slot_photo.py')} — unload snap id",
+                    f"{_code('stations/station5_robot2.py')} — unload write-back",
+                ]
+            )
+            + _h("When a snap is saved")
+            + _ul(
+                [
+                    "<b>Station1</b> belt photo (cam1): every photo_belt_pick, success or fail. "
+                    "After the pick pose is confirmed, snap_id is stored on BeltPickSnapshot for later write-back.",
+                    "<b>Station3</b> place-slot photo (cam3): empty/occupied and left/right slot.",
+                    "<b>Station4</b> pick-slot photo (cam4): occupied + rod offset.",
+                    "Vision → Detection test: test belt / place slot / pick slot (same APIs as production).",
+                    "Write PickPose from vision: keeps snap_id so a later auto place can still write transport.",
+                ]
+            )
+            + _h("When it is intentionally not saved")
+            + _ul(
+                [
+                    "Camera monitor live inference and periodic monitor refresh (too frequent; no one-shoe identity).",
+                    "cam2 toe-align / edge guide (repeated during motion).",
+                    "Top-bar Save screenshot on the vision page: that is calibration shots in "
+                    + _code("config/vision_snaps/")
+                    + ", not run snaps.",
+                ]
+            )
+            + _h("On disk")
+            + _p(
+                "Root "
+                + _code("logs/vision_snaps/")
+                + " (gitignored). Per day:"
+            )
+            + _ul(
+                [
+                    _code("cam1_20260828_140455_635_belt_pick_raw.jpg")
+                    + " — raw (name = camera_time_kind_raw)",
+                    _code("…_vis.jpg") + " — overlay",
+                    _code("meta.json") + " — detect fields + transport",
+                    _code("index.jsonl") + " — index (one line per photo, plus a line per transport write-back)",
+                ]
+            )
+            + _p("Id looks like <code>20260828_111343_635_cam1_belt_pick</code> (time, camera, kind).")
+            + _h("Transport write-back")
+            + _p(
+                "Stored in <code>meta.json</code> → <code>transport</code>. "
+                "HMI detail pane and list summaries (placed slot #2 / not yet / can place / unloaded) read this."
+            )
+            + _ul(
+                [
+                    "<b>place</b> — Station2 after place, back at place_entry. Slot number and left/right. Tied to the cam1 belt shot.",
+                    "<b>slot_check</b> — Station3 decision: empty+matching side → can place; "
+                    "side mismatch → no place, rotate only; occupied → no place. "
+                    "Written on the cam3 shot and also on the in-flight cam1 shot.",
+                    "<b>unload</b> — Station5 after belt place and production count. Pick-slot number. Tied to the cam4 shot.",
+                ]
+            )
+            + _p(
+                "If detail says not written yet: the shoe is still in motion, or you only ran Detection test. Click Reload."
+            )
+            + _h("How to open and browse on HMI")
+            + _ol(
+                [
+                    "Nav → Alarms → tab Run snaps (next to Black box).",
+                    "Open vision log folder opens "
+                    + _code("logs/vision_snaps/")
+                    + ".",
+                    "List is newest first; filter by camera/kind; 20 per page.",
+                    "Select a row: raw + overlay on the right; detect data and transport below.",
+                    "After place or unload, click Reload to see “placed slot #n” / “unloaded”.",
+                    "Open this item’s folder to copy the camera-and-time-named JPEGs and meta.json.",
+                    "Copy detail copies the text pane.",
+                ]
+            )
+            + _h("Not the same as screenshot / calib folders")
+            + _ul(
+                [
+                    "<b>Open vision log / Run snaps</b> → "
+                    + _code("logs/vision_snaps/")
+                    + " production history with transport.",
+                    "<b>Screenshot folder</b> → "
+                    + _code("config/vision_snaps/")
+                    + " manual Save screenshot, no transport.",
+                    "<b>Calib / YOLO model folders</b> → files and weights, not run history.",
+                    "Alarms → Open log folder → whole "
+                    + _code("logs/")
+                    + " (app.log, black box). Run snaps has its own Open vision log folder for vision_snaps only.",
+                ]
+            )
+            + _h("Config")
+            + _p(
+                _code("config/default.yaml")
+                + " → <code>vision.save_runtime_snaps</code> (default true) "
+                "and <code>vision.snap_keep_days</code> (default 7, old day folders pruned). Restart after edit."
+            )
+            + _h("Field debug tips")
+            + _ul(
+                [
+                    "Missed pick: filter cam1 / belt, compare overlay vs X/Y/Rz, side, shoe length.",
+                    "Wrong slot / rotate-only: cam1 slot_check/place and cam3 decision text.",
+                    "Empty unload: cam4 occupied + rod offset, unload slot number.",
+                    "List still “not transported” after the cycle: Reload; if still empty check Alarms / black box for a stop.",
+                    "Grey “no image yet”: JPEG is written on a background thread; wait a second and Reload.",
+                ]
+            )
+            + _h("Used by")
+            + _ul(
+                [
+                    "Operators browsing on Alarms → Run snaps",
+                    "Debug: detection test and auto flow share the same journal",
+                    f"Paper steps: {_code('docs/界面操作手册.md')} §14.4",
                 ]
             ),
         ),
@@ -351,10 +503,28 @@ def build_sections_en() -> List[Section]:
             "alarm",
             _L(T.ALARM),
             _io_block(
-                purpose="Alarm history, copy text, alarm reset.",
-                impl=[f"{_code('hmi/pages/alarm_page.py')}"],
-                refs=[f"{_code('core/alarm.py')}"],
+                purpose=(
+                    "This-run alarms (paged), copy, reset. Saved errors / black box / run snaps live in logs/, survive exit. "
+                    "Run snaps: production photos (JPEG names include camera and time) plus transport write-back. "
+                    "Open log folder opens whole logs/; the snaps tab also opens vision_snaps."
+                ),
+                impl=[
+                    f"{_code('hmi/pages/alarm_page.py')}",
+                    f"{_code('hmi/pages/vision_snap_page.py')}",
+                    f"{_code('core/blackbox.py')}",
+                ],
+                refs=[f"{_code('core/alarm.py')}", "logs/"],
                 used_by=["Main window popup timer; motion/vision failures"],
+            )
+            + _h("Four tabs")
+            + _ul(
+                [
+                    "<b>This run</b>: alarms since start (paged). After exit, use saved errors / black box.",
+                    "<b>Saved errors</b>: WARNING/ERROR/alarms in logs/errors.jsonl, survive restart.",
+                    "<b>Black box</b>: trajectory around faults (blackbox.jsonl); crash dumps in logs/dumps/. Not camera photos.",
+                    "<b>Run snaps</b>: production raw/overlay JPEGs (camera_time_kind_raw/vis.jpg) plus transport write-back. "
+                    "See previous chapter and manual §14.4.",
+                ]
             ),
         ),
         (
@@ -365,11 +535,11 @@ def build_sections_en() -> List[Section]:
             + _h("Files")
             + _ul(
                 [
-                    f"Station1 {_code('station1_belt_photo.py')} — belt photo",
-                    f"Station2 {_code('station2_robot1.py')} — load arm",
-                    f"Station3 {_code('station3_place_slot_photo.py')}",
-                    f"Station4 {_code('station4_pick_slot_photo.py')}",
-                    f"Station5 {_code('station5_robot2.py')} — unload",
+                    f"Station1 {_code('station1_belt_photo.py')} — belt photo; stores run-snap id",
+                    f"Station2 {_code('station2_robot1.py')} — load arm; place write-back",
+                    f"Station3 {_code('station3_place_slot_photo.py')} — slot_check write-back",
+                    f"Station4 {_code('station4_pick_slot_photo.py')} — unload snap id",
+                    f"Station5 {_code('station5_robot2.py')} — unload + production count + unload write-back",
                     f"Station6 {_code('station6_press_rotate.py')} — press & rotate",
                 ]
             ),

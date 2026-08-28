@@ -25,12 +25,13 @@
 |------|------|
 | `pages/monitor_page.py` | 运行监控 |
 | `pages/vision_hub_page.py` / `vision_workspace.py` | 视觉中心 |
+| `pages/vision_snap_page.py` | 运行快照历史（图 + 运送结果；嵌在报警记录页） |
 | `pages/points_page.py` | 示教点位 |
 | `pages/jog_pendant.py` | 独立示教器窗口（点动封装） |
 | `pages/step_debug_page.py` | 运动步调试 |
 | `pages/config_page.py` | 通信与设备 |
 | `pages/settings_*` | 设置（语言、界面） |
-| `pages/help_page.py` | 使用说明 |
+| `pages/alarm_page.py` | 报警记录（本次运行 / 落盘错误 / 黑匣子 / 运行快照） |
 
 ---
 

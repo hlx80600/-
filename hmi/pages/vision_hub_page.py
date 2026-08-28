@@ -50,9 +50,12 @@ class VisionHubPage(QWidget):
         self._train_placeholder.setStyleSheet("color:#7f8c8d;padding:24px;")
         train_lay.addWidget(self._train_placeholder)
 
-        # 把采图训练挂到工作区已有的 inner_tabs
+        # 把采图训练挂到工作区已有的 inner_tabs；挡住信号，避免 addTab 改当前页签
         self.tabs = self.workspace.inner_tabs
+        self.tabs.blockSignals(True)
         self.tabs.addTab(self._train_host, TAB_TRAIN)
+        self.tabs.setCurrentIndex(0)
+        self.tabs.blockSignals(False)
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         root = QVBoxLayout(self)
@@ -88,11 +91,15 @@ class VisionHubPage(QWidget):
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        # 工作区自有 showEvent 会启预览；此处确保已加载后补刷训练页进度
-        if self._train_page is not None and self.tabs.tabText(self.tabs.currentIndex()) == TAB_TRAIN:
-            fn = getattr(self._train_page, "refresh", None)
-            if callable(fn):
-                QTimer.singleShot(30, fn)
+        # 工作区自有 showEvent 会启预览；若当前已是采图训练则补刷
+        idx = self.tabs.currentIndex()
+        if idx >= 0 and self.tabs.tabText(idx) == TAB_TRAIN:
+            if self._train_page is None:
+                QTimer.singleShot(0, self._ensure_train_page)
+            else:
+                fn = getattr(self._train_page, "refresh", None)
+                if callable(fn):
+                    QTimer.singleShot(30, fn)
 
     def _on_tab_changed(self, idx: int) -> None:
         if idx < 0:

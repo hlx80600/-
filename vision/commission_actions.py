@@ -172,9 +172,11 @@ def apply_belt_pick(ctx) -> tuple[Any, str]:
             "message": str(getattr(r, "message", "")),
             "toe_offset_in_grasp_tcp": toe_off,
             "shoe_length_mm": length_mm,
+            "vision_snap_id": str(getattr(r, "snap_id", "") or ""),
         }
     )
     gvl.BeltPickSnapshot = snap
+    gvl._vision_load_snap_id = str(snap.get("vision_snap_id") or "")
     ctx.runtime_pick.update(gvl.PickPose)
     side = "左鞋" if pose["is_left_shoe"] else "右鞋"
     msg = (

@@ -9,6 +9,7 @@ import logging
 
 from core.plc_util import advance_step, cmd_reset, delay_done, delay_start, pulse_cmd, sync_mem
 from devices.pose_utils import is_left_shoe_flag
+from vision.vision_journal import record_transport
 
 log = logging.getLogger(__name__)
 
@@ -112,6 +113,37 @@ def cycle(ctx) -> None:
             gvl._last_place_mem10 = bool(ctx.memory[10])
 
             if advance_step(st, single):
+                can_place = "可放料" in decision
+                detail = {
+                    "has_material": bool(r.has_material) if r else None,
+                    "is_left_slot": (r.is_left_slot if r else None),
+                    "want_left": want_left,
+                    "decision": decision,
+                    "place_slot": int(getattr(ctx.press, "place_slot", 0) or 0),
+                }
+                cam3_id = str(getattr(r, "snap_id", "") or "") if r else ""
+                snap = getattr(gvl, "BeltPickSnapshot", None) or {}
+                load_id = str(
+                    (snap.get("vision_snap_id") if isinstance(snap, dict) else "")
+                    or getattr(gvl, "_vision_load_snap_id", "")
+                    or ""
+                )
+                if cam3_id:
+                    record_transport(
+                        cam3_id,
+                        stage="slot_check",
+                        ok=can_place,
+                        message=decision,
+                        extra=detail,
+                    )
+                if load_id and load_id != cam3_id:
+                    record_transport(
+                        load_id,
+                        stage="slot_check",
+                        ok=can_place,
+                        message=decision,
+                        extra=detail,
+                    )
                 A[10] = 0
 
         case _:

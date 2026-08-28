@@ -1,12 +1,15 @@
-"""报警管理：弹窗用队列 + 历史列表。"""
+"""报警管理：弹窗用队列 + 历史列表；同时写入落盘错误日志/黑匣子。"""
 
 from __future__ import annotations
 
+import logging
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 from threading import RLock
 from typing import Callable, Deque, List, Optional
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,6 +55,15 @@ class AlarmManager:
             self.history.appendleft(item)
             if popup:
                 self._popup_queue.append(item)
+        try:
+            from core.blackbox import record_alarm
+
+            record_alarm(
+                code, message, station, step, popup=popup, active=True
+            )
+        except Exception:
+            pass
+        log.error("报警 [%s] %s@%s %s", code, station, step, message)
         self._notify()
 
     def note_event(
@@ -63,6 +75,15 @@ class AlarmManager:
         )
         with self._lock:
             self.history.appendleft(item)
+        try:
+            from core.blackbox import record_alarm
+
+            record_alarm(
+                code, message, station, step, popup=False, active=False
+            )
+        except Exception:
+            pass
+        log.warning("事件 [%s] %s@%s %s", code, station, step, message)
         self._notify()
 
     def reset(self) -> Optional[AlarmItem]:

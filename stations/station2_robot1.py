@@ -26,6 +26,7 @@ from core.plc_util import (
     sync_mem,
 )
 from devices.pose_utils import apply_offset, is_left_shoe_flag, numeric_pose
+from vision.vision_journal import record_transport
 from devices.toe_tcp import (
     apply_holding_keep_grasp_tcp,
     apply_toe_tcp_after_grasp,
@@ -401,6 +402,26 @@ def cycle(ctx) -> None:
             # 放料完成：手爪空；槽侧有料待转；左右脚标志必须清掉，
             # 否则下一次 S3 若在异常/调试时仍读到旧 Mem8/9 会判错方向。
             if pulse_cmd(gvl, "s2a20_90"):
+                snap = getattr(gvl, "BeltPickSnapshot", None) or {}
+                sid = str(
+                    (snap.get("vision_snap_id") if isinstance(snap, dict) else "")
+                    or getattr(gvl, "_vision_load_snap_id", "")
+                    or ""
+                )
+                is_left = is_left_shoe_flag(
+                    snap.get("is_left_shoe", True) if isinstance(snap, dict) else True
+                )
+                record_transport(
+                    sid,
+                    stage="place",
+                    ok=True,
+                    message="上料放入鞋槽完成",
+                    extra={
+                        "place_slot": int(getattr(ctx.press, "place_slot", 0) or 0),
+                        "is_left_shoe": is_left,
+                        "side": "左鞋" if is_left else "右鞋",
+                    },
+                )
                 sync_mem(ctx, 2, False)
                 sync_mem(ctx, 3, True)
                 sync_mem(ctx, 8, False)

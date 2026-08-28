@@ -133,7 +133,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>{_L(T.PRESS_IO)}</b>：压机槽号与地址",
                     f"<b>{_L(T.GRIPPER)}</b>：夹爪单独调试与 GRIP_* 报警复位",
                     f"<b>{_L(T.CONFIG)}</b>：通信与 Mock",
-                    f"<b>{_L(T.ALARM)}</b>：报警",
+                    f"<b>{_L(T.ALARM)}</b>：本次运行 / 落盘错误 / 黑匣子 / 运行快照（生产图，文件名含相机与时间）",
                     f"<b>算法接口 / 工位程序</b>：见本说明后几章",
                 ]
             )
@@ -219,6 +219,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"主界面顶部「{_L(T.CAM_MONITOR)}窗口」按钮",
                     f"「{_L(T.VISION)}」打开监控按钮",
                     "与「视觉」总页同开时避让当前调试相机，减少抢锁闪烁",
+                    "推演只刷新画面，不写入运行快照（避免刷盘）；查历史请到「报警记录 → 运行快照」",
                 ],
             ),
         ),
@@ -336,7 +337,7 @@ def _sections_zh_cn() -> List[Section]:
                 ],
                 used_by=[
                     "「采图训练」写入 json 依赖本页采到的内参/采样",
-                    "自动流程不直接开本页，但用同一套 VisionService",
+                    "自动流程不直接开本页，但用同一套 VisionService；生产拍照落盘后到「报警记录 → 运行快照」查",
                 ],
             )
             + _h("四路职责")
@@ -347,6 +348,19 @@ def _sections_zh_cn() -> List[Section]:
                     "<b>cam3</b>：放料槽有无鞋（Station3）",
                     "<b>cam4</b>：取料槽有无鞋 + 压杆偏移（Station4→5）",
                 ]
+            )
+            + _h("运行快照（到报警记录页查）")
+            + _p(
+                "自动流程拍照以及本页「检测测试」，会把当时原图、叠图、检测结果存到 "
+                + _code("logs/vision_snaps/")
+                + "。图片文件名带相机和时间，例如 "
+                + _code("cam1_20260828_140455_635_belt_pick_raw.jpg")
+                + "。放入鞋槽、槽判定、下料放到皮带完成后，会把结果写回<b>同一条</b>记录。"
+                "到左侧「报警记录 → 运行快照」翻历史。"
+                "相机监控窗的实时推演<b>不存</b>。"
+                "完整说明见后章「报警记录 · 运行快照」，纸质手册 "
+                + _code("docs/界面操作手册.md")
+                + " §14.4。"
             )
             + _h("本页推荐操作顺序（每路相机）")
             + _ol(
@@ -366,6 +380,144 @@ def _sections_zh_cn() -> List[Section]:
                     "必须先有内参再求解手眼；点像素与读 TCP 时臂必须停稳。",
                     "采样点铺满皮带工作区，略变高度；算错用「清除手眼采样/矩阵」重来。",
                     "改完手眼建议重启程序再跑自动。详图步骤见 docs/界面操作手册.md §6。",
+                ]
+            ),
+        ),
+        (
+            "vision_snaps",
+            "报警记录 · 运行快照（历史图 / 运送结果 / 打开log）",
+            _h("做什么")
+            + _p(
+                "把「当时看见什么」和「后来运到哪里、运得对不对」绑在同一条记录上，方便现场翻图排故，"
+                "不必停机去工控机翻文件夹。"
+            )
+            + _p(
+                "拍照瞬间写入原图、叠图、检测结果；机器人完成放入鞋槽或下料到皮带后，再把结果写回这一条。"
+                "HMI「报警记录 → 运行快照」可浏览；也可打开视觉 log 文件夹用资源管理器看原始文件。"
+                "每张 jpg 文件名含相机和时间，拷出来也能分清是哪路、何时拍的。"
+            )
+            + _h("实现文件")
+            + _ul(
+                [
+                    f"{_code('hmi/pages/vision_snap_page.py')} — 历史列表、原图/叠图、详情、打开目录",
+                    f"{_code('hmi/pages/alarm_page.py')} — 「报警记录」第四个页签「运行快照」",
+                    f"{_code('vision/vision_journal.py')} — 落盘、运送回写、列表扫描",
+                    f"{_code('vision/vision_service.py')} — photo_* 默认 persist=True；监控推演 persist=False",
+                    f"{_code('stations/station1_belt_photo.py')} — 确认取料时记下 vision_snap_id",
+                    f"{_code('stations/station2_robot1.py')} — 放料完成回写 place",
+                    f"{_code('stations/station3_place_slot_photo.py')} — 槽判定回写 slot_check",
+                    f"{_code('stations/station4_pick_slot_photo.py')} — 记下下料本拍 id",
+                    f"{_code('stations/station5_robot2.py')} — 下料放皮带完成回写 unload",
+                ]
+            )
+            + _h("什么时候会存一张")
+            + _ul(
+                [
+                    "<b>Station1</b> 皮带拍照（cam1）：自动流程每次 photo_belt_pick，成功或失败都落盘。"
+                    "操作员确认本拍取料位后，把 snap_id 写入 BeltPickSnapshot，供后续运送回写。",
+                    "<b>Station3</b> 放料槽拍照（cam3）：判空槽、左右槽。",
+                    "<b>Station4</b> 取料槽拍照（cam4）：有无料、压杆偏移。",
+                    "视觉页「检测测试」：测试皮带拍照 / 测试放料槽 / 测试取料槽（与生产同一套接口，便于对模型）。",
+                    "「视觉结果写入 PickPose」：会带上本次 snap_id，之后若走自动放料，仍可回写运送结果。",
+                ]
+            )
+            + _h("什么时候故意不存")
+            + _ul(
+                [
+                    "「相机监控」窗口的实时推演、监视页定时刷新：频率高，存了会把磁盘刷满，也没有「这一拍对应哪只鞋」。",
+                    "cam2 鞋头对位、贴边引导：运动中反复拍，不作为运行快照。",
+                    "视觉页上方「截图保存」：那是标定用截图，目录是 "
+                    + _code("config/vision_snaps/")
+                    + "，和运行快照不是一回事。",
+                ]
+            )
+            + _h("磁盘里长什么样")
+            + _p(
+                "根目录："
+                + _code("logs/vision_snaps/")
+                + "（已 gitignore，不会进版本库）。按日期分子目录："
+            )
+            + _ul(
+                [
+                    _code("cam1_20260828_140455_635_belt_pick_raw.jpg") + " — 原图（文件名=相机_时间_类型_raw）",
+                    _code("…_vis.jpg") + " — 叠了检测框/文字的图",
+                    _code("meta.json") + " — 检测字段 + transport（运送回写）",
+                    _code("logs/vision_snaps/index.jsonl") + " — 总索引（拍照一行、每次运送回写再追加一行）",
+                ]
+            )
+            + _p(
+                "快照 id 形如 <code>20260828_111343_635_cam1_belt_pick</code>，含时间、相机、类型，便于对文件名。"
+            )
+            + _h("运送之后写回什么")
+            + _p(
+                "写在该条 <code>meta.json</code> 的 <code>transport</code> 里，HMI 详情区「运送结果」就是读这里。"
+                "列表右侧摘要（已放槽#2 / 未运送 / 可放料 / 已下料）也来自这里。"
+            )
+            + _ul(
+                [
+                    "<b>place</b>（放入鞋槽）— Station2 放料完成、回到 place_entry 之后。"
+                    "含是否成功、放料槽号、左右脚。对应 cam1 皮带那一拍。",
+                    "<b>slot_check</b>（槽判定）— Station3 判定结束：空槽且左右对应→可放料；"
+                    "左右不配→禁止放料只转不压；槽内有料→禁止放料。会写到 cam3 本拍，并同步写到正在运送的 cam1 那一拍。",
+                    "<b>unload</b>（下料到皮带）— Station5 放到皮带并记产量之后。含取料槽号。对应 cam4 那一拍。",
+                ]
+            )
+            + _p(
+                "若详情写「尚未回写」：可能还在途中（刚拍完、手臂还没放到位），"
+                "或只点了「检测测试」没有跑自动工位。点「刷新」再看一次。"
+            )
+            + _h("HMI 怎么打开、怎么查")
+            + _ol(
+                [
+                    "左侧导航打开「报警记录」，点页签「运行快照」（在「黑匣子」旁边）。",
+                    "点「打开视觉log文件夹」：用系统文件管理器打开 "
+                    + _code("logs/vision_snaps/")
+                    + "。",
+                    "左侧列表新的在前；可用「相机」「类型」筛选；每页 20 条，用首页/上一页/下一页/末页翻。",
+                    "点一条：右侧看原图、叠图；下方看检测数据（坐标、左右脚、鞋长、有无料等）和运送回写。",
+                    "刚放完料或刚下料：点「刷新」，同一条上会出现「已放槽#n」或「已下料」。",
+                    "「打开本条目录」打开这一拍的文件夹（可拷带相机和时间的 jpg 与 meta.json 发给别人）。",
+                    "「复制详情」把当前文字说明拷到剪贴板。",
+                ]
+            )
+            + _h("和「截图目录 / 标定目录」的区别")
+            + _ul(
+                [
+                    "<b>打开视觉log文件夹 / 运行快照</b> → "
+                    + _code("logs/vision_snaps/")
+                    + " 生产运行记录，带运送结果。",
+                    "<b>截图目录</b> → "
+                    + _code("config/vision_snaps/")
+                    + " 视觉页「截图保存」的标定截图，没有运送回写。",
+                    "<b>标定目录 / YOLO模型目录</b> → 内参手眼文件、权重，不是运行历史。",
+                    "「报警记录」里另有「打开日志目录」→ 整个 "
+                    + _code("logs/")
+                    + "（app.log、黑匣子等）；运行快照页的「打开视觉log文件夹」只打开 vision_snaps。",
+                ]
+            )
+            + _h("开关与保留天数")
+            + _p(
+                _code("config/default.yaml")
+                + " → <code>vision.save_runtime_snaps</code>（默认 true，false 则完全不存）"
+                "；<code>vision.snap_keep_days</code>（默认 7，过期日期目录会自动删）。"
+                "改 yaml 后重启程序生效。"
+            )
+            + _h("现场怎么用它排故")
+            + _ul(
+                [
+                    "取偏、抓空：筛 cam1 / 皮带取料，对照叠图与 X/Y/Rz、左右脚、鞋长。",
+                    "放错槽、只转不压：看 cam1 那条的 slot_check / place，以及 cam3 放料槽判定原文。",
+                    "下料取空或皮带放偏：筛 cam4，看有无料、压杆偏移，以及 unload 的槽号。",
+                    "列表写「未运送」但流程已走完：点刷新；仍没有则看报警记录/黑匣子是否中途停过。",
+                    "图还是灰的「暂无」：JPEG 在后台线程写，等一两秒再刷新。",
+                ]
+            )
+            + _h("被谁使用")
+            + _ul(
+                [
+                    "现场操作员：报警记录页翻图，不必上工控机开资源管理器",
+                    "调试：检测测试与自动流程用同一落盘，便于对比 Mock / 真机",
+                    f"纸质步骤：{_code('docs/界面操作手册.md')} §14.4",
                 ]
             ),
         ),
@@ -524,13 +676,32 @@ def _sections_zh_cn() -> List[Section]:
             "alarm",
             _L(T.ALARM),
             _io_block(
-                purpose="查看报警历史、复制全文、报警复位。",
+                purpose=(
+                    "查看本次报警（分页）、复制全文、报警复位；「落盘错误 / 黑匣子 / 运行快照」写入项目 logs/，退出后再开也能查。"
+                    "运行快照：生产拍照原图/叠图（文件名含相机与时间）及运送回写；本页第四个页签。"
+                    "「打开日志目录」打开整个 logs/；运行快照页另有「打开视觉log文件夹」。"
+                ),
                 impl=[
                     f"{_code('hmi/pages/alarm_page.py')}",
+                    f"{_code('hmi/pages/vision_snap_page.py')} — 运行快照页签",
                     f"{_code('hmi/alarm_dialog.py')} — 弹窗",
+                    f"{_code('core/blackbox.py')} — 落盘与黑匣子",
                 ],
-                refs=[f"{_code('core/alarm.py')} — 队列与弹窗"],
+                refs=[
+                    f"{_code('core/alarm.py')} — 队列与弹窗",
+                    "logs/app.log、error.log、errors.jsonl、blackbox.jsonl、dumps/、vision_snaps/",
+                ],
                 used_by=["主窗口定时 pop_popup；运动失败 / 视觉失败写报警"],
+            )
+            + _h("四个页签")
+            + _ul(
+                [
+                    "<b>本次运行</b>：当前启动后的报警，分页，可复制、报警复位。退出后请看落盘错误 / 黑匣子。",
+                    "<b>落盘错误</b>：WARNING/ERROR/报警写入 logs/errors.jsonl，关机后再开也能查。",
+                    "<b>黑匣子</b>：故障前后程序轨迹（blackbox.jsonl）；崩溃另有 logs/dumps/。这是轨迹，不是相机照片。",
+                    "<b>运行快照</b>：生产拍照原图/叠图（文件名=相机_时间_类型_raw/vis.jpg）及运送回写。"
+                    "详见上一章「报警记录 · 运行快照」与手册 §14.4。",
+                ]
             ),
         ),
         (
@@ -544,11 +715,11 @@ def _sections_zh_cn() -> List[Section]:
             + _h("实现文件与职责")
             + _ul(
                 [
-                    f"<b>Station1</b> {_code('stations/station1_belt_photo.py')} — 皮带拍照 → PickPose（调 vision.photo_belt_pick / algo）",
-                    f"<b>Station2</b> {_code('stations/station2_robot1.py')} — 上料臂取料+放料（MoveJ/MoveL、夹爪、鞋头对位 {_code('stations/toe_place_assist.py')}）",
-                    f"<b>Station3</b> {_code('stations/station3_place_slot_photo.py')} — 放料槽拍照（photo_place_slot）",
-                    f"<b>Station4</b> {_code('stations/station4_pick_slot_photo.py')} — 取料槽拍照+压杆（photo_pick_slot）",
-                    f"<b>Station5</b> {_code('stations/station5_robot2.py')} — 下料臂取槽→皮带放料；记产量",
+                    f"<b>Station1</b> {_code('stations/station1_belt_photo.py')} — 皮带拍照 → PickPose（调 vision.photo_belt_pick / algo）；记下运行快照 id",
+                    f"<b>Station2</b> {_code('stations/station2_robot1.py')} — 上料臂取料+放料（MoveJ/MoveL、夹爪、鞋头对位 {_code('stations/toe_place_assist.py')}）；放料完成回写快照 place",
+                    f"<b>Station3</b> {_code('stations/station3_place_slot_photo.py')} — 放料槽拍照（photo_place_slot）；判定结果回写 slot_check",
+                    f"<b>Station4</b> {_code('stations/station4_pick_slot_photo.py')} — 取料槽拍照+压杆（photo_pick_slot）；记下下料快照 id",
+                    f"<b>Station5</b> {_code('stations/station5_robot2.py')} — 下料臂取槽→皮带放料；记产量；完成回写 unload",
                     f"<b>Station6</b> {_code('stations/station6_press_rotate.py')} — 压合→旋转→推进槽号",
                     f"初始化：{_code('stations/init_sequence.py')}",
                     f"步目录：{_code('stations/step_catalog.py')}（给 HMI 步表用）",
@@ -603,7 +774,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>measure_rod_offset_mm</b> — photo_pick_slot → <b>Station5</b> 叠加偏移",
                     f"<b>write_intrinsics_from_calib / solve_handeye_and_write / apply_belt_pick</b> — 「{_L(T.VISION)}·采图训练」",
                     f"<b>capture_to_slot / train_cmd / cuda_train_status</b> — 「{_L(T.VISION)}·采图训练」",
-                    f"<b>compute_monitor(from_cache)</b> 在 VisionService — 「{_L(T.CAM_MONITOR)}」实时推演",
+                    f"<b>compute_monitor(from_cache)</b> 在 VisionService — 「{_L(T.CAM_MONITOR)}」实时推演（不落运行快照）",
                 ]
             )
             + _h("底层实现引用")

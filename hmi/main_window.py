@@ -660,6 +660,17 @@ class MainWindow(QMainWindow):
         if raw in (T.JOG, "jog", "点动示教", "示教器"):
             self.show_jog_pendant()
             return True
+        snap_names = ("运行快照", "历史快照", "视觉log", "快照", "snaps", "Run snaps")
+        if raw in snap_names or str(vision_tab or "") in snap_names:
+            for i, nid in enumerate(self._nav_ids):
+                if nid == T.ALARM:
+                    self.nav.setCurrentRow(i)
+                    page = self._page_cache.get(T.ALARM)
+                    fn = getattr(page, "select_tab", None) if page is not None else None
+                    if callable(fn):
+                        fn("运行快照")
+                    return True
+            return False
         if raw in (T.VISION, T.VISION_SETUP, "视觉采图", "视觉调试", "vision", "vision_setup"):
             nav_id = T.VISION
         elif raw in (T.CONFIG, "通信配置", "config", "communication"):

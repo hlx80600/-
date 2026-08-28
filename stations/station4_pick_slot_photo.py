@@ -57,6 +57,7 @@ def cycle(ctx) -> None:
             if pulse_cmd(gvl, "s4_10"):
                 r = ctx.vision.photo_pick_slot()
                 gvl._last_pick_result = r
+                gvl._vision_unload_snap_id = str(getattr(r, "snap_id", "") or "")
                 if r.ok:
                     gvl._photo_retries["s4"] = 0
                     if advance_step(st, single):

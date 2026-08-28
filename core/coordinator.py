@@ -164,10 +164,55 @@ class Coordinator:
             st.bind(ctx)
         ctx.stations = {s.name: s for s in self.stations}
 
+        try:
+            from core.blackbox import register_snapshot
+
+            register_snapshot(self.blackbox_snapshot)
+        except Exception:
+            pass
+
         self.init_seq = self
 
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+
+    def blackbox_snapshot(self) -> Dict[str, object]:
+        """黑匣子故障快照：状态机、工位步、臂路径（禁止在此再打日志）。"""
+        ctx = self.ctx
+        gvl = ctx.gvl
+        stations: Dict[str, str] = {}
+        for st in self.stations:
+            try:
+                stations[st.name] = st.current_step_name()
+            except Exception:
+                stations[st.name] = "?"
+
+        def _arm(robot: object) -> Dict[str, object]:
+            if robot is None:
+                return {}
+            path = ""
+            try:
+                fn = getattr(robot, "path_hint", None)
+                path = str(fn()) if callable(fn) else ""
+            except Exception:
+                path = ""
+            return {
+                "name": str(getattr(robot, "name", "")),
+                "connected": bool(getattr(robot, "connected", False)),
+                "tool": getattr(robot, "tool", None),
+                "path": path,
+                "arrived": str(getattr(robot, "_last_arrived_label", "")),
+            }
+
+        return {
+            "machine": getattr(ctx.machine.state, "name", ""),
+            "mode": getattr(ctx.machine.mode, "name", ""),
+            "init_auto": int(getattr(gvl.Main, "Init_Auto", 0) or 0),
+            "alarming": bool(getattr(gvl.Main, "Alarming", False)),
+            "stations": stations,
+            "robot1": _arm(getattr(ctx, "robot1", None)),
+            "robot2": _arm(getattr(ctx, "robot2", None)),
+        }
 
     @property
     def busy(self) -> bool:

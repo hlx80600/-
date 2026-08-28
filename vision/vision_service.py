@@ -39,6 +39,8 @@ class BeltPickResult:
     toe_offset_in_grasp_tcp: Optional[list] = None
     # 抓取中心→鞋头直线距离 mm（cam1 实测；Mock 由 yaml 偏移算出）
     shoe_length_mm: float = 0.0
+    # 落盘快照 id，运送完成后回写 transport
+    snap_id: str = ""
 
 
 @dataclass
@@ -47,6 +49,7 @@ class SlotPhotoResult:
     has_material: bool = False
     is_left_slot: Optional[bool] = None
     message: str = ""
+    snap_id: str = ""
 
 
 class VisionService:
@@ -160,6 +163,59 @@ class VisionService:
             meta.update(extra)
         self.last_vis_meta[cam_id] = meta
 
+    def _persist_shot(
+        self,
+        cam_id: str,
+        kind: str,
+        ok: bool,
+        message: str,
+        extra: Optional[Dict[str, Any]] = None,
+        *,
+        persist: bool = True,
+    ) -> str:
+        """生产拍照落盘；监控推演 persist=False 不存。"""
+        if not persist:
+            return ""
+        try:
+            from vision.vision_journal import enabled, keep_days, save_vision_shot
+
+            if not enabled(self.cfg if isinstance(self.cfg, dict) else None):
+                return ""
+            return save_vision_shot(
+                cam_id=cam_id,
+                kind=kind,
+                ok=bool(ok),
+                message=str(message or ""),
+                raw=self.last_raw.get(cam_id),
+                vis=self.last_vis.get(cam_id),
+                extra=extra,
+                keep_days_n=keep_days(self.cfg if isinstance(self.cfg, dict) else None),
+            )
+        except Exception as e:
+            log.warning("[视觉] 快照落盘失败: %s", e)
+            return ""
+
+    def _finish_slot(
+        self,
+        cam_id: str,
+        kind: str,
+        r: SlotPhotoResult,
+        *,
+        persist: bool,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> SlotPhotoResult:
+        """给槽位拍照结果打上 snap_id 并按需落盘。"""
+        payload = {
+            "has_material": r.has_material,
+            "is_left_slot": r.is_left_slot,
+        }
+        if extra:
+            payload.update(extra)
+        r.snap_id = self._persist_shot(
+            cam_id, kind, r.ok, r.message, payload, persist=persist
+        )
+        return r
+
     def _belt_toe_tcp_extra(
         self,
         toe_offset: Any,
@@ -266,16 +322,17 @@ class VisionService:
                 float(mock_blk.get("z", 120.0)),
                 float(mock_blk.get("rx", 180.0)),
                 float(mock_blk.get("ry", 0.0)),
+                persist=False,
             )
             return r.message
         if cam_id == "cam2":
             g = self.guide_place_edge()
             return g.message
         if cam_id == "cam3":
-            r = self.photo_place_slot()
+            r = self.photo_place_slot(persist=False)
             return r.message
         if cam_id == "cam4":
-            r = self.photo_pick_slot()
+            r = self.photo_pick_slot(persist=False)
             return r.message
         return f"未知相机 {cam_id}"
 
@@ -467,7 +524,14 @@ class VisionService:
             shoe_length_mm=float(d.get("shoe_length_mm") or 0.0),
         )
 
-    def photo_belt_pick(self, default_z: float, default_rx: float, default_ry: float) -> BeltPickResult:
+    def photo_belt_pick(
+        self,
+        default_z: float,
+        default_rx: float,
+        default_ry: float,
+        *,
+        persist: bool = True,
+    ) -> BeltPickResult:
         """
         皮带取料位姿：
         - cam1 Mock / 无相机：用 yaml vision.belt_pick_mock 示教的机器人基座 XYRz（+Z/Rx/Ry）
@@ -480,11 +544,29 @@ class VisionService:
         rx = float(mock_blk.get("rx", default_rx))
         ry = float(mock_blk.get("ry", default_ry))
 
+        def _finish(r: BeltPickResult) -> BeltPickResult:
+            extra = {
+                "x": r.x,
+                "y": r.y,
+                "z": r.z,
+                "rx": r.rx,
+                "ry": r.ry,
+                "rz": r.rz,
+                "is_left_shoe": r.is_left_shoe,
+                "source": r.source,
+                "toe_offset_in_grasp_tcp": r.toe_offset_in_grasp_tcp,
+                "shoe_length_mm": r.shoe_length_mm,
+            }
+            r.snap_id = self._persist_shot(
+                "cam1", "belt_pick", r.ok, r.message, extra, persist=persist
+            )
+            return r
+
         cam = self.cameras.get("cam1")
         if self.cam_is_mock("cam1"):
             shoes = algo.detect_belt_shoes_mock(self.cfg)
             if not shoes:
-                return BeltPickResult(ok=False, message="未检测到鞋子(屏蔽示教点为空)")
+                return _finish(BeltPickResult(ok=False, message="未检测到鞋子(屏蔽示教点为空)"))
             seq = self._belt_mock_sequence(shoes)
             alt = self._belt_alternate_enabled(mock_blk) and len(seq) > 1
             if alt:
@@ -539,25 +621,27 @@ class VisionService:
                 shoe_length_mm=length_mm,
                 ascii_prefix=["SHIELD MOCK", f"{side} X={s.x:.0f} Y={s.y:.0f}", f"L={length_mm:.0f}mm"],
             )
-            return BeltPickResult(
-                ok=True,
-                x=s.x,
-                y=s.y,
-                z=z,
-                rx=rx,
-                ry=ry,
-                rz=float(s.angle_deg),
-                is_left_shoe=is_left,
-                message=msg,
-                source="shield_mock",
-                toe_offset_in_grasp_tcp=toe_list,
-                shoe_length_mm=length_mm,
+            return _finish(
+                BeltPickResult(
+                    ok=True,
+                    x=s.x,
+                    y=s.y,
+                    z=z,
+                    rx=rx,
+                    ry=ry,
+                    rz=float(s.angle_deg),
+                    is_left_shoe=is_left,
+                    message=msg,
+                    source="shield_mock",
+                    toe_offset_in_grasp_tcp=toe_list,
+                    shoe_length_mm=length_mm,
+                )
             )
 
         img = cam.grab() if cam else None
         if img is None:
             self.publish_vis("cam1", None, "相机1无图", False)
-            return BeltPickResult(ok=False, message="相机1无图")
+            return _finish(BeltPickResult(ok=False, message="相机1无图"))
         ar = algo.detect_belt_pick(self.cameras, self.cfg, z, rx, ry)
         d = {
             "ok": ar.ok,
@@ -599,7 +683,7 @@ class VisionService:
         )
         if not r.ok:
             log.warning("[视觉] YOLO皮带失败: %s", r.message)
-        return r
+        return _finish(r)
 
     @staticmethod
     def _belt_alternate_enabled(mock_blk: dict) -> bool:
@@ -684,7 +768,7 @@ class VisionService:
             f"| 上次[{last}] | 下次→{nxt_side} Y={cur.y:.1f}"
         )
 
-    def photo_place_slot(self) -> SlotPhotoResult:
+    def photo_place_slot(self, *, persist: bool = True) -> SlotPhotoResult:
         """
         放料槽拍照：
         - cam3 Mock：结果完全由 HMI「Mock放料槽有料 / Mock放料槽=左鞋槽」决定
@@ -708,21 +792,36 @@ class VisionService:
                 kind="VIS",
             )
             self.publish_vis("cam3", vis, msg, True, raw=raw)
-            return SlotPhotoResult(
-                ok=True,
-                has_material=has,
-                is_left_slot=left,
-                message=msg,
+            return self._finish_slot(
+                "cam3",
+                "place_slot",
+                SlotPhotoResult(
+                    ok=True,
+                    has_material=has,
+                    is_left_slot=left,
+                    message=msg,
+                ),
+                persist=persist,
             )
         img = cam.grab() if cam else None
         if img is None:
             self.publish_vis("cam3", None, "相机3无图（且非Mock）", False)
-            return SlotPhotoResult(ok=False, message="相机3无图（且非Mock）")
+            return self._finish_slot(
+                "cam3",
+                "place_slot",
+                SlotPhotoResult(ok=False, message="相机3无图（且非Mock）"),
+                persist=persist,
+            )
         occ_r = algo.classify_slot_occupied(img, self.cfg)
         if not occ_r.ok:
             vis = annotate_bgr(img, ["SLOT", "FAIL"], ok=False, cam_id="cam3", kind="VIS")
             self.publish_vis("cam3", vis, f"YOLO槽分类失败: {occ_r.message}", False, raw=img)
-            return SlotPhotoResult(ok=False, message=f"YOLO槽分类失败: {occ_r.message}")
+            return self._finish_slot(
+                "cam3",
+                "place_slot",
+                SlotPhotoResult(ok=False, message=f"YOLO槽分类失败: {occ_r.message}"),
+                persist=persist,
+            )
         occ = occ_r.has_material
         msg = occ_r.message
         out_msg = f"cam3【真机/YOLO】{msg}；左右槽仍按流程记忆，不看监视页Mock"
@@ -734,14 +833,19 @@ class VisionService:
             kind="VIS",
         )
         self.publish_vis("cam3", vis, out_msg, True, raw=img)
-        return SlotPhotoResult(
-            ok=True,
-            has_material=bool(occ),
-            is_left_slot=True,
-            message=out_msg,
+        return self._finish_slot(
+            "cam3",
+            "place_slot",
+            SlotPhotoResult(
+                ok=True,
+                has_material=bool(occ),
+                is_left_slot=True,
+                message=out_msg,
+            ),
+            persist=persist,
         )
 
-    def photo_pick_slot(self) -> SlotPhotoResult:
+    def photo_pick_slot(self, *, persist: bool = True) -> SlotPhotoResult:
         cam = self.cameras.get("cam4")
         if self.cam_is_mock("cam4"):
             has = bool(self.mock_pick_has_material)
@@ -755,17 +859,32 @@ class VisionService:
                 kind="VIS",
             )
             self.publish_vis("cam4", vis, msg, True, raw=raw)
-            return SlotPhotoResult(ok=True, has_material=has, message=msg)
+            return self._finish_slot(
+                "cam4",
+                "pick_slot",
+                SlotPhotoResult(ok=True, has_material=has, message=msg),
+                persist=persist,
+            )
         img = cam.grab() if cam else None
         if img is None:
             self.publish_vis("cam4", None, "相机4无图", False)
-            return SlotPhotoResult(ok=False, message="相机4无图")
+            return self._finish_slot(
+                "cam4",
+                "pick_slot",
+                SlotPhotoResult(ok=False, message="相机4无图"),
+                persist=persist,
+            )
         occ_r = algo.classify_slot_occupied(img, self.cfg)
         if not occ_r.ok:
             self.last_pick_xy_offset_mm = None
             vis = annotate_bgr(img, ["PICK", "FAIL"], ok=False, cam_id="cam4", kind="VIS")
             self.publish_vis("cam4", vis, f"YOLO取槽分类失败: {occ_r.message}", False, raw=img)
-            return SlotPhotoResult(ok=False, message=f"YOLO取槽分类失败: {occ_r.message}")
+            return self._finish_slot(
+                "cam4",
+                "pick_slot",
+                SlotPhotoResult(ok=False, message=f"YOLO取槽分类失败: {occ_r.message}"),
+                persist=persist,
+            )
         occ = occ_r.has_material
         msg = occ_r.message
         extra = ""
@@ -789,7 +908,14 @@ class VisionService:
             kind="VIS",
         )
         self.publish_vis("cam4", vis, out_msg, True, raw=img)
-        return SlotPhotoResult(ok=True, has_material=bool(occ), message=out_msg)
+        off = self.last_pick_xy_offset_mm
+        return self._finish_slot(
+            "cam4",
+            "pick_slot",
+            SlotPhotoResult(ok=True, has_material=bool(occ), message=out_msg),
+            persist=persist,
+            extra={"rod_xy_offset_mm": list(off) if off else None},
+        )
 
     def guide_place_edge(self) -> GuideResult:
         cam = self.cameras.get("cam2")

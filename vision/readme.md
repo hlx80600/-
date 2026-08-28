@@ -9,6 +9,7 @@
 | 文件 | 作用 |
 |------|------|
 | `vision_service.py` | 业务入口：取图、Mock、调 `algo`、发监控帧 |
+| `vision_journal.py` | 生产快照落盘、运送回写、HMI 历史列表（`logs/vision_snaps/`） |
 | `camera_orbbec.py` | Orbbec 四路相机（需 `pyorbbecsdk`） |
 | `commission_actions.py` | HMI 标定动作：内参、手眼采样、PickPose 写入 |
 | `handeye_solve.py` | 手眼矩阵求解 |
@@ -27,11 +28,24 @@
 
 | 路径 | 内容 |
 |------|------|
-| `config/default.yaml` → `cameras` / `vision` | serial、手眼参数 |
+| `config/default.yaml` → `cameras` / `vision` | serial、手眼参数、`save_runtime_snaps` |
+| `logs/vision_snaps/` | 生产拍照原图/叠图/`meta.json`（运送结果写在 `transport`） |
 | `config/roi/camN.json` | 各相机 ROI |
 | `config/calib/` | 内参、手眼采样备份 |
 | `shoe_vision_config.json` | 生产用 cam1 皮带配置 |
 | `models/` | YOLO 权重（见 [models/readme.md](../models/readme.md)） |
+
+---
+
+## 运行快照
+
+生产 `photo_belt_pick` / `photo_place_slot` / `photo_pick_slot`（默认 `persist=True`）把当时图和检测写入 `logs/vision_snaps/`。Station2 放料完成写 `transport.place`，Station3 判定写 `slot_check`，Station5 下料完成写 `unload`。监控 `compute_monitor(..., persist=False)` 不存。
+
+JPEG 文件名含相机与时间，例如 `cam1_20260828_140455_635_belt_pick_raw.jpg`。
+
+HMI：`hmi/pages/vision_snap_page.py` 挂在 **报警记录** 第四个页签「运行快照」；可打开文件夹、翻历史图、看运送回写。配置键 `vision.save_runtime_snaps`、`vision.snap_keep_days`。
+
+现场说明：[docs/界面操作手册.md](../docs/界面操作手册.md) §14.4；软件内「使用说明」专章「报警记录 · 运行快照」。
 
 ---
 

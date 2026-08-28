@@ -22,12 +22,15 @@
 | `gvl.py` / `memory.py` | 全局变量与工位间共享记忆 |
 | `machine_state.py` | 运行/初始化/报警等状态机 |
 | `alarm.py` | 报警登记与 HMI 弹窗 |
+| `blackbox.py` | 错误日志落盘 + 黑匣子（`logs/`，退出后可查） |
 | `dry_run_shield.py` | 空跑时屏蔽真机 I/O |
 | `motion_steps.py` | 运动步序配置辅助 |
 | `point_undo.py` | 示教点撤销栈 |
 | `lights.py` | 三色灯 |
 | `production_stats.py` | 产量统计 |
 | `plc_util.py` | PLC 相关工具（若启用） |
+
+视觉运行快照（图 + 运送结果）在 `vision/vision_journal.py` → `logs/vision_snaps/`（jpg 文件名含相机与时间），HMI「报警记录 → 运行快照」查阅。
 
 ---
 
