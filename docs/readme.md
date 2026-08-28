@@ -1,5 +1,11 @@
 # docs — 纸质级说明文档
 
+<p align="center">
+  <img src="../hmi/assets/rsdt_badge.png" width="160" alt="Robot Skills Development Team (R.S.D.T)" />
+  <br/>
+  <sub>Robot Skills Development Team (R.S.D.T)</sub>
+</p>
+
 > 整机说明集中在此；模块级 API 见各目录 `readme.md`。
 
 ---

@@ -18,8 +18,17 @@ from PySide6.QtWidgets import (
 from hmi.style import style_button
 
 
-def format_alarm_text(code: str, station: str, step: int, message: str) -> str:
+def format_alarm_text(
+    code: str,
+    station: str,
+    step: int,
+    message: str,
+    *,
+    time: str = "",
+) -> str:
+    head = f"时间: {time}\n" if time else ""
     return (
+        f"{head}"
         f"报警代码: {code}\n"
         f"工位: {station}\n"
         f"步号: {step}\n"
@@ -35,9 +44,10 @@ def show_copyable_alarm(
     step: int = 0,
     message: str = "",
     extra: str = "",
+    time: str = "",
 ) -> None:
     """弹出可复制的报警对话框（QTextEdit + 复制按钮）。"""
-    body = format_alarm_text(code, station, step, message)
+    body = format_alarm_text(code, station, step, message, time=time)
     if extra:
         body = f"{body}\n\n{extra}"
 

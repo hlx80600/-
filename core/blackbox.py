@@ -2,11 +2,11 @@
 
 退出程序、甚至异常崩溃后，仍可在项目 ``logs/`` 目录（或 HMI「报警记录」）查阅：
 
-- ``app.log``：日常运行日志（按天滚动）
-- ``error.log``：WARNING 及以上（按天滚动）
-- ``errors.jsonl``：报警 / 错误 / 崩溃的一条条记录（黑匣子故障本）
-- ``blackbox.jsonl``：故障前后一段时间的运行轨迹（环形文件）
-- ``dumps/``：每次 ERROR/报警/崩溃时，把内存环形缓冲打成一份快照
+- ``app_YYYY-MM-DD.log``：日常运行日志（文件名带日期）
+- ``error_YYYY-MM-DD.log``：WARNING 及以上
+- ``errors_YYYY-MM-DD.jsonl``：报警 / 错误 / 崩溃的一条条记录
+- ``blackbox_YYYY-MM-DD.jsonl``：故障前后运行轨迹
+- ``dumps/YYYYMMDD_HHMMSS_mmm_*.json``：ERROR/报警/崩溃时的内存圈快照
 """
 
 from __future__ import annotations
@@ -19,8 +19,7 @@ import sys
 import threading
 import traceback
 from collections import deque
-from datetime import datetime
-from logging.handlers import TimedRotatingFileHandler
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Deque, Optional
 
@@ -44,6 +43,17 @@ _snapshot_fn: Optional[Callable[[], dict[str, Any]]] = None
 _installed = False
 _bb_fp: Optional[Any] = None
 _err_fp: Optional[Any] = None
+_bb_day = ""
+_err_day = ""
+
+
+def _day_stamp() -> str:
+    return datetime.now().strftime("%Y-%m-%d")
+
+
+def _dated_jsonl(kind: str, day: str | None = None) -> Path:
+    """errors / blackbox 的当日文件，例如 errors_2026-08-28.jsonl。"""
+    return _LOG_DIR / f"{kind}_{day or _day_stamp()}.jsonl"
 
 
 def log_dir() -> Path:
@@ -82,7 +92,7 @@ def _open_append(path: Path) -> Any:
 
 
 def _rotate_if_huge(path: Path, *, max_bytes: int, keep: int) -> None:
-    """单文件过大则 blackbox.jsonl → .1 → .2 … 腾出当前文件。"""
+    """单文件过大则 foo.jsonl → foo.jsonl.1 → .2 … 腾出当前文件。"""
     try:
         if not path.is_file() or path.stat().st_size < max_bytes:
             return
@@ -98,6 +108,23 @@ def _rotate_if_huge(path: Path, *, max_bytes: int, keep: int) -> None:
                 src.rename(dst)
         except OSError:
             pass
+
+
+def _prune_old_files(pattern: str, keep_days: int) -> None:
+    """按修改时间删过期的 dated 日志。"""
+    cutoff = datetime.now() - timedelta(days=max(1, int(keep_days)))
+    cutoff_ts = cutoff.timestamp()
+    try:
+        for path in _LOG_DIR.glob(pattern):
+            if not path.is_file():
+                continue
+            try:
+                if path.stat().st_mtime < cutoff_ts:
+                    path.unlink()
+            except OSError:
+                pass
+    except OSError:
+        pass
 
 
 def _prune_dumps() -> None:
@@ -127,12 +154,18 @@ def _write_jsonl(fp: Any, rec: dict[str, Any], *, fsync: bool = False) -> None:
 
 
 def _append_errors(rec: dict[str, Any], *, fsync: bool = True) -> None:
-    global _err_fp
-    path = _LOG_DIR / "errors.jsonl"
+    global _err_fp, _err_day
+    day = _day_stamp()
+    path = _dated_jsonl("errors", day)
     _rotate_if_huge(path, max_bytes=_ERRORS_MAX_BYTES, keep=_ERRORS_KEEP)
-    if _err_fp is None or getattr(_err_fp, "closed", True):
+    if _err_fp is None or getattr(_err_fp, "closed", True) or _err_day != day:
+        if _err_fp is not None:
+            try:
+                _err_fp.close()
+            except Exception:
+                pass
         _err_fp = _open_append(path)
-    # 滚动后句柄可能仍指向旧文件名对应的 inode；体积刚超限时重新打开
+        _err_day = day
     try:
         same = Path(_err_fp.name).resolve() == path.resolve() and path.is_file()
     except OSError:
@@ -143,15 +176,23 @@ def _append_errors(rec: dict[str, Any], *, fsync: bool = True) -> None:
         except Exception:
             pass
         _err_fp = _open_append(path)
+        _err_day = day
     _write_jsonl(_err_fp, rec, fsync=fsync)
 
 
 def _append_blackbox(rec: dict[str, Any], *, fsync: bool = False) -> None:
-    global _bb_fp
-    path = _LOG_DIR / "blackbox.jsonl"
+    global _bb_fp, _bb_day
+    day = _day_stamp()
+    path = _dated_jsonl("blackbox", day)
     _rotate_if_huge(path, max_bytes=_BLACKBOX_MAX_BYTES, keep=_BLACKBOX_KEEP)
-    if _bb_fp is None or getattr(_bb_fp, "closed", True):
+    if _bb_fp is None or getattr(_bb_fp, "closed", True) or _bb_day != day:
+        if _bb_fp is not None:
+            try:
+                _bb_fp.close()
+            except Exception:
+                pass
         _bb_fp = _open_append(path)
+        _bb_day = day
     try:
         same = Path(_bb_fp.name).resolve() == path.resolve() and path.is_file()
     except OSError:
@@ -162,6 +203,7 @@ def _append_blackbox(rec: dict[str, Any], *, fsync: bool = False) -> None:
         except Exception:
             pass
         _bb_fp = _open_append(path)
+        _bb_day = day
     _write_jsonl(_bb_fp, rec, fsync=fsync)
 
 
@@ -265,7 +307,7 @@ def _flush_files() -> None:
 
 
 def _close_files() -> None:
-    global _bb_fp, _err_fp
+    global _bb_fp, _err_fp, _bb_day, _err_day
     _flush_files()
     for fp in (_bb_fp, _err_fp):
         if fp is None:
@@ -276,10 +318,12 @@ def _close_files() -> None:
             pass
     _bb_fp = None
     _err_fp = None
+    _bb_day = ""
+    _err_day = ""
 
 
 class _BlackboxHandler(logging.Handler):
-    """把日志写入内存圈 + blackbox.jsonl；WARNING+ 另写入 errors.jsonl。"""
+    """把日志写入内存圈 + blackbox_日期.jsonl；WARNING+ 另写入 errors_日期.jsonl。"""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
@@ -310,7 +354,7 @@ class _BlackboxHandler(logging.Handler):
             with _lock:
                 _ring.append(rec)
                 _append_blackbox(rec, fsync=fsync)
-                # 报警由 record_alarm 写 errors.jsonl / dump，避免重复
+                # 报警由 record_alarm 写 errors_日期.jsonl / dump，避免重复
                 if record.name in ("core.alarm", "core.blackbox", "blackbox"):
                     return
                 if record.levelno >= logging.WARNING:
@@ -356,29 +400,79 @@ def _thread_excepthook(args: Any) -> None:
         pass
 
 
-class _FlushTimedRotatingFileHandler(TimedRotatingFileHandler):
-    """每次 emit 后 flush，避免异常退出丢掉最后几行。"""
+class _MsFormatter(logging.Formatter):
+    """日志行时间带毫秒：2026-08-28 16:38:05.123。"""
+
+    def formatTime(self, record: logging.LogRecord, datefmt: str | None = None) -> str:
+        dt = datetime.fromtimestamp(record.created)
+        return dt.strftime("%Y-%m-%d %H:%M:%S.") + f"{int(record.msecs):03d}"
+
+
+class _DatedFileHandler(logging.Handler):
+    """按日写 ``stem_YYYY-MM-DD.ext``，文件名自带日期。"""
+
+    def __init__(self, *, stem: str, ext: str = "log", encoding: str = "utf-8") -> None:
+        super().__init__()
+        self._stem = stem
+        self._ext = ext
+        self._encoding = encoding
+        self._day = ""
+        self.stream: Any = None
+
+    def _reopen(self) -> None:
+        day = _day_stamp()
+        if self.stream is not None and day == self._day:
+            return
+        if self.stream is not None:
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+        self._day = day
+        path = _LOG_DIR / f"{self._stem}_{day}.{self._ext}"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.stream = open(path, "a", encoding=self._encoding, buffering=1)
 
     def emit(self, record: logging.LogRecord) -> None:
-        super().emit(record)
         try:
-            self.flush()
-            if record.levelno >= logging.ERROR and self.stream is not None:
+            self._reopen()
+            if self.stream is None:
+                return
+            self.stream.write(self.format(record) + "\n")
+            self.stream.flush()
+            if record.levelno >= logging.ERROR:
                 os.fsync(self.stream.fileno())
         except Exception:
-            pass
+            self.handleError(record)
+
+    def close(self) -> None:
+        if self.stream is not None:
+            try:
+                self.stream.close()
+            except Exception:
+                pass
+            self.stream = None
+        super().close()
 
 
 def install() -> Path:
     """安装控制台 + 文件日志 + 黑匣子。可重复调用。"""
-    global _installed, _bb_fp, _err_fp
+    global _installed, _bb_fp, _err_fp, _bb_day, _err_day
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     _DUMP_DIR.mkdir(parents=True, exist_ok=True)
+    _prune_old_files("app_*.log", 14)
+    _prune_old_files("error_*.log", 30)
+    _prune_old_files("errors_*.jsonl*", 30)
+    _prune_old_files("blackbox_*.jsonl*", 14)
+    # 旧版无日期文件名（升级前留下的）同样按天数清
+    _prune_old_files("app.log", 14)
+    _prune_old_files("app.log.*", 14)
+    _prune_old_files("error.log", 30)
+    _prune_old_files("error.log.*", 30)
+    _prune_old_files("errors.jsonl*", 30)
+    _prune_old_files("blackbox.jsonl*", 14)
 
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    fmt = _MsFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
@@ -392,28 +486,14 @@ def install() -> Path:
         console.setFormatter(fmt)
         root.addHandler(console)
 
-        app_h = _FlushTimedRotatingFileHandler(
-            str(_LOG_DIR / "app.log"),
-            when="midnight",
-            backupCount=14,
-            encoding="utf-8",
-            delay=False,
-        )
+        app_h = _DatedFileHandler(stem="app", ext="log")
         app_h.setLevel(logging.INFO)
         app_h.setFormatter(fmt)
-        app_h.suffix = "%Y-%m-%d"
         root.addHandler(app_h)
 
-        err_h = _FlushTimedRotatingFileHandler(
-            str(_LOG_DIR / "error.log"),
-            when="midnight",
-            backupCount=30,
-            encoding="utf-8",
-            delay=False,
-        )
+        err_h = _DatedFileHandler(stem="error", ext="log")
         err_h.setLevel(logging.WARNING)
         err_h.setFormatter(fmt)
-        err_h.suffix = "%Y-%m-%d"
         root.addHandler(err_h)
 
         bb = _BlackboxHandler()
@@ -424,8 +504,11 @@ def install() -> Path:
             threading.excepthook = _thread_excepthook
         atexit.register(_atexit)
 
-        _bb_fp = _open_append(_LOG_DIR / "blackbox.jsonl")
-        _err_fp = _open_append(_LOG_DIR / "errors.jsonl")
+        day = _day_stamp()
+        _bb_fp = _open_append(_dated_jsonl("blackbox", day))
+        _err_fp = _open_append(_dated_jsonl("errors", day))
+        _bb_day = day
+        _err_day = day
         start = {
             "ts": _now_text(),
             "kind": "session",
@@ -452,21 +535,38 @@ def _atexit() -> None:
     _close_files()
 
 
-def _iter_jsonl_files(stem: str) -> list[Path]:
-    """当前文件 + 滚动备份，新的在前。"""
-    base = _LOG_DIR / stem
-    files: list[Path] = []
-    if base.is_file():
-        files.append(base)
-    # .1 较新，.N 较旧
-    extras: list[tuple[int, Path]] = []
-    for p in _LOG_DIR.glob(stem + ".*"):
-        suf = p.name[len(stem) + 1 :]
-        if suf.isdigit():
-            extras.append((int(suf), p))
-    extras.sort(key=lambda x: x[0])
-    files.extend(p for _, p in extras)
-    return files
+def _iter_jsonl_files(kind: str) -> list[Path]:
+    """kind=errors/blackbox：当日 dated 文件 + 体积滚动备份 + 旧版无日期文件，新→旧。"""
+    found: list[Path] = []
+    try:
+        found.extend(_LOG_DIR.glob(f"{kind}_????-??-??.jsonl"))
+        found.extend(_LOG_DIR.glob(f"{kind}_????-??-??.jsonl.*"))
+        legacy = _LOG_DIR / f"{kind}.jsonl"
+        if legacy.is_file():
+            found.append(legacy)
+        found.extend(_LOG_DIR.glob(f"{kind}.jsonl.*"))
+    except OSError:
+        return []
+    uniq: list[Path] = []
+    seen: set[Path] = set()
+    for path in found:
+        try:
+            key = path.resolve()
+        except OSError:
+            key = path
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append(path)
+
+    def _mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    uniq.sort(key=_mtime, reverse=True)
+    return uniq
 
 
 def _tail_text_lines(path: Path, *, max_bytes: int = 2_000_000) -> list[str]:
@@ -488,7 +588,7 @@ def _tail_text_lines(path: Path, *, max_bytes: int = 2_000_000) -> list[str]:
 def read_error_records(limit: int = 300) -> list[dict[str, Any]]:
     """读落盘错误/报警（新→旧），程序退出后再开也能读。"""
     out: list[dict[str, Any]] = []
-    for path in _iter_jsonl_files("errors.jsonl"):
+    for path in _iter_jsonl_files("errors"):
         for line in reversed(_tail_text_lines(path)):
             line = line.strip()
             if not line:
@@ -511,7 +611,7 @@ def read_error_records(limit: int = 300) -> list[dict[str, Any]]:
 def read_blackbox_records(limit: int = 250) -> list[dict[str, Any]]:
     """读黑匣子轨迹（新→旧）。"""
     out: list[dict[str, Any]] = []
-    for path in _iter_jsonl_files("blackbox.jsonl"):
+    for path in _iter_jsonl_files("blackbox"):
         for line in reversed(_tail_text_lines(path, max_bytes=1_500_000)):
             line = line.strip()
             if not line:

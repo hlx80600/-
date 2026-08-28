@@ -80,7 +80,7 @@ class BootSplash(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("启动中")
-        self.setFixedSize(440, 180)
+        self.setFixedSize(440, 300)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
@@ -117,8 +117,14 @@ class BootSplash(QWidget):
         self.setObjectName("bootSplash")
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 24)
-        root.setSpacing(12)
+        root.setContentsMargins(28, 20, 28, 24)
+        root.setSpacing(10)
+
+        from hmi.logo_label import SPLASH_PX, LogoLabel, apply_window_icon
+
+        apply_window_icon(self)
+        logo = LogoLabel(side=SPLASH_PX)
+        root.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
 
         title = QLabel("莆田鞋厂四槽机器控制程序")
         title.setObjectName("bootTitle")
@@ -181,6 +187,9 @@ def main() -> None:
     _fix_qt_env()
 
     app = QApplication(sys.argv)
+    from hmi.logo_label import apply_window_icon
+
+    apply_window_icon(app)
 
     splash = BootSplash()
     splash.center_on_screen(app)

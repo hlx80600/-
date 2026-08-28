@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from hmi.help_content import sections
 from hmi import i18n
+from hmi.logo_label import badge_path
 from hmi.style import apply_page_chrome
 
 
@@ -46,6 +47,7 @@ class HelpPage(QWidget):
 
         self.browser = QTextBrowser()
         self.browser.setOpenExternalLinks(False)
+        self.browser.setSearchPaths([str(badge_path().parent)])
         self.browser.setStyleSheet(
             "QTextBrowser { background:#fafbfc; padding:8px; font-size:14px; }"
         )

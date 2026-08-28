@@ -9,6 +9,7 @@ from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from hmi import i18n
+from hmi.logo_label import LOAD_PX, LogoLabel
 
 T = TypeVar("T")
 
@@ -65,12 +66,15 @@ class LoadProgressOverlay(QWidget):
 
         self._card = QWidget(self)
         self._card.setObjectName("loadProgressCard")
-        self._card.setFixedSize(420, 150)
+        self._card.setFixedSize(420, 248)
         self._card.setStyleSheet(_CARD_QSS)
 
         card_lay = QVBoxLayout(self._card)
-        card_lay.setContentsMargins(24, 20, 24, 20)
-        card_lay.setSpacing(10)
+        card_lay.setContentsMargins(24, 16, 24, 20)
+        card_lay.setSpacing(8)
+
+        self._logo = LogoLabel(side=LOAD_PX)
+        card_lay.addWidget(self._logo, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self._title = QLabel(title or i18n.tr("load.progress.title"))
         self._title.setObjectName("loadProgressTitle")

@@ -1,5 +1,11 @@
 # hmi — PySide6 人机界面
 
+<p align="center">
+  <img src="assets/rsdt_badge.png" width="160" alt="Robot Skills Development Team (R.S.D.T)" />
+  <br/>
+  <sub>Robot Skills Development Team (R.S.D.T)</sub>
+</p>
+
 > 触摸屏主窗口、各功能页、多语言、在线「使用说明」。
 
 ---
@@ -10,7 +16,8 @@
 |------|------|
 | `main_window.py` | 主窗口、侧栏导航、页切换 |
 | `tab_titles.py` | 页签标题与路由 |
-| `style.py` | 主题与控件样式 |
+| `logo_label.py` | 侧栏/独立窗圆形徽章（`assets/rsdt_badge.png`） |
+| `clock_label.py` | 页眉小时钟 |
 | `scroll_util.py` | 长页滚动容器 |
 | `help_content.py` / `help_content_en.py` | 在线手册正文（中/英） |
 | `alarm_dialog.py` | 报警弹窗 |

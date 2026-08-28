@@ -34,6 +34,8 @@ from core.coordinator import Coordinator
 from core.machine_state import MachineState, RunMode
 from devices.pose_utils import POSE_AXES, angle_diff_deg, pose_tcp_parallel_to_base
 from hmi import i18n
+from hmi.clock_label import ClockLabel
+from hmi.logo_label import BAR_PX, LogoLabel, apply_window_icon
 
 # 法奥 StartJOG ref
 _REF_JOINT = 0
@@ -1113,6 +1115,7 @@ class JogPendantWindow(QMainWindow):
         self._allow_close = False
         self._geom_applied = False
         self.setWindowTitle(i18n.tr("nav.jog"))
+        apply_window_icon(self)
         self.setMinimumSize(480, 720)
         self.setStyleSheet(_PENDANT_QSS)
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
@@ -1123,12 +1126,16 @@ class JogPendantWindow(QMainWindow):
         lay = QVBoxLayout(wrap)
         lay.setContentsMargins(4, 4, 4, 4)
         top = QHBoxLayout()
+        self.lbl_logo = LogoLabel(side=BAR_PX)
+        top.addWidget(self.lbl_logo, 0)
         self.chk_top = QCheckBox("窗口置顶")
         self.chk_top.setChecked(True)
         self.chk_top.setToolTip("勾选后浮在主界面之上，可一边看示教点位一边点动")
         self.chk_top.toggled.connect(self._on_stay_top)
         top.addWidget(self.chk_top)
         top.addStretch(1)
+        self.lbl_clock = ClockLabel(dark=True)
+        top.addWidget(self.lbl_clock, 0)
         lay.addLayout(top)
         scroll = QScrollArea()
         scroll.setObjectName("jogPendantScroll")

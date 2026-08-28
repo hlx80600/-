@@ -382,7 +382,9 @@ class AlarmPage(QWidget):
             return body
         a = self.ctx.alarms.active
         if a:
-            return format_alarm_text(a.code, a.station, a.step, a.message)
+            return format_alarm_text(
+                a.code, a.station, a.step, a.message, time=a.time
+            )
         return ""
 
     def _copy_selected(self) -> None:
@@ -403,6 +405,7 @@ class AlarmPage(QWidget):
                 station=a.station,
                 step=a.step,
                 message=a.message,
+                time=a.time,
             )
             return
         text = self._selected_or_active_text()
@@ -433,7 +436,9 @@ class AlarmPage(QWidget):
 
         a = self.ctx.alarms.active
         if a:
-            banner = format_alarm_text(a.code, a.station, a.step, a.message)
+            banner = format_alarm_text(
+                a.code, a.station, a.step, a.message, time=a.time
+            )
         else:
             banner = i18n.tr("alarm.empty_active")
 

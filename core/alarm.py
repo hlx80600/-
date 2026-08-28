@@ -18,7 +18,9 @@ class AlarmItem:
     message: str
     station: str = ""
     step: int = 0
-    time: str = field(default_factory=lambda: datetime.now().strftime("%H:%M:%S"))
+    time: str = field(
+        default_factory=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
     active: bool = True
 
 

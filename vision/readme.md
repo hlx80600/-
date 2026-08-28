@@ -29,7 +29,7 @@
 | 路径 | 内容 |
 |------|------|
 | `config/default.yaml` → `cameras` / `vision` | serial、手眼参数、`save_runtime_snaps` |
-| `logs/vision_snaps/` | 生产拍照原图/叠图/`meta.json`（运送结果写在 `transport`） |
+| `logs/vision_snaps/` | 生产拍照原图/叠图/`meta.json`；当日索引 `index_YYYY-MM-DD.jsonl` |
 | `config/roi/camN.json` | 各相机 ROI |
 | `config/calib/` | 内参、手眼采样备份 |
 | `shoe_vision_config.json` | 生产用 cam1 皮带配置 |
@@ -41,7 +41,7 @@
 
 生产 `photo_belt_pick` / `photo_place_slot` / `photo_pick_slot`（默认 `persist=True`）把当时图和检测写入 `logs/vision_snaps/`。Station2 放料完成写 `transport.place`，Station3 判定写 `slot_check`，Station5 下料完成写 `unload`。监控 `compute_monitor(..., persist=False)` 不存。
 
-JPEG 文件名含相机与时间，例如 `cam1_20260828_140455_635_belt_pick_raw.jpg`。
+JPEG 文件名含相机与时间，例如 `cam1_20260828_140455_635_belt_pick_raw.jpg`。当日索引为 `index_YYYY-MM-DD.jsonl`。
 
 HMI：`hmi/pages/vision_snap_page.py` 挂在 **报警记录** 第四个页签「运行快照」；可打开文件夹、翻历史图、看运送回写。配置键 `vision.save_runtime_snaps`、`vision.snap_keep_days`。
 

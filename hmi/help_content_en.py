@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
-from hmi.help_content import Section, _L, _code, _h, _io_block, _ol, _p, _ul
+from hmi.help_content import Section, _L, _code, _h, _io_block, _logo_html, _ol, _p, _ul
 from hmi.tab_titles import T
 
 
@@ -13,13 +13,16 @@ def build_sections_en() -> List[Section]:
         (
             "overview",
             "Overview: navigation, lights, memory, flow",
-            _h("How to use this page")
+            _logo_html()
+            + _h("How to use this page")
             + _p(
                 "This Help page is the on-site operator manual. Browse chapters on the left; search above. "
                 "Each page documents purpose, UI files, dependencies, and who calls it."
             )
             + _p(
-                f"The main window uses a left navigation list (not top tabs). "
+                f"The circular RSDT badge sits at the top of the left nav "
+                f"(also on the splash, camera window, and teach pendant). "
+                f"Below it is the navigation list (not top tabs). "
                 f"Daily production starts on **{_L(T.MONITOR)}**; long explanations live here only."
             )
             + _h("Entry & main scan")
@@ -319,7 +322,7 @@ def build_sections_en() -> List[Section]:
                     + " — raw (name = camera_time_kind_raw)",
                     _code("…_vis.jpg") + " — overlay",
                     _code("meta.json") + " — detect fields + transport",
-                    _code("index.jsonl") + " — index (one line per photo, plus a line per transport write-back)",
+                    _code("index_YYYY-MM-DD.jsonl") + " — daily index (one line per photo, plus a line per transport write-back)",
                 ]
             )
             + _p("Id looks like <code>20260828_111343_635_cam1_belt_pick</code> (time, camera, kind).")
@@ -366,7 +369,7 @@ def build_sections_en() -> List[Section]:
                     "<b>Calib / YOLO model folders</b> → files and weights, not run history.",
                     "Alarms → Open log folder → whole "
                     + _code("logs/")
-                    + " (app.log, black box). Run snaps has its own Open vision log folder for vision_snaps only.",
+                    + " (app_YYYY-MM-DD.log, black box). Run snaps has its own Open vision log folder for vision_snaps only.",
                 ]
             )
             + _h("Config")
@@ -513,15 +516,18 @@ def build_sections_en() -> List[Section]:
                     f"{_code('hmi/pages/vision_snap_page.py')}",
                     f"{_code('core/blackbox.py')}",
                 ],
-                refs=[f"{_code('core/alarm.py')}", "logs/"],
+                refs=[
+                    f"{_code('core/alarm.py')}",
+                    "logs/app_YYYY-MM-DD.log, error_YYYY-MM-DD.log, errors_YYYY-MM-DD.jsonl, blackbox_YYYY-MM-DD.jsonl, dumps/, vision_snaps/",
+                ],
                 used_by=["Main window popup timer; motion/vision failures"],
             )
             + _h("Four tabs")
             + _ul(
                 [
                     "<b>This run</b>: alarms since start (paged). After exit, use saved errors / black box.",
-                    "<b>Saved errors</b>: WARNING/ERROR/alarms in logs/errors.jsonl, survive restart.",
-                    "<b>Black box</b>: trajectory around faults (blackbox.jsonl); crash dumps in logs/dumps/. Not camera photos.",
+                    "<b>Saved errors</b>: WARNING/ERROR/alarms in logs/errors_YYYY-MM-DD.jsonl, survive restart.",
+                    "<b>Black box</b>: trajectory around faults (blackbox_YYYY-MM-DD.jsonl); crash dumps in logs/dumps/. Not camera photos.",
                     "<b>Run snaps</b>: production raw/overlay JPEGs (camera_time_kind_raw/vis.jpg) plus transport write-back. "
                     "See previous chapter and manual §14.4.",
                 ]

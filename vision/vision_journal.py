@@ -3,7 +3,7 @@
 目录：项目 ``logs/vision_snaps/YYYY-MM-DD/<snap_id>/``
   - 原图/叠图文件名含相机与时间，例如 ``cam1_20260828_140455_635_belt_pick_raw.jpg``
   - ``meta.json`` 检测结果 + ``transport``（place / slot_check / unload）
-总索引：``logs/vision_snaps/index.jsonl``（退出程序后仍可查）
+总索引：``logs/vision_snaps/index_YYYY-MM-DD.jsonl``（退出程序后仍可查）
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 def _append_index(rec: dict[str, Any]) -> None:
     SNAP_ROOT.mkdir(parents=True, exist_ok=True)
-    path = SNAP_ROOT / "index.jsonl"
+    path = SNAP_ROOT / f"index_{datetime.now().strftime('%Y-%m-%d')}.jsonl"
     line = json.dumps(rec, ensure_ascii=False, default=str) + "\n"
     with path.open("a", encoding="utf-8") as fp:
         fp.write(line)
@@ -144,6 +144,23 @@ def _prune(days: int) -> None:
                 day_dir.rmdir()
             except OSError:
                 pass
+        cutoff_ts = cutoff.timestamp()
+        for idx in SNAP_ROOT.glob("index_????-??-??.jsonl"):
+            try:
+                day = datetime.strptime(idx.name[6:16], "%Y-%m-%d")
+            except ValueError:
+                continue
+            if day < cutoff:
+                try:
+                    idx.unlink()
+                except OSError:
+                    pass
+        legacy_idx = SNAP_ROOT / "index.jsonl"
+        try:
+            if legacy_idx.is_file() and legacy_idx.stat().st_mtime < cutoff_ts:
+                legacy_idx.unlink()
+        except OSError:
+            pass
     except OSError as e:
         log.debug("[视觉快照] 清理旧目录: %s", e)
 

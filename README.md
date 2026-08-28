@@ -1,5 +1,11 @@
 # 莆田鞋厂四槽机器控制程序
 
+<p align="center">
+  <img src="hmi/assets/rsdt_badge.png" width="160" alt="Robot Skills Development Team (R.S.D.T)" />
+  <br/>
+  <sub>Robot Skills Development Team (R.S.D.T)</sub>
+</p>
+
 **英文代号：** `Casbot_FourSlot_Press_Shoes`  
 **一句话：** 四槽压鞋机 + 双臂（法奥 FR5）自动上下料 — HMI 触摸屏 + 六工位流程 + 四路视觉（YOLO / 手眼）。
 

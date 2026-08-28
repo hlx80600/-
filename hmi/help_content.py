@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import List, Tuple
 
 from hmi import i18n
 from hmi.tab_titles import T, nav_title
+
+_BADGE = Path(__file__).resolve().parent / "assets" / "rsdt_badge.png"
 
 
 def _L(nav_id: str) -> str:
@@ -33,6 +36,21 @@ def _ol(items: list[str]) -> str:
 
 def _code(path: str) -> str:
     return f"<code>{path}</code>"
+
+
+def _logo_html(*, width: int = 160) -> str:
+    """总览页顶的圆形徽章（QTextBrowser 用 file URI，路径含中文也能加载）。"""
+    if not _BADGE.is_file():
+        return ""
+    src = _BADGE.as_uri()
+    return (
+        f'<p style="text-align:center;margin:4px 0 12px 0;">'
+        f'<img src="{src}" width="{width}" height="{width}" '
+        f'alt="Robot Skills Development Team" />'
+        f"<br/>"
+        f'<span style="color:#5d6d7e;font-size:12px;">'
+        f"Robot Skills Development Team (R.S.D.T)</span></p>"
+    )
 
 
 def _io_block(*, purpose: str, impl: list[str], refs: list[str], used_by: list[str]) -> str:
@@ -64,13 +82,15 @@ def _sections_zh_cn() -> List[Section]:
         (
             "overview",
             "总览：怎么查、灯语、记忆、流程",
-            _h("怎么用本页")
+            _logo_html()
+            + _h("怎么用本页")
             + _p(
                 "本「使用说明」是现场操作的完整手册。左侧按章节浏览，上方可搜索。"
                 "每个单页都写清：做什么、实现文件、引用了什么、被谁调用。"
             )
             + _p(
-                f"主界面左侧为「功能导航」列表（不再用顶部标签左右翻页）；"
+                f"主界面左侧导航最上方为 RSDT 圆形徽章（启动窗、相机监控、示教器同样有）。"
+                f"其下是「功能导航」列表（不再用顶部标签左右翻页）；"
                 f"日常生产从「{_L(T.MONITOR)}」开始；长释义只在本页，操作页只留按钮和状态。"
             )
             + _h("程序入口与主扫描")
@@ -442,7 +462,7 @@ def _sections_zh_cn() -> List[Section]:
                     _code("cam1_20260828_140455_635_belt_pick_raw.jpg") + " — 原图（文件名=相机_时间_类型_raw）",
                     _code("…_vis.jpg") + " — 叠了检测框/文字的图",
                     _code("meta.json") + " — 检测字段 + transport（运送回写）",
-                    _code("logs/vision_snaps/index.jsonl") + " — 总索引（拍照一行、每次运送回写再追加一行）",
+                    _code("logs/vision_snaps/index_YYYY-MM-DD.jsonl") + " — 当日总索引（拍照一行、每次运送回写再追加一行）",
                 ]
             )
             + _p(
@@ -492,7 +512,7 @@ def _sections_zh_cn() -> List[Section]:
                     "<b>标定目录 / YOLO模型目录</b> → 内参手眼文件、权重，不是运行历史。",
                     "「报警记录」里另有「打开日志目录」→ 整个 "
                     + _code("logs/")
-                    + "（app.log、黑匣子等）；运行快照页的「打开视觉log文件夹」只打开 vision_snaps。",
+                    + "（app_日期.log、黑匣子等）；运行快照页的「打开视觉log文件夹」只打开 vision_snaps。",
                 ]
             )
             + _h("开关与保留天数")
@@ -689,7 +709,7 @@ def _sections_zh_cn() -> List[Section]:
                 ],
                 refs=[
                     f"{_code('core/alarm.py')} — 队列与弹窗",
-                    "logs/app.log、error.log、errors.jsonl、blackbox.jsonl、dumps/、vision_snaps/",
+                    "logs/app_日期.log、error_日期.log、errors_日期.jsonl、blackbox_日期.jsonl、dumps/、vision_snaps/",
                 ],
                 used_by=["主窗口定时 pop_popup；运动失败 / 视觉失败写报警"],
             )
@@ -697,8 +717,8 @@ def _sections_zh_cn() -> List[Section]:
             + _ul(
                 [
                     "<b>本次运行</b>：当前启动后的报警，分页，可复制、报警复位。退出后请看落盘错误 / 黑匣子。",
-                    "<b>落盘错误</b>：WARNING/ERROR/报警写入 logs/errors.jsonl，关机后再开也能查。",
-                    "<b>黑匣子</b>：故障前后程序轨迹（blackbox.jsonl）；崩溃另有 logs/dumps/。这是轨迹，不是相机照片。",
+                    "<b>落盘错误</b>：WARNING/ERROR/报警写入 logs/errors_日期.jsonl，关机后再开也能查。",
+                    "<b>黑匣子</b>：故障前后程序轨迹（blackbox_日期.jsonl）；崩溃另有 logs/dumps/。这是轨迹，不是相机照片。",
                     "<b>运行快照</b>：生产拍照原图/叠图（文件名=相机_时间_类型_raw/vis.jpg）及运送回写。"
                     "详见上一章「报警记录 · 运行快照」与手册 §14.4。",
                 ]

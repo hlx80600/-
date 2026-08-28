@@ -923,7 +923,9 @@ class MonitorPage(QWidget):
         """复制当前活动报警（无弹窗）。"""
         a = self.ctx.alarms.active
         if a:
-            text = format_alarm_text(a.code, a.station, a.step, a.message)
+            text = format_alarm_text(
+                a.code, a.station, a.step, a.message, time=a.time
+            )
         else:
             text = (self.lbl_init_flag.toPlainText() or "").strip()
         if not text:

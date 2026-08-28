@@ -1184,7 +1184,9 @@ class VisionWorkspace(QWidget):
         if img is None or cv2 is None:
             QMessageBox.warning(self, "截图", "无图像")
             return
-        name = f"{self._cam_id()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        name = (
+            f"{self._cam_id()}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]}.png"
+        )
         _SNAP_DIR.mkdir(parents=True, exist_ok=True)
         path = _SNAP_DIR / name
         cv2.imwrite(str(path), img)

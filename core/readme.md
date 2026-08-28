@@ -22,7 +22,7 @@
 | `gvl.py` / `memory.py` | 全局变量与工位间共享记忆 |
 | `machine_state.py` | 运行/初始化/报警等状态机 |
 | `alarm.py` | 报警登记与 HMI 弹窗 |
-| `blackbox.py` | 错误日志落盘 + 黑匣子（`logs/`，退出后可查） |
+| `blackbox.py` | 错误日志落盘 + 黑匣子（`logs/app_日期.log`、`errors_日期.jsonl`、`blackbox_日期.jsonl` 等，退出后可查） |
 | `dry_run_shield.py` | 空跑时屏蔽真机 I/O |
 | `motion_steps.py` | 运动步序配置辅助 |
 | `point_undo.py` | 示教点撤销栈 |

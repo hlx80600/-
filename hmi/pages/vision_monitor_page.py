@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
 
 from core.coordinator import Coordinator
 from core.camera_config import preview_interval_ms
+from hmi.clock_label import ClockLabel
+from hmi.logo_label import BAR_PX, LogoLabel, apply_window_icon
 from hmi.style import apply_page_chrome, style_many
 from visualize_module import viz
 
@@ -121,6 +123,8 @@ class VisionMonitorPage(QWidget):
         root = QVBoxLayout(self)
 
         bar = QHBoxLayout()
+        self.lbl_logo = LogoLabel(side=BAR_PX)
+        bar.addWidget(self.lbl_logo, 0)
         self.chk_live = QCheckBox("刷新原图")
         self.chk_live.setChecked(True)
         self.chk_live.setToolTip("后台连续取流；关掉则停止抢相机")
@@ -149,6 +153,8 @@ class VisionMonitorPage(QWidget):
         bar.addWidget(self.btn_once)
         bar.addWidget(self.btn_one)
         bar.addWidget(self.lbl_run, 1)
+        self.lbl_clock = ClockLabel()
+        bar.addWidget(self.lbl_clock, 0)
         root.addLayout(bar)
 
         tip = QLabel(
@@ -417,6 +423,7 @@ class VisionMonitorWindow(QMainWindow):
         super().__init__(parent)
         self._allow_close = False
         self.setWindowTitle("相机监控")
+        apply_window_icon(self)
         self.setMinimumSize(880, 560)
         self.setStyleSheet(
             """

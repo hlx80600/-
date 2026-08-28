@@ -27,6 +27,8 @@ from hmi.alarm_dialog import show_copyable_alarm
 from hmi.load_progress import run_with_progress
 from hmi.pages.monitor_page import MonitorPage
 from hmi.scroll_util import MONITOR_WHEEL_SCALE, harden_wheel, wrap_in_scroll
+from hmi.clock_label import ClockLabel
+from hmi.logo_label import NAV_PX, LogoLabel, apply_window_icon
 from hmi.style import style_button
 from hmi.tab_titles import T, nav_title
 
@@ -65,6 +67,9 @@ QListWidget#navList::item:selected {{
 QListWidget#navList::item:hover:!selected {{
     background: #2471a3;
     color: #ffffff;
+}}
+QWidget#navLogoWrap {{
+    background: #0d2130;
 }}
 QLabel#navTitle {{
     background: #154360;
@@ -202,6 +207,7 @@ class MainWindow(QMainWindow):
         self.ctx = coord.ctx
         font, family = i18n.apply_ui_font()
         self.setStyleSheet(_build_app_qss(family))
+        apply_window_icon(self)
         self.setMinimumSize(800, 500)
 
         self._page_cache: dict[str, QWidget] = {}
@@ -222,6 +228,14 @@ class MainWindow(QMainWindow):
         nav_lay = QVBoxLayout(nav_wrap)
         nav_lay.setContentsMargins(0, 0, 0, 0)
         nav_lay.setSpacing(0)
+        logo_wrap = QWidget()
+        logo_wrap.setObjectName("navLogoWrap")
+        logo_lay = QVBoxLayout(logo_wrap)
+        logo_lay.setContentsMargins(14, 10, 14, 8)
+        logo_lay.setSpacing(0)
+        self.lbl_logo = LogoLabel(side=NAV_PX)
+        logo_lay.addWidget(self.lbl_logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        nav_lay.addWidget(logo_wrap)
         self.lbl_nav_title = QLabel()
         self.lbl_nav_title.setObjectName("navTitle")
         self.lbl_nav_title.setAlignment(Qt.AlignCenter)
@@ -270,6 +284,8 @@ class MainWindow(QMainWindow):
         self.lbl_page.setStyleSheet("font-size:16px;font-weight:bold;color:#1a5276;")
         cam_bar.addWidget(self.lbl_page, 0)
         cam_bar.addStretch(1)
+        self.lbl_clock = ClockLabel()
+        cam_bar.addWidget(self.lbl_clock, 0)
         right_lay.addLayout(cam_bar)
         right_lay.addWidget(self.stack, 1)
         self._content_host = right
@@ -552,6 +568,7 @@ class MainWindow(QMainWindow):
                 station=popup.station,
                 step=popup.step,
                 message=popup.message,
+                time=popup.time,
                 extra=(
                     "若含「路径：从…→…」请到「点位偏移」检查这两点或增加过渡点后用路径试跑。\n"
                     "复位后从失败步重试。"
