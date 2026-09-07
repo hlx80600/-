@@ -19,7 +19,7 @@ from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.pose_utils import apply_offset, numeric_pose
 from hmi.pages.points_page import NoWheelComboBox, NoWheelSpinBox
-from hmi.style import apply_page_chrome, style_many
+from hmi.style import apply_page_chrome, hbox_pair, style_many
 
 
 class ShieldPickPage(QWidget):
@@ -46,7 +46,6 @@ class ShieldPickPage(QWidget):
         fc.addRow("Z", self.sp_z)
         fc.addRow("Rx", self.sp_rx)
         fc.addRow("Ry", self.sp_ry)
-        root.addWidget(box_c)
 
         # —— 鞋子列表 ——
         box_s = QGroupBox("屏蔽示教鞋位（shoes：每只鞋的 XY + Rz + 左右）")
@@ -90,7 +89,7 @@ class ShieldPickPage(QWidget):
         self.lbl_order = QLabel("模拟取鞋：-")
         self.lbl_order.setStyleSheet("color:#555;")
         bs.addWidget(self.lbl_order)
-        root.addWidget(box_s)
+        root.addLayout(hbox_pair(box_c, box_s, stretch_l=1, stretch_r=2))
 
         # —— 操作 ——
         edit_row = QHBoxLayout()

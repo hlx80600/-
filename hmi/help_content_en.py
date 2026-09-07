@@ -49,7 +49,7 @@ def build_sections_en() -> List[Section]:
             + _h("New machine commissioning order")
             + _ol(
                 [
-                    f"<b>{_L(T.SETTINGS)}</b> or Comm tab: IP / CAN / camera serial / Mock → save → <b>restart</b>",
+                    f"<b>{_L(T.HOST_DEVICES)}</b> then <b>{_L(T.SETTINGS)}</b> Comm tab: IP / CAN / camera serial / Mock → save → <b>restart</b>",
                     f"<b>{_L(T.PAYLOAD)}</b>: tool TCP & payload → save & push",
                     f"<b>{_L(T.POINTS)}</b>: teach entry, slot, offsets → save",
                     f"<b>{_L(T.MOTION)}</b>: step speeds; disable blend on retreat if needed",
@@ -70,7 +70,7 @@ def build_sections_en() -> List[Section]:
                     f"<b>{_L(T.PRODUCTION)}</b>: count / CT / UPH",
                     f"<b>{_L(T.STEP_DEBUG)}</b>: per-station single step",
                     f"<b>{_L(T.MOTION)}</b>: per-step vel / blend",
-                    f"<b>{_L(T.VISION)}</b>: hub (ROI / chessboard / hand-eye / test / train)",
+                    f"<b>{_L(T.VISION)}</b>: hub (ROI / chessboard / hand-eye / params / test / train)",
                     f"<b>{_L(T.POINTS)}</b>: taught points",
                     f"<b>{_L(T.SHIELD_PICK)}</b>: cam1 Mock pick teach",
                     f"<b>{_L(T.DRY_RUN)}</b>: dry-run shields",
@@ -78,6 +78,7 @@ def build_sections_en() -> List[Section]:
                     f"<b>{_L(T.PRESS_IO)}</b>: press slots & Modbus",
                     f"<b>{_L(T.GRIPPER)}</b>: gripper debug & GRIP_* reset",
                     f"<b>{_L(T.SETTINGS)}</b>: language, UI, comm",
+                    f"<b>{_L(T.HOST_DEVICES)}</b>: this PC’s USB list, NIC IPs, serial/V4L by-id",
                     f"<b>{_L(T.ALARM)}</b>: this-run / saved errors / black box / run snaps (JPEG names include camera and time)",
                 ]
             )
@@ -119,6 +120,7 @@ def build_sections_en() -> List[Section]:
                 ],
                 refs=[
                     f"{_code('core/coordinator.py')} — init / mode / start-stop",
+                    f"{_code('stations/init_sequence.py')} — near-home gate then return to home",
                     f"{_code('core/lights.py')} — stack lights",
                     f"{_code('core/memory.py')} — Mem read/write",
                     f"{_code('devices/robot_fr5.py')} — SetSpeed",
@@ -135,6 +137,7 @@ def build_sections_en() -> List[Section]:
             + _ol(
                 [
                     "Mode Auto → Initialize → READY (yellow+green) → Start.",
+                    "Real robots must be near home first (Monitor XYZ mm / joint °); else alarm, reset, then Initialize again. Mock arms skip.",
                     "When paused you can edit memory/slots; after Stop re-init before Start.",
                     "After E-stop: reset E-stop → Initialize again.",
                     "Arm speed ≈ Monitor SetSpeed% × Motion page step vel%.",
@@ -146,8 +149,10 @@ def build_sections_en() -> List[Section]:
             _L(T.CAM_MONITOR),
             _io_block(
                 purpose=(
-                    "Separate window: cam1–4 raw frames and inference. "
-                    "Refresh raw in background; live inference uses cached frames."
+                    "Separate window: 2×2 cameras. Tabs switch the whole window among "
+                    "raw / inference overlay / depth colormap so each cell is one large image. "
+                    "Refresh raw in background; live inference uses cached frames. "
+                    "Depth tab needs “output depth” on that camera."
                 ),
                 impl=[
                     f"{_code('hmi/pages/vision_monitor_page.py')}",
@@ -223,7 +228,8 @@ def build_sections_en() -> List[Section]:
             _L(T.VISION),
             _io_block(
                 purpose=(
-                    "Vision hub: preview + tabs for ROI, chessboard, hand-eye, detection test, capture/train."
+                    "Vision hub: color on top, depth below (drag/scroll the splitter). "
+                    "Tabs for ROI, chessboard, hand-eye, vision params, detection test, capture/train."
                 ),
                 impl=[
                     f"{_code('hmi/pages/vision_hub_page.py')}",
@@ -500,6 +506,32 @@ def build_sections_en() -> List[Section]:
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
                 refs=[f"{_code('core/config_loader.py')}"],
                 used_by=["First step for real hardware; restart after camera serial change"],
+            ),
+        ),
+        (
+            "host_devices",
+            _L(T.HOST_DEVICES),
+            _io_block(
+                purpose=(
+                    "Read-only list of this PC’s NIC IPv4/IPv6, USB devices (VID:PID, serial, tty/video nodes), "
+                    "and /dev/serial/by-id plus /dev/v4l/by-id. "
+                    "Use it when filling robot IPs and camera serials in Comm settings. "
+                    "Refresh; double-click a cell to copy; Copy all for plain text. "
+                    "Does not call the Orbbec SDK (avoids hangs); depth cameras still appear under USB / V4L."
+                ),
+                impl=[
+                    f"{_code('hmi/pages/host_devices_page.py')} — UI",
+                    f"{_code('core/host_inventory.py')} — /sys and ip -json",
+                ],
+                refs=[
+                    "/sys/bus/usb/devices, /sys/class/net, ip addr / ip route",
+                    "/dev/serial/by-id, /dev/v4l/by-id",
+                    f"{_code('hmi/pages/config_page.py')} — write IP / serial into yaml",
+                ],
+                used_by=[
+                    f"{_L(T.SETTINGS)} Comm tab: look up robot IP and camera serial here first",
+                    "After swapping USB ports or Ethernet, confirm this PC’s addresses",
+                ],
             ),
         ),
         (

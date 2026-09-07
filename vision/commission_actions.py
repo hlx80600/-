@@ -287,7 +287,7 @@ def handeye_retreat_and_capture(ctx, camera_id: str = "cam1") -> tuple[Any, Any,
     msg = (
         f"已拍照 ({iw}×{ih}, {z_note})\n"
         f"  {extra}\n"
-        "请在上方预览点击标定点像素，再点「③ 完成本点采样」。"
+        "请在左侧预览点击标定点像素，再点「③ 完成本点采样」。"
     )
     return img, depth, msg
 

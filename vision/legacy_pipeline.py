@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -82,45 +83,64 @@ class SnapshotAdapter:
         pass
 
 
+def _dir_has_pkg(base: Path, name: str) -> bool:
+    """目录里是否有包/模块文件。不 import、不走 meta_path（避免卡住 GIL）。"""
+    try:
+        return (base / name / "__init__.py").is_file() or (base / f"{name}.py").is_file()
+    except OSError:
+        return False
+
+
+def _ultralytics_present() -> bool:
+    """只扫本机 site-packages，不 import torch/YOLO。"""
+    if "ultralytics" in sys.modules or "ultralytics_obb360" in sys.modules:
+        return True
+    paths: list[Path] = []
+    try:
+        import site
+
+        for item in list(site.getsitepackages() or []) + [site.getusersitepackages()]:
+            if item:
+                paths.append(Path(item))
+    except Exception:
+        pass
+    for entry in sys.path[:8]:
+        if entry:
+            paths.append(Path(entry))
+    seen: set[str] = set()
+    for base in paths:
+        key = str(base)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _dir_has_pkg(base, "ultralytics") or _dir_has_pkg(base, "ultralytics_obb360"):
+            return True
+    return False
+
+
 def stack_status() -> Dict[str, Any]:
-    """检查旧视觉依赖是否能 import（结果缓存，避免每次打开视觉页都卡一下）。"""
+    """检查旧视觉依赖是否在磁盘上。禁止 import 重库，避免卡死界面。"""
     global _STACK_STATUS_CACHE, _STACK_STATUS_TS
     now = time.monotonic()
-    if _STACK_STATUS_CACHE is not None and (now - _STACK_STATUS_TS) < 60.0:
+    if _STACK_STATUS_CACHE is not None and (now - _STACK_STATUS_TS) < 300.0:
         return dict(_STACK_STATUS_CACHE)
     out: Dict[str, Any] = {
-        "shoe_vision": False,
-        "ultralytics": False,
-        "slot_check": False,
-        "position": False,
+        "shoe_vision": (ROOT / "shoe_vision_seg.py").is_file(),
+        "ultralytics": _ultralytics_present(),
+        "slot_check": (ROOT / "slot_check.py").is_file(),
+        "position": (ROOT / "position.py").is_file() or (ROOT / "position_obb.py").is_file(),
         "message": "",
     }
-    errs = []
-    try:
-        import shoe_vision_seg  # noqa: F401
-
-        out["shoe_vision"] = True
-    except Exception as e:
-        errs.append(f"ShoeVision: {e}")
-    try:
-        import ultralytics  # noqa: F401
-
-        out["ultralytics"] = True
-    except Exception as e:
-        errs.append(f"ultralytics: {e}")
-    try:
-        import slot_check  # noqa: F401
-
-        out["slot_check"] = True
-    except Exception as e:
-        errs.append(f"slot_check: {e}")
-    try:
-        import position  # noqa: F401
-
-        out["position"] = True
-    except Exception as e:
-        errs.append(f"Position: {e}")
-    out["message"] = " | ".join(errs) if errs else "旧视觉栈可加载"
+    errs: list[str] = []
+    if not out["shoe_vision"]:
+        errs.append("shoe_vision_seg: 未找到")
+    if not out["ultralytics"]:
+        errs.append("ultralytics: 未安装")
+    if not out["slot_check"]:
+        errs.append("slot_check: 未找到")
+    if not out["position"]:
+        errs.append("position: 未找到")
+    out["message"] = " | ".join(errs) if errs else "依赖已找到（检测时再加载）"
     _STACK_STATUS_CACHE = dict(out)
     _STACK_STATUS_TS = now
     return out
@@ -323,10 +343,23 @@ def classify_slot_occupied(image_bgr, vis_cfg: Optional[dict] = None) -> Tuple[O
         resolved = _resolve_model_path(path) if path else None
         if resolved is not None:
             kw["model_path"] = resolved
+        if isinstance(blk, dict) and blk.get("imgsz") is not None:
+            try:
+                kw["imgsz"] = int(blk.get("imgsz") or 640)
+            except (TypeError, ValueError):
+                pass
         checker = SlotChecker(**kw) if kw else SlotChecker()
         r = checker.classify(image_bgr)
         cid = int(getattr(r, "class_id", -1))
         conf = float(getattr(r, "confidence", 0.0) or 0.0)
+        min_conf = 0.0
+        if isinstance(blk, dict):
+            try:
+                min_conf = float(blk.get("conf", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                min_conf = 0.0
+        if min_conf > 0 and conf < min_conf:
+            return None, f"置信度不足 {conf:.2f}<{min_conf:.2f}", conf
         if cid == 1:
             return True, f"有鞋 conf={conf:.2f}", conf
         if cid == 0:

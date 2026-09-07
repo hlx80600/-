@@ -64,6 +64,8 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
             "停止/暂停后可改：改放料槽则取料槽按顺序联动，改取料槽则放料槽联动。"
         ),
         "monitor.link.title": "设备连接（Mock=模拟就绪；真机断线将自动重连）",
+        "monitor.run.title": "运行",
+        "monitor.prod.board": "产量速览",
         "monitor.link.mock": "模拟",
         "monitor.link.opening": "正在连接…",
         "monitor.link.ok": "已连接",
@@ -175,6 +177,16 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.init.stopped": "初始化完成 · 已停止 — 可再点「启动」",
         "monitor.init.ready": "✓ 初始化完成 — 可以点「启动」",
         "monitor.init.idle": "未初始化 — 请先点「初始化」，完成后再「启动」",
+        "monitor.tab.overview": "总览",
+        "monitor.tab.speed": "速度平滑",
+        "monitor.tab.manual": "手动 IO",
+        "monitor.init.near_title": "初始化近初始位容差",
+        "monitor.init.near_mm": "初始位允许 XYZ",
+        "monitor.init.near_deg": "关节/姿态",
+        "monitor.init.near_tip": (
+            "点「初始化」前先查两台真机是否在 home 附近；超差则立刻报警中止，须报警复位后再初始化。"
+            "模拟臂跳过。改完失焦即写入配置。"
+        ),
         "monitor.start_tip.estop": "急停中，无法启动",
         "monitor.start_tip.alarm": "报警中，无法启动",
         "monitor.start_tip.init_wait": "初始化尚未完成，请等待",
@@ -280,6 +292,8 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
             "When stopped/paused: editing place slot updates pick slot (and vice versa) by sequence."
         ),
         "monitor.link.title": "Device links (Mock=sim ready; real devices auto-reconnect)",
+        "monitor.run.title": "Run",
+        "monitor.prod.board": "Output snapshot",
         "monitor.link.mock": "Mock",
         "monitor.link.opening": "Connecting…",
         "monitor.link.ok": "Connected",
@@ -391,6 +405,16 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.init.stopped": "Init done · Stopped — click Start",
         "monitor.init.ready": "✓ Init done — click Start",
         "monitor.init.idle": "Not initialized — click Initialize, then Start",
+        "monitor.tab.overview": "Overview",
+        "monitor.tab.speed": "Speed / Blend",
+        "monitor.tab.manual": "Manual I/O",
+        "monitor.init.near_title": "Init near-home tolerance",
+        "monitor.init.near_mm": "Home XYZ tolerance",
+        "monitor.init.near_deg": "Joints / RPY",
+        "monitor.init.near_tip": (
+            "Before Initialize, both real robots must be near taught home; otherwise alarm and stop."
+            " Alarm Reset, then Initialize again. Mock arms are skipped. Saved when the spin loses focus."
+        ),
         "monitor.start_tip.estop": "E-stop — cannot start",
         "monitor.start_tip.alarm": "Alarm — cannot start",
         "monitor.start_tip.init_wait": "Init not finished — please wait",

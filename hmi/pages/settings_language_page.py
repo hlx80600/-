@@ -49,6 +49,7 @@ class SettingsLanguagePage(QWidget):
         self.btn_apply.clicked.connect(self._apply)
         lay.addWidget(self.btn_apply)
         root.addWidget(self.grp)
+        self.grp.setMaximumWidth(720)
         root.addStretch(1)
         apply_page_chrome(self)
         self.retranslate_ui()

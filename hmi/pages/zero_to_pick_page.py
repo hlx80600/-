@@ -29,7 +29,7 @@ from devices.pose_utils import numeric_pose
 from hmi.pages.obb_label_widget import ObbLabelPanel
 from hmi.pages.cls_preview_widget import ClassifyPreviewPanel
 from hmi.pages.points_page import NoWheelComboBox
-from hmi.style import apply_page_chrome, style_button, style_many
+from hmi.style import apply_page_chrome, hbox_pair, style_button, style_many
 from hmi.tab_titles import T
 from vision import commission_actions as cact
 from vision import model_store as mstore
@@ -52,7 +52,7 @@ class ZeroToPickPage(QWidget):
 
         tip = QLabel(
             "按①→⑤在本页做完：挂模型 → 采图/训练（分类）→ 内参与手眼写入 json → "
-            f"测试皮带并 MoveL。预览点像素用上方预览区，或切到「手眼标定」页签。"
+            f"测试皮带并 MoveL。预览点像素用左侧预览区，或切到「手眼标定」页签。"
         )
         tip.setWordWrap(True)
         tip.setStyleSheet("color:#1a5276;font-weight:bold;")
@@ -257,7 +257,6 @@ class ZeroToPickPage(QWidget):
         )
         hint.setWordWrap(True)
         l3.addWidget(hint)
-        root.addWidget(g3)
 
         # ④ 抓取
         g4 = QGroupBox("④ 皮带出图 → PickPose → 试走")
@@ -294,7 +293,7 @@ class ZeroToPickPage(QWidget):
             r4b.addWidget(b, 0)
         r4b.addStretch(1)
         l4.addLayout(r4b)
-        root.addWidget(g4)
+        root.addLayout(hbox_pair(g3, g4))
 
         log_box = QGroupBox("过程记录")
         log_lay = QVBoxLayout(log_box)

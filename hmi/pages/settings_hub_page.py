@@ -80,6 +80,10 @@ class SettingsHubPage(QWidget):
         self._ui_page.retranslate_ui()
         self._motion_page.retranslate_ui()
         self._mobile_page.retranslate_ui()
+        if self._comm_page is not None:
+            fn = getattr(self._comm_page, "retranslate_ui", None)
+            if callable(fn):
+                fn()
 
     def select_tab(self, name: str) -> bool:
         target = _TAB_ALIASES.get(name, name)

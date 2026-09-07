@@ -186,6 +186,9 @@ def main() -> None:
     setup_logging()
     _fix_qt_env()
 
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
     app = QApplication(sys.argv)
     from hmi.logo_label import apply_window_icon
 

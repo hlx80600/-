@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from core.coordinator import Coordinator
 from hmi import i18n
@@ -14,7 +14,9 @@ from hmi.pages.vision_workspace import (
     TAB_CHESSBOARD,
     TAB_DETECT,
     TAB_HANDEYE,
+    TAB_PARAMS,
     VisionWorkspace,
+    scroll_tab_body,
 )
 
 TAB_TRAIN = "采图训练"
@@ -30,6 +32,8 @@ _TAB_ALIASES: dict[str, str] = {
     "手眼": TAB_HANDEYE,
     "检测": TAB_DETECT,
     "YOLO": TAB_DETECT,
+    "参数": TAB_PARAMS,
+    "视觉参数": TAB_PARAMS,
 }
 
 
@@ -38,6 +42,7 @@ class VisionHubPage(QWidget):
 
     def __init__(self, coord: Coordinator) -> None:
         super().__init__()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.coord = coord
         self.ctx = coord.ctx
         self.workspace = VisionWorkspace(coord)
@@ -53,7 +58,7 @@ class VisionHubPage(QWidget):
         # 把采图训练挂到工作区已有的 inner_tabs；挡住信号，避免 addTab 改当前页签
         self.tabs = self.workspace.inner_tabs
         self.tabs.blockSignals(True)
-        self.tabs.addTab(self._train_host, TAB_TRAIN)
+        self.tabs.addTab(scroll_tab_body(self._train_host), TAB_TRAIN)
         self.tabs.setCurrentIndex(0)
         self.tabs.blockSignals(False)
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -121,6 +126,7 @@ class VisionHubPage(QWidget):
             assert lay is not None
             self._train_placeholder.setParent(None)
             lay.addWidget(page)
+            self.workspace._restore_mid_split()
             return page
 
         run_load_task(

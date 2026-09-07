@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -98,11 +99,12 @@ class ProductionPage(QWidget):
         self.lbl_hour = QLabel("本小时\n0")
         for lb in (self.lbl_total, self.lbl_ct, self.lbl_uph, self.lbl_uph_avg, self.lbl_hour):
             lb.setAlignment(Qt.AlignCenter)
+            lb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             lb.setStyleSheet(
                 "background:#2c3e50;color:#ecf0f1;padding:12px;border-radius:6px;"
                 "font-size:16px;font-weight:bold;min-width:110px;"
             )
-            grid.addWidget(lb)
+            grid.addWidget(lb, 1)
         root.addWidget(board)
 
         btn_row = QHBoxLayout()

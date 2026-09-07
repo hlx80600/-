@@ -1,9 +1,27 @@
+from __future__ import annotations
+
+import logging
+import math
+from typing import Any
+
 import cv2
 from ultralytics import YOLO
-import math
-from casbot_yolo_point4d.casbot_yolo_point4d_utils import shift_center_by_obb_scale, angle_to_vector, get_center_pose
-import logging
 
+from casbot_yolo_point4d.casbot_yolo_point4d_utils import (
+    angle_to_vector,
+    get_center_pose,
+    shift_center_by_obb_scale,
+)
+from vision.draw_overlay import draw_hud_lines, draw_obb_poly
+
+
+def _class_name(names: Any, class_id: int) -> str:
+    """从 YOLO names 取类别名。"""
+    if isinstance(names, dict):
+        return str(names.get(class_id, names.get(str(class_id), class_id)))
+    if isinstance(names, (list, tuple)) and 0 <= class_id < len(names):
+        return str(names[class_id])
+    return str(class_id)
 
 
 class OBBOnlyDetector:
@@ -24,6 +42,11 @@ class OBBOnlyDetector:
         self.iou = obb_iou_thres
 
     def detect(self, image, depth, fx, fy, cx, cy, shift=[[0, 0]], draw_result=True):
+        """检测 OBB 并可选叠图。
+
+        叠图不用 ``results[0].plot()``：YOLO 默认实心底标签会挡住鞋面。
+        框只描边，坐标写在左下角半透明条。
+        """
         results = self.model.predict(
             image, conf=self.conf, imgsz=self.imgsz, iou=self.iou, verbose=False
         )
@@ -32,7 +55,9 @@ class OBBOnlyDetector:
         if not results or len(results) == 0:
             return yolo_p3d_results, image.copy()
 
-        img_obb_show = results[0].plot()
+        img_obb_show = image.copy()
+        hud: list[str] = []
+        names = getattr(results[0], "names", None) or getattr(self.model, "names", {}) or {}
 
         for result in results:
             if result.obb is None or len(result.obb) == 0:
@@ -52,6 +77,7 @@ class OBBOnlyDetector:
                 x2, y2 = pts[1]
                 x3, y3 = pts[2]
                 x4, y4 = pts[3]
+                pts8 = [x1, y1, x2, y2, x3, y3, x4, y4]
 
                 angle_rad = float(xywhr[i][4])
                 degree = math.degrees(angle_rad)
@@ -63,7 +89,7 @@ class OBBOnlyDetector:
 
                 shift_point = shift_center_by_obb_scale(
                     center,
-                    [x1, y1, x2, y2, x3, y3, x4, y4],
+                    pts8,
                     curr_shift,
                     (vector_x, vector_y),
                 )
@@ -72,27 +98,21 @@ class OBBOnlyDetector:
                     shift_point[0], shift_point[1], depth, 20, fx, fy, cx, cy
                 )
 
-
+                cls_name = _class_name(names, class_id)
                 if draw_result:
+                    draw_obb_poly(img_obb_show, pts8, (255, 180, 40), thickness=1)
                     cv2.circle(
                         img_obb_show,
                         (int(shift_point[0]), int(shift_point[1])),
                         3,
                         (0, 0, 255),
                         -1,
+                        lineType=cv2.LINE_AA,
                     )
 
                 if not flag:
                     if draw_result:
-                        cv2.putText(
-                            img_obb_show,
-                            "no depth",
-                            (int(shift_point[0]), int(shift_point[1])),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.5,
-                            (0, 0, 255),
-                            2,
-                        )
+                        hud.append(f"{cls_name} {conf_val:.2f} no depth")
                     yolo_p3d_results.append(
                         [
                             False,
@@ -103,7 +123,7 @@ class OBBOnlyDetector:
                             -1,
                             -1,
                             -1,
-                            [x1, y1, x2, y2, x3, y3, x4, y4],
+                            pts8,
                             degree,
                             vector_x,
                             vector_y,
@@ -111,17 +131,10 @@ class OBBOnlyDetector:
                     )
                 else:
                     if draw_result:
-                        text = f"ID:{class_id} X:{x_3d:.2f} Y:{y_3d:.2f} Z:{z_3d:.2f}"
-                        cv2.putText(
-                            img_obb_show,
-                            text,
-                            (int(shift_point[0]), int(shift_point[1]) - 15),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7,
-                            (0, 255, 0),
-                            2,
+                        hud.append(
+                            f"{cls_name} {conf_val:.2f} "
+                            f"X:{x_3d:.2f} Y:{y_3d:.2f} Z:{z_3d:.2f}"
                         )
-
                     yolo_p3d_results.append(
                         [
                             True,
@@ -132,11 +145,13 @@ class OBBOnlyDetector:
                             x_3d,
                             y_3d,
                             z_3d,
-                            [x1, y1, x2, y2, x3, y3, x4, y4],
+                            pts8,
                             degree,
                             vector_x,
                             vector_y,
                         ]
                     )
 
+        if draw_result and hud:
+            draw_hud_lines(img_obb_show, hud, ok=True, anchor="bl")
         return yolo_p3d_results, img_obb_show

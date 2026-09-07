@@ -1,8 +1,9 @@
 """
-Orbbec RGB 相机封装。
+Orbbec RGB-D 相机封装。
 
-无 SDK / use_mock 时用彩色测试图；真机优先 pyorbbecsdk（按 serial），
-失败再试 OpenCV（限时，禁止堵死 HMI 线程）。
+无 SDK / use_mock 时用彩色测试图 + 模拟深度。真机优先 pyorbbecsdk（按 serial，
+同时开彩色与深度）；失败再试 OpenCV 彩色（限时，禁止堵死 HMI 线程），
+336L 另开 video-index0 的 Z16 深度。
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from vision.numpy_compat import np
+from vision.depth_vis import colorize_depth_mm, depth_stats_text, mock_depth_mm, mock_depth_vis_bgr
 
 try:
     import cv2  # type: ignore
@@ -24,10 +26,33 @@ log = logging.getLogger(__name__)
 
 _OPEN_TIMEOUT_S = 8.0
 _NODE_TRY_S = 1.2
+# 官方例程 wait_for_frames(100~1000)。8ms 会拿到只有彩色的 frameset，深度永远是空的。
+_PIPELINE_WAIT_MS = 100
+_PIPELINE_WAIT_MS_COLOR = 20
+# HMI 流线程不必跟满相机硬件帧率；太高会占满 GIL，界面显示「无响应」
+_HMI_STREAM_MAX_FPS = 10.0
 
 # 已占用的 serial / 节点，防止空 serial 的 cam1 去抢已经打开的 cam2
 _claimed_serials: dict[str, str] = {}
 _claimed_nodes: dict[str, str] = {}
+
+
+def _stop_pipeline_limited(pipe: object, timeout_s: float = 1.5) -> None:
+    """pipeline.stop 可能和 wait_for_frames 互相等死；限时放弃，避免卡死调用线程。"""
+    if pipe is None:
+        return
+    done = threading.Event()
+
+    def _run() -> None:
+        try:
+            pipe.stop()
+        except Exception:
+            pass
+        done.set()
+
+    threading.Thread(target=_run, daemon=True, name="orbbec-pipe-stop").start()
+    if not done.wait(timeout=float(timeout_s)):
+        log.warning("pipeline.stop 超过 %.1fs，不再等待", timeout_s)
 
 
 def _looks_orbbec_serial(serial: str) -> bool:
@@ -48,14 +73,38 @@ def _by_id_matches_serial(name: str, serial: str) -> bool:
     return token in name or name.endswith(sn) or f"_{sn}." in name
 
 
+def _v4l_card_name(path: str) -> str:
+    node = Path(path).name
+    sys_name = Path("/sys/class/video4linux") / node / "name"
+    try:
+        return sys_name.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def _path_looks_orbbec(path: str) -> bool:
+    blob = f"{path} {_v4l_card_name(path)}".lower()
+    return "orbbec" in blob or "gemini" in blob
+
+
 def _is_meta_v4l(path: str, *, orbbec: bool = False) -> bool:
     """
-    Orbbec Gemini：by-id 的 video-index0/1 是元数据，read() 会卡死。
-    普通 UVC（如 04f2 笔记本摄像头）：index0 才是画面，index1 才是元数据。
+    Gemini 336L by-id：
+      index0 = 深度 Z16，index1/3/5 = 元数据（read 会卡），
+      index2 = 红外 GREY，index4 = 彩色 Bayer BA81（须去马赛克）。
+    普通 UVC：index1 才是元数据。
     """
     name = Path(path).name.lower()
     if orbbec:
-        return "video-index0" in name or "video-index1" in name
+        for token in (
+            "video-index0",
+            "video-index1",
+            "video-index3",
+            "video-index5",
+        ):
+            if token in name:
+                return True
+        return False
     return "video-index1" in name
 
 
@@ -78,13 +127,13 @@ def _unique_existing(scored: list[tuple[int, str]], *, orbbec: bool) -> list[str
 
 
 def _v4l_node_score(path: str, *, orbbec: bool = False) -> int:
-    """越小越优先。"""
+    """越小越优先。336L 彩色在 index4（Bayer），index2 是红外。"""
     name = path.lower()
     if orbbec:
-        if "video-index2" in name:
-            return 0
         if "video-index4" in name:
-            return 1
+            return 0
+        if "video-index2" in name:
+            return 50
         if "video-index0" in name or "video-index1" in name:
             return 80
         if "video-index" in name:
@@ -99,9 +148,52 @@ def _v4l_node_score(path: str, *, orbbec: bool = False) -> int:
     return 20
 
 
+def _fourcc_to_str(value: object) -> str:
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if raw <= 0:
+        return ""
+    chars = [chr((raw >> (8 * i)) & 0xFF) for i in range(4)]
+    return "".join(chars).upper().replace("\x00", " ").strip()
+
+
+def _bayer8_to_bgr(gray: object) -> Optional[object]:
+    """BA81 / SBGGR8 → BGR。336L 彩色 UVC 口就是这种，不当场去马赛克会绿花屏。"""
+    if cv2 is None or gray is None:
+        return None
+    arr = np.asarray(gray)
+    if arr.ndim != 2 or arr.size < 16:
+        return None
+    try:
+        return cv2.cvtColor(arr, cv2.COLOR_BayerBG2BGR)
+    except Exception:
+        return None
+
+
+def _opencv_frame_to_bgr(frame: object, fourcc: str = "") -> Optional[object]:
+    """OpenCV 读到的 V4L 帧转 BGR；Bayer / 灰度单独处理。"""
+    if frame is None or cv2 is None:
+        return None
+    arr = np.asarray(frame)
+    code = (fourcc or "").upper().replace(" ", "")
+    if arr.ndim == 2:
+        if code in ("GREY", "GRAY", "Y8"):
+            return cv2.cvtColor(arr, cv2.COLOR_GRAY2BGR)
+        if code in ("Z16", "Y16"):
+            return None
+        return _bayer8_to_bgr(arr)
+    if arr.ndim == 3 and arr.shape[2] == 1:
+        return _opencv_frame_to_bgr(arr[:, :, 0], fourcc)
+    if arr.ndim == 3 and arr.shape[2] >= 3:
+        return arr[:, :, :3]
+    return None
+
+
 def _color_frame_to_bgr(color) -> Optional[object]:
     """
-    Gemini 默认彩色常为 YUYV（每像素 2 字节），不能按 RGB 三通道 reshape。
+    Gemini 彩色可能是 YUYV / RGB / Bayer BA81，不能一律按三通道 RGB reshape。
     按 format / 数据长度转成 OpenCV BGR。
     """
     if color is None or cv2 is None:
@@ -144,6 +236,10 @@ def _color_frame_to_bgr(color) -> Optional[object]:
                 return cv2.cvtColor(data.reshape((h, w, 4)), cv2.COLOR_RGBA2BGR)
             if fmt == getattr(OBFormat, "BGRA", None):
                 return cv2.cvtColor(data.reshape((h, w, 4)), cv2.COLOR_BGRA2BGR)
+            if fmt == getattr(OBFormat, "BA81", None) or fmt == getattr(OBFormat, "BYR2", None):
+                return _bayer8_to_bgr(data.reshape((h, w)))
+            if fmt == getattr(OBFormat, "GRAY", None) or fmt == getattr(OBFormat, "Y8", None):
+                return cv2.cvtColor(data.reshape((h, w)), cv2.COLOR_GRAY2BGR)
     except Exception:
         pass
 
@@ -162,19 +258,62 @@ def _color_frame_to_bgr(color) -> Optional[object]:
         if "BGRA" in fmt_name:
             return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
         return cv2.cvtColor(img, cv2.COLOR_RGBA2BGR)
+    if n == h * w:
+        gray = data.reshape((h, w))
+        if "GREY" in fmt_name or "GRAY" in fmt_name or fmt_name.endswith("Y8"):
+            return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        converted = _bayer8_to_bgr(gray)
+        if converted is not None:
+            return converted
     if n >= 4 and int(data[0]) == 0xFF and int(data[1]) == 0xD8:
         return cv2.imdecode(data, cv2.IMREAD_COLOR)
     return None
 
 
-def _depth_frame_to_mm(frames) -> Optional[object]:
-    """从 Orbbec frames 取深度，单位毫米。失败返回 None。"""
+def _as_video_profile(profile: object) -> object:
+    """StreamProfile → VideoStreamProfile；失败则原样返回。"""
+    if profile is None:
+        return None
+    try:
+        if profile.is_video_stream_profile():
+            return profile.as_video_stream_profile()
+    except Exception:
+        pass
+    try:
+        return profile.as_video_stream_profile()
+    except Exception:
+        return profile
+
+
+def _extract_depth_frame(frames) -> Optional[object]:
+    """从 FrameSet 取出 DepthFrame（兼容 get_depth_frame / 按类型取）。"""
     if frames is None:
         return None
+    depth = None
     try:
         depth = frames.get_depth_frame()
     except Exception:
         depth = None
+    if depth is not None:
+        return depth
+    try:
+        depth = frames.as_depth_frame()
+    except Exception:
+        depth = None
+    if depth is not None:
+        return depth
+    try:
+        from pyorbbecsdk import OBFrameType  # type: ignore
+
+        depth = frames.get_frame_by_type(OBFrameType.DEPTH_FRAME)
+    except Exception:
+        depth = None
+    return depth
+
+
+def _depth_frame_to_mm(frames) -> Optional[object]:
+    """从 Orbbec frames 取深度，单位毫米。失败返回 None。"""
+    depth = _extract_depth_frame(frames)
     if depth is None:
         return None
     try:
@@ -183,7 +322,7 @@ def _depth_frame_to_mm(frames) -> Optional[object]:
         raw = np.frombuffer(depth.get_data(), dtype=np.uint16)
         if w < 1 or h < 1 or raw.size < w * h:
             return None
-        arr = raw.reshape((h, w)).astype(np.float32)
+        arr = raw[: w * h].reshape((h, w)).astype(np.float32)
         scale = 1.0
         try:
             scale = float(depth.get_depth_scale())
@@ -191,14 +330,33 @@ def _depth_frame_to_mm(frames) -> Optional[object]:
             pass
         if scale <= 0:
             scale = 1.0
-        # SDK 常见：scale=1 已是 mm；scale≈0.001 则是米
-        if scale < 0.1:
+        # SDK 常见：scale=1 已是 mm；scale≈0.001 则是米；scale=0.1 表示 0.1mm 单位
+        if 0 < scale < 0.01:
             arr = arr * (scale * 1000.0)
         else:
             arr = arr * scale
         return arr
     except Exception:
         return None
+
+
+def _v4l_z16_to_mm(frame: object) -> Optional[object]:
+    """OpenCV 读到的 Z16 / 16bit 深度 → 毫米。"""
+    if frame is None:
+        return None
+    arr = np.asarray(frame)
+    if arr.size < 16:
+        return None
+    if arr.ndim == 3 and arr.shape[2] == 2:
+        lo = arr[:, :, 0].astype(np.uint16)
+        hi = arr[:, :, 1].astype(np.uint16)
+        return (lo + (hi << 8)).astype(np.float32)
+    if arr.ndim == 2:
+        if arr.dtype == np.uint16 or arr.dtype == np.int32:
+            return arr.astype(np.float32)
+        if arr.dtype == np.uint8:
+            return arr.astype(np.float32)
+    return None
 
 
 class OrbbecCamera:
@@ -211,15 +369,18 @@ class OrbbecCamera:
         fps: int = 30,
         color_width: int = 0,
         color_height: int = 0,
+        enable_depth: bool = True,
     ):
         self.name = name
         self.index = index
         self.serial = serial
         self.use_mock = use_mock
+        self.enable_depth = bool(enable_depth)
         self._target_fps = max(1, int(fps or 30))
         self._color_width = max(0, int(color_width or 0))
         self._color_height = max(0, int(color_height or 0))
         self._cap = None
+        self._cap_depth = None
         self._pipeline = None
         self._ob_ctx = None
         self.opened = False
@@ -230,8 +391,17 @@ class OrbbecCamera:
         self._grab_lock = threading.Lock()
         self._stream_running = False
         self._stream_thread: threading.Thread | None = None
+        self._align_filter = None
+        self._logged_depth = False
+        self._mock_key = None
+        self._depth_vis_ts = 0.0
+        self._device_fps = 0
         self.last_depth = None  # 最近一帧深度 mm（无深度则为 None）
         self.last_color = None  # 最近一帧彩色 BGR
+        self.last_depth_vis = None  # 深度伪彩 BGR，与彩色同尺寸
+        self.last_depth_stats = ""  # 深度范围文案，供 UI 直接用
+        self._v4l_fourcc = ""
+        self._has_depth_stream = False
 
     @property
     def target_fps(self) -> int:
@@ -241,13 +411,35 @@ class OrbbecCamera:
     def opening(self) -> bool:
         return bool(self._opening)
 
+    @property
+    def has_hardware(self) -> bool:
+        """是否已打开 Orbbec/OpenCV 设备（Mock 也会把 opened 设为 True）。"""
+        return self._pipeline is not None or self._cap is not None
+
+    def apply_use_mock(self, mock: bool) -> None:
+        """只切换模拟标志。切模拟时不准 pipeline.stop，否则 GIL 卡死界面。"""
+        self.use_mock = bool(mock)
+        if self.use_mock:
+            self.last_error = ""
+            self.rebuild_mock_frame()
+            return
+        if self.has_hardware:
+            self.last_error = ""
+            self.opened = True
+            if not self._stream_running:
+                self._start_stream()
+            return
+        # 之前只是 Mock 占了 opened，没有真机管道
+        self.opened = False
+        self.open_async()
+
     def open(self) -> bool:
         """同步打开（带超时）。HMI 请用 open_async，避免无响应。"""
         if self.use_mock:
             self.opened = True
             self.last_error = ""
             log.info("[%s] Mock 相机 serial=%s index=%s", self.name, self.serial, self.index)
-            self._start_stream()
+            self.rebuild_mock_frame()
             return True
         ok = self._open_with_timeout(_OPEN_TIMEOUT_S)
         if ok:
@@ -274,6 +466,31 @@ class OrbbecCamera:
                 self._opening = False
 
         threading.Thread(target=_run, daemon=True, name=f"open-{self.name}").start()
+
+    def reopen_async(self) -> None:
+        """后台 close + open。禁止在界面线程 pipeline.stop。"""
+        with self._open_lock:
+            if self._opening:
+                return
+            self._opening = True
+            self.last_error = "正在重开…"
+
+        def _run() -> None:
+            try:
+                try:
+                    self.close()
+                except Exception:
+                    pass
+                if self.use_mock:
+                    self.open()
+                    return
+                ok = bool(self._open_with_timeout(_OPEN_TIMEOUT_S))
+                if ok:
+                    self._start_stream()
+            finally:
+                self._opening = False
+
+        threading.Thread(target=_run, daemon=True, name=f"reopen-{self.name}").start()
 
     def _open_with_timeout(self, timeout_s: float) -> bool:
         holder: dict = {"ok": False}
@@ -374,6 +591,47 @@ class OrbbecCamera:
             best_fps = self._target_fps
         return default, best_fps
 
+    def _pick_depth_profile(self, pipe, _color_profile: object) -> object:
+        """选深度 profile：默认 Y16，避免用彩色分辨率去套深度。"""
+        try:
+            from pyorbbecsdk import OBFormat, OBSensorType  # type: ignore
+        except Exception:
+            return None
+        try:
+            dlist = pipe.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
+        except Exception as e:
+            log.info("[%s] 无 DEPTH_SENSOR：%s", self.name, e)
+            return None
+        if dlist is None:
+            return None
+        try:
+            n = int(dlist.get_count())
+        except Exception:
+            n = 0
+        if n < 1:
+            log.info("[%s] DEPTH_SENSOR profile 数量为 0", self.name)
+            return None
+        try:
+            p = dlist.get_default_video_stream_profile()
+            if p is not None:
+                return _as_video_profile(p)
+        except Exception:
+            pass
+        for fmt in (
+            getattr(OBFormat, "Y16", None),
+            getattr(OBFormat, "Z16", None),
+        ):
+            if fmt is None:
+                continue
+            try:
+                p = dlist.get_video_stream_profile(0, 0, fmt, 0)
+                if p is not None:
+                    return _as_video_profile(p)
+            except Exception:
+                continue
+        p, _fps = self._pick_color_profile(dlist)
+        return _as_video_profile(p) if p is not None else None
+
     def _apply_opencv_fps(self, cap) -> None:
         if cv2 is None or cap is None:
             return
@@ -412,26 +670,27 @@ class OrbbecCamera:
         self._stream_running = False
 
     def _stream_loop(self) -> None:
-        target = float(self._target_fps)
-        min_interval = 1.0 / target if target > 0 else 0.0
         while self._stream_running:
-            if not self.opened:
-                time.sleep(0.02)
+            if not self.opened or self.use_mock:
+                time.sleep(0.05)
                 continue
             t0 = time.monotonic()
-            if self.use_mock:
-                self._grab_mock_frame()
-                if min_interval > 0:
-                    time.sleep(max(0.0, min_interval - (time.monotonic() - t0)))
-                continue
-            if self._capture_frame(wait_s=0.0):
-                while self._stream_running and (time.monotonic() - t0) < min_interval:
-                    if not self._capture_frame(wait_s=0.0):
-                        break
-                continue
-            time.sleep(0.001)
+            self._capture_frame(wait_s=0.0)
+            fps = min(float(self._target_fps), _HMI_STREAM_MAX_FPS)
+            min_interval = 1.0 / fps if fps > 0 else 0.1
+            remain = min_interval - (time.monotonic() - t0)
+            if remain > 0:
+                time.sleep(remain)
+
+    def rebuild_mock_frame(self) -> None:
+        """按当前 enable_depth 重做一张静态 Mock 图（不启流线程）。"""
+        self._mock_key = None
+        self._grab_mock_frame()
 
     def _grab_mock_frame(self) -> Optional[object]:
+        key = (self.name, bool(self.enable_depth))
+        if self.last_color is not None and getattr(self, "_mock_key", None) == key:
+            return self.last_color
         try:
             img = np.zeros((480, 640, 3), dtype=np.uint8)
             img[:] = (40, 40, 40)
@@ -446,6 +705,17 @@ class OrbbecCamera:
                     2,
                 )
             self.last_color = img
+            if self.enable_depth:
+                h, w = int(img.shape[0]), int(img.shape[1])
+                self.last_depth = mock_depth_mm(h, w)
+                self.last_depth_vis = mock_depth_vis_bgr(h, w)
+                self.last_depth_stats = "深度:模拟"
+                self._depth_vis_ts = time.monotonic()
+            else:
+                self.last_depth = None
+                self.last_depth_vis = None
+                self.last_depth_stats = ""
+            self._mock_key = key
             return img
         except Exception:
             return None
@@ -460,28 +730,64 @@ class OrbbecCamera:
             return False
         try:
             if self._pipeline is not None:
-                if wait_s > 0:
-                    timeout_ms = max(50, min(500, int(wait_s * 1000)))
+                if self._has_depth_stream:
+                    timeout_ms = _PIPELINE_WAIT_MS
                 else:
-                    timeout_ms = 8
+                    timeout_ms = _PIPELINE_WAIT_MS_COLOR
+                if wait_s > 0:
+                    timeout_ms = max(timeout_ms, min(500, int(wait_s * 1000)))
                 frames = self._pipeline.wait_for_frames(timeout_ms)
                 if not frames:
                     return False
-                color = frames.get_color_frame()
-                if not color:
-                    return False
-                img = _color_frame_to_bgr(color)
+                raw_frames = frames
+                color = frames.get_color_frame() if frames is not None else None
+                if not color and raw_frames is not frames:
+                    self._align_filter = False
+                    frames = raw_frames
+                    color = frames.get_color_frame()
+                img = _color_frame_to_bgr(color) if color is not None else None
+                mm = None
+                if self.enable_depth:
+                    mm = _depth_frame_to_mm(frames)
+                    if mm is None and raw_frames is not frames:
+                        mm = _depth_frame_to_mm(raw_frames)
+                else:
+                    self.last_depth = None
+                    self.last_depth_vis = None
+                    self.last_depth_stats = ""
+                if mm is not None:
+                    self.last_depth = mm
+                    if not self._logged_depth:
+                        self._logged_depth = True
+                        log.info(
+                            "[%s] 已收到深度 %dx%d",
+                            self.name,
+                            int(mm.shape[1]),
+                            int(mm.shape[0]),
+                        )
+                elif self.enable_depth and self._cap_depth is not None:
+                    self._read_opencv_depth()
+                    if self.last_depth is not None and not self._logged_depth:
+                        self._logged_depth = True
+                        log.info("[%s] 已收到 OpenCV 深度", self.name)
                 if img is None:
+                    if mm is not None:
+                        self._refresh_depth_vis()
                     return False
-                self.last_depth = _depth_frame_to_mm(frames)
                 self.last_error = ""
                 self.last_color = img
+                self._refresh_depth_vis()
                 return True
             if self._cap is not None and cv2 is not None:
                 ok, frame = self._cap.read()
                 if ok and frame is not None:
-                    self.last_color = frame
+                    bgr = _opencv_frame_to_bgr(frame, self._v4l_fourcc)
+                    if bgr is None:
+                        return False
+                    self.last_color = bgr
                     self.last_error = ""
+                    self._read_opencv_depth()
+                    self._refresh_depth_vis()
                     return True
                 return False
             return False
@@ -490,6 +796,61 @@ class OrbbecCamera:
             return False
         finally:
             self._grab_lock.release()
+
+    def _refresh_depth_vis(self, *, force: bool = False) -> None:
+        """按当前彩色尺寸刷新深度伪彩。无新深度时保留上一张。"""
+        if not self.enable_depth or self.last_depth is None:
+            return
+        now = time.monotonic()
+        if (
+            not force
+            and self.last_depth_vis is not None
+            and (now - float(self._depth_vis_ts)) < 0.25
+        ):
+            return
+        vis = colorize_depth_mm(self.last_depth)
+        if vis is not None:
+            self.last_depth_vis = vis
+            self._depth_vis_ts = now
+            self.last_depth_stats = depth_stats_text(self.last_depth)
+
+    def _maybe_align_frames(self, frames: object) -> object:
+        """软件 AlignFilter 把深度投到彩色坐标系；失败则原样返回。"""
+        if frames is None:
+            return frames
+        if self._align_filter is False:
+            return frames
+        if self._align_filter is None:
+            try:
+                from pyorbbecsdk import AlignFilter, OBStreamType  # type: ignore
+
+                self._align_filter = AlignFilter(align_to_stream=OBStreamType.COLOR_STREAM)
+            except Exception as e:
+                log.info("[%s] AlignFilter 不可用: %s", self.name, e)
+                self._align_filter = False
+                return frames
+        try:
+            out = self._align_filter.process(frames)
+            if out is None:
+                return frames
+            if _extract_depth_frame(out) is None and _extract_depth_frame(frames) is not None:
+                return frames
+            return out
+        except Exception:
+            return frames
+
+    def _read_opencv_depth(self) -> None:
+        if not self.enable_depth or self._cap_depth is None or cv2 is None:
+            return
+        try:
+            ok, frame = self._cap_depth.read()
+        except Exception:
+            return
+        if not ok or frame is None:
+            return
+        mm = _v4l_z16_to_mm(frame)
+        if mm is not None:
+            self.last_depth = mm
 
     def _open_impl(self) -> bool:
         self.close()
@@ -507,7 +868,7 @@ class OrbbecCamera:
 
     def _open_orbbec(self) -> bool:
         sn = (self.serial or "").strip()
-        if not _looks_orbbec_serial(sn):
+        if sn and not _looks_orbbec_serial(sn):
             return False
         taken = self._serial_taken_by_other(sn)
         if taken:
@@ -529,32 +890,108 @@ class OrbbecCamera:
             if n < 1:
                 self.last_error = "未发现 Orbbec 设备（查 USB/驱动）"
                 return False
-            device = self._device_by_serial(device_list, sn, n)
-            if device is None:
-                self.last_error = f"找不到 serial={sn}（已枚举 {n} 台）"
+            if _looks_orbbec_serial(sn):
+                device = self._device_by_serial(device_list, sn, n)
+                if device is None:
+                    self.last_error = f"找不到 serial={sn}（已枚举 {n} 台）"
+                    return False
+            elif n == 1:
+                device = device_list.get_device_by_index(0)
+            else:
+                self.last_error = (
+                    f"已枚举 {n} 台 Orbbec，必须填写 serial（本机设备页可复制）"
+                )
                 return False
             pipe = Pipeline(device)
-            cfg = Config()
             profile_list = pipe.get_stream_profile_list(OBSensorType.COLOR_SENSOR)
             color_profile, got_fps = self._pick_color_profile(profile_list)
-            cfg.enable_stream(color_profile)
-            pipe.start(cfg)
+            color_profile = _as_video_profile(color_profile)
+            depth_profile = self._pick_depth_profile(pipe, color_profile)
+
+            def _make_cfg(*, with_depth: bool, align: str) -> object:
+                from pyorbbecsdk import (  # type: ignore
+                    OBAlignMode,
+                    OBFrameAggregateOutputMode,
+                    OBSensorType as _ST,
+                )
+
+                local = Config()
+                local.enable_stream(color_profile)
+                if with_depth:
+                    if depth_profile is not None:
+                        local.enable_stream(depth_profile)
+                    else:
+                        local.enable_stream(_ST.DEPTH_SENSOR)
+                    try:
+                        local.set_frame_aggregate_output_mode(
+                            OBFrameAggregateOutputMode.FULL_FRAME_REQUIRE
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        if align == "hw":
+                            local.set_align_mode(OBAlignMode.HW_MODE)
+                        elif align == "sw":
+                            local.set_align_mode(OBAlignMode.SW_MODE)
+                        else:
+                            local.set_align_mode(OBAlignMode.DISABLE)
+                    except Exception:
+                        pass
+                return local
+
+            started_depth = False
+            last_start_err: Exception | None = None
+            if self.enable_depth:
+                for align in ("off", "sw", "hw"):
+                    try:
+                        pipe.start(_make_cfg(with_depth=True, align=align))
+                        started_depth = True
+                        log.info("[%s] 彩色+深度已启动 align=%s", self.name, align)
+                        break
+                    except Exception as e:
+                        last_start_err = e
+                        log.warning(
+                            "[%s] 彩色+深度启动失败 align=%s: %s",
+                            self.name,
+                            align,
+                            e,
+                        )
+                        try:
+                            pipe.stop()
+                        except Exception:
+                            pass
+            if not started_depth:
+                if self.enable_depth and last_start_err is not None:
+                    log.warning("[%s] 改纯彩色: %s", self.name, last_start_err)
+                elif not self.enable_depth:
+                    log.info("[%s] 配置关闭深度输出，只开彩色", self.name)
+                pipe.start(_make_cfg(with_depth=False, align="off"))
+            try:
+                pipe.enable_frame_sync()
+            except Exception:
+                pass
+            self._has_depth_stream = started_depth
             if got_fps > 0:
-                self._target_fps = max(self._target_fps, got_fps)
+                self._device_fps = int(got_fps)
             self._ob_ctx = ctx
             self._pipeline = pipe
             self.opened = True
             self.last_error = ""
             info = device.get_device_info()
             got_sn = str(info.get_serial_number() or sn)
+            if got_sn and not (self.serial or "").strip():
+                self.serial = got_sn
             self._claim(got_sn)
+            if not started_depth:
+                self._open_opencv_depth()
             log.info(
-                "[%s] Orbbec 已打开 name=%s serial=%s pid=0x%04X fps=%s",
+                "[%s] Orbbec 已打开 name=%s serial=%s pid=0x%04X fps=%s depth=%s",
                 self.name,
                 info.get_name(),
                 got_sn,
                 int(info.get_pid()),
                 self._target_fps,
+                "on" if self._has_depth_stream else "off",
             )
             return True
         except Exception as e:
@@ -586,14 +1023,24 @@ class OrbbecCamera:
         return None
 
     def _v4l_candidates(self) -> list[str]:
-        """普通 UVC 用 video0；Orbbec 只用彩色口（index2/4）。"""
+        """普通 UVC 用 video0；336L 彩色用 video-index4（Bayer），跳过深度/红外/元数据。"""
         sn = (self.serial or "").strip()
         orbbec = _looks_orbbec_serial(sn)
+        try:
+            idx = int(self.index)
+        except Exception:
+            idx = -1
+        if not orbbec and idx >= 0:
+            orbbec = _path_looks_orbbec(f"/dev/video{idx}")
         scored: list[tuple[int, str]] = []
         by_id = Path("/dev/v4l/by-id")
-        if by_id.is_dir() and sn:
+        if by_id.is_dir() and (sn or orbbec):
             for p in by_id.iterdir():
-                if not _by_id_matches_serial(p.name, sn):
+                name_l = p.name.lower()
+                if sn:
+                    if not _by_id_matches_serial(p.name, sn):
+                        continue
+                elif "orbbec" not in name_l and "gemini" not in name_l:
                     continue
                 if _is_meta_v4l(p.name, orbbec=orbbec):
                     continue
@@ -608,10 +1055,6 @@ class OrbbecCamera:
             found = _unique_existing(scored, orbbec=orbbec)
             if found:
                 return found
-        try:
-            idx = int(self.index)
-        except Exception:
-            idx = -1
         if idx >= 0:
             if orbbec and idx in (0, 1):
                 idx = -1
@@ -634,11 +1077,12 @@ class OrbbecCamera:
         return path
 
     def _try_opencv_node(self, path: str, timeout_s: float) -> Optional[object]:
-        """限时打开单个节点；打不开或读不出帧则返回 None（不堵死总超时）。"""
-        if _is_meta_v4l(path, orbbec=_looks_orbbec_serial(self.serial)):
+        """限时打开单个节点；打不开或读不出彩色帧则返回 None（不堵死总超时）。"""
+        orbbec = _looks_orbbec_serial(self.serial) or _path_looks_orbbec(path)
+        if _is_meta_v4l(path, orbbec=orbbec):
             log.warning("[%s] 拒绝元数据口 %s", self.name, path)
             return None
-        holder: dict = {"cap": None}
+        holder: dict = {"cap": None, "fourcc": ""}
         done = threading.Event()
 
         def _run() -> None:
@@ -653,11 +1097,29 @@ class OrbbecCamera:
                     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 except Exception:
                     pass
+                if orbbec:
+                    try:
+                        cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+                    except Exception:
+                        pass
+                    try:
+                        cap.set(
+                            cv2.CAP_PROP_FOURCC,
+                            cv2.VideoWriter_fourcc("B", "A", "8", "1"),
+                        )
+                    except Exception:
+                        pass
                 ok, frame = cap.read()
                 if not ok or frame is None:
                     cap.release()
                     return
+                fourcc = _fourcc_to_str(cap.get(cv2.CAP_PROP_FOURCC))
+                bgr = _opencv_frame_to_bgr(frame, fourcc)
+                if bgr is None:
+                    cap.release()
+                    return
                 holder["cap"] = cap
+                holder["fourcc"] = fourcc
             except Exception:
                 if cap is not None:
                     try:
@@ -672,7 +1134,10 @@ class OrbbecCamera:
         if not done.wait(timeout=float(timeout_s)):
             log.warning("[%s] 跳过超时节点 %s", self.name, path)
             return None
-        return holder.get("cap")
+        cap = holder.get("cap")
+        if cap is not None:
+            self._v4l_fourcc = str(holder.get("fourcc") or "")
+        return cap
 
     def _open_opencv(self) -> bool:
         if cv2 is None:
@@ -685,7 +1150,8 @@ class OrbbecCamera:
             if _looks_orbbec_serial(sn):
                 self.last_error = (
                     f"没有可用的 Orbbec 彩色节点（serial={sn}）。"
-                    "请确认该序列号的 video-index2 存在，且没被别的相机占用。"
+                    "336L 彩色是 video-index4（Bayer），不要用 index=4 当普通 UVC。"
+                    "请填写 serial 后走 SDK，或确认 video-index4 存在。"
                 )
             else:
                 self.last_error = (
@@ -707,12 +1173,64 @@ class OrbbecCamera:
             self.last_error = ""
             self._claim((self.serial or "").strip(), path)
             log.info("[%s] OpenCV 已打开 %s", self.name, path)
+            self._open_opencv_depth()
             return True
         hint = "、".join(tried[:8]) if tried else "无匹配节点"
         self.last_error = (
             f"OpenCV 无法打开彩色画面（serial={self.serial or '-'} 已试: {hint}）。"
         )
         return False
+
+    def _open_opencv_depth(self) -> None:
+        """OpenCV 回退时再开 336L 的 Z16 口（video-index0）。失败不影响彩色。"""
+        if not self.enable_depth:
+            return
+        if cv2 is None or self._cap_depth is not None:
+            return
+        sn = (self.serial or "").strip()
+        by_id = Path("/dev/v4l/by-id")
+        if not by_id.is_dir():
+            return
+        paths: list[str] = []
+        try:
+            entries = list(by_id.iterdir())
+        except OSError:
+            return
+        for p in entries:
+            name = p.name.lower()
+            if "video-index0" not in name:
+                continue
+            if sn and not _by_id_matches_serial(p.name, sn):
+                continue
+            if "orbbec" not in name and "gemini" not in name:
+                continue
+            paths.append(_resolve_node(str(p)))
+        if not paths:
+            return
+        path = paths[0]
+        try:
+            cap = cv2.VideoCapture(self._v4l_capture_src(path), cv2.CAP_V4L2)
+            if cap is None or not cap.isOpened():
+                if cap is not None:
+                    cap.release()
+                return
+            try:
+                cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+            except Exception:
+                pass
+            try:
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc("Z", "1", "6", " "))
+            except Exception:
+                pass
+            ok, frame = cap.read()
+            if not ok or _v4l_z16_to_mm(frame) is None:
+                cap.release()
+                return
+            self._cap_depth = cap
+            self._has_depth_stream = True
+            log.info("[%s] OpenCV 深度已打开 %s", self.name, path)
+        except Exception as e:
+            log.info("[%s] OpenCV 深度未开: %s", self.name, e)
 
     def grab(self, wait_s: float = 0.0) -> Optional[object]:
         if self._opening:
@@ -729,7 +1247,15 @@ class OrbbecCamera:
         return self.last_color if self.last_color is not None else None
 
     def close(self) -> None:
-        self._stop_stream()
+        self._stream_running = False
+        pipe = self._pipeline
+        self._pipeline = None
+        if pipe is not None:
+            _stop_pipeline_limited(pipe, timeout_s=1.5)
+        th = self._stream_thread
+        self._stream_thread = None
+        if th is not None and th.is_alive() and th is not threading.current_thread():
+            th.join(timeout=0.8)
         self._unclaim()
         if self._cap is not None and cv2 is not None:
             try:
@@ -737,12 +1263,21 @@ class OrbbecCamera:
             except Exception:
                 pass
             self._cap = None
-        if self._pipeline is not None:
+        self._v4l_fourcc = ""
+        if self._cap_depth is not None and cv2 is not None:
             try:
-                self._pipeline.stop()
+                self._cap_depth.release()
             except Exception:
                 pass
-            self._pipeline = None
+        self._cap_depth = None
+        self.last_depth = None
+        self.last_depth_vis = None
+        self.last_depth_stats = ""
+        self._has_depth_stream = False
+        self._align_filter = None
+        self._logged_depth = False
+        self._mock_key = None
+        self._depth_vis_ts = 0.0
         self._ob_ctx = None
         self.opened = False
 
@@ -810,9 +1345,16 @@ def enumerate_devices_text() -> str:
                 real = p.resolve()
             except Exception:
                 real = p
-            mark = "  ← 跳过(index0/1会卡住)" if "video-index0" in p.name or "video-index1" in p.name else ""
-            if "video-index2" in p.name.lower() or "video-index4" in p.name.lower():
-                mark = "  ← 彩色口"
+            mark = ""
+            low = p.name.lower()
+            if "video-index0" in low:
+                mark = "  ← 深度 Z16"
+            elif "video-index1" in low or "video-index3" in low or "video-index5" in low:
+                mark = "  ← 跳过(元数据，read会卡住)"
+            elif "video-index2" in low:
+                mark = "  ← 红外 GREY"
+            elif "video-index4" in low:
+                mark = "  ← 彩色 Bayer（须去马赛克；优先填 serial 走 SDK）"
             lines.append(f"  {p.name} → {real}{mark}")
     else:
         lines.append("没有 /dev/v4l/by-id")

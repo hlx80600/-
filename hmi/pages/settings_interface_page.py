@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -21,6 +22,7 @@ from core.config_loader import save_config
 from core.coordinator import Coordinator
 from hmi import i18n
 from hmi.style import apply_page_chrome, style_button
+from stations.init_sequence import read_init_near_home_limits
 
 
 def _spin_int(lo: int, hi: int, val: int) -> QSpinBox:
@@ -60,10 +62,10 @@ class SettingsInterfacePage(QWidget):
             self.grp = QGroupBox()
             form = QFormLayout(self.grp)
             self.sp_fast = _spin_int(16, 500, int(hmi.get("refresh_fast_ms", 33)))
-            self.sp_slow = _spin_int(50, 2000, int(hmi.get("refresh_slow_ms", 100)))
+            self.sp_slow = _spin_int(50, 2000, int(hmi.get("refresh_slow_ms", 200)))
             self.sp_inact = _spin_int(100, 5000, int(hmi.get("refresh_inactive_ms", 250)))
-            self.sp_prev = _spin_int(5, 120, int(hmi.get("preview_max_fps", 60)))
-            self.sp_vis = _spin_int(5, 60, int(hmi.get("vision_debug_max_fps", 15)))
+            self.sp_prev = _spin_int(5, 120, int(hmi.get("preview_max_fps", 24)))
+            self.sp_vis = _spin_int(5, 60, int(hmi.get("vision_debug_max_fps", 10)))
             self._rows: list[tuple[QLabel, QWidget]] = [
                 (QLabel(), self.sp_fast),
                 (QLabel(), self.sp_slow),
@@ -91,14 +93,23 @@ class SettingsInterfacePage(QWidget):
             self.sp_bt = _spin_int(0, 2000, int(motion.get("blend_t_ms", 100)))
             self.sp_br = _spin_float(0.0, 200.0, float(motion.get("blend_r_mm", 30.0)), step=1.0, dec=1)
             self.sp_bd = _spin_float(0.0, 2.0, float(motion.get("blend_queue_delay_s", 0.08)), step=0.01, dec=3)
+            near_mm, near_deg = read_init_near_home_limits(cfg)
+            self.sp_near_mm = _spin_float(1.0, 500.0, near_mm, step=5.0, dec=0)
+            self.sp_near_deg = _spin_float(0.5, 90.0, near_deg, step=1.0, dec=1)
             self._rows = [
                 (QLabel(), self.chk_blend),
                 (QLabel(), self.sp_bt),
                 (QLabel(), self.sp_br),
                 (QLabel(), self.sp_bd),
+                (QLabel(), self.sp_near_mm),
+                (QLabel(), self.sp_near_deg),
             ]
             for lb, w in self._rows:
                 form.addRow(lb, w)
+            self.lbl_near_hint = QLabel()
+            self.lbl_near_hint.setWordWrap(True)
+            self.lbl_near_hint.setStyleSheet("color:#566573;")
+            form.addRow(self.lbl_near_hint)
             self.btn_save = QPushButton()
             style_button(self.btn_save, "success")
             self.btn_save.clicked.connect(self._save_motion)
@@ -128,6 +139,7 @@ class SettingsInterfacePage(QWidget):
             root.addWidget(self.btn_save)
 
         root.addStretch(1)
+        self.grp.setMaximumWidth(720)
         apply_page_chrome(self)
         self.retranslate_ui()
 
@@ -152,6 +164,8 @@ class SettingsInterfacePage(QWidget):
                 "settings.motion.blend_t_ms",
                 "settings.motion.blend_r_mm",
                 "settings.motion.blend_delay_s",
+                "settings.motion.init_near_mm",
+                "settings.motion.init_near_deg",
             ]
             for (lb, w), key in zip(self._rows, keys, strict=True):
                 if isinstance(w, QCheckBox):
@@ -159,6 +173,7 @@ class SettingsInterfacePage(QWidget):
                     lb.setText("")
                 else:
                     lb.setText(i18n.tr(key))
+            self.lbl_near_hint.setText(i18n.tr("settings.motion.init_near_hint"))
             self.btn_save.setText(i18n.tr("settings.motion.save"))
         else:
             self.grp.setTitle(i18n.tr("settings.mobile.title"))
@@ -194,12 +209,44 @@ class SettingsInterfacePage(QWidget):
             fn()
         QMessageBox.information(self, i18n.tr("settings.ui.title"), i18n.tr("settings.ui.saved"))
 
+    def showEvent(self, event: QShowEvent) -> None:
+        super().showEvent(event)
+        if self.section == "motion":
+            self._reload_motion_from_cfg()
+
+    def _reload_motion_from_cfg(self) -> None:
+        """打开页时从 yaml 刷新，避免运行监控改过范围后本页仍是旧值。"""
+        motion = self.ctx.cfg.get("motion") or {}
+        if not isinstance(motion, dict):
+            motion = {}
+        near_mm, near_deg = read_init_near_home_limits(self.ctx.cfg)
+        widgets = (
+            self.chk_blend,
+            self.sp_bt,
+            self.sp_br,
+            self.sp_bd,
+            self.sp_near_mm,
+            self.sp_near_deg,
+        )
+        for w in widgets:
+            w.blockSignals(True)
+        self.chk_blend.setChecked(bool(motion.get("blend_enable", True)))
+        self.sp_bt.setValue(int(motion.get("blend_t_ms", 100)))
+        self.sp_br.setValue(float(motion.get("blend_r_mm", 30.0)))
+        self.sp_bd.setValue(float(motion.get("blend_queue_delay_s", 0.08)))
+        self.sp_near_mm.setValue(near_mm)
+        self.sp_near_deg.setValue(near_deg)
+        for w in widgets:
+            w.blockSignals(False)
+
     def _save_motion(self) -> None:
         motion = self.ctx.cfg.setdefault("motion", {})
         motion["blend_enable"] = bool(self.chk_blend.isChecked())
         motion["blend_t_ms"] = int(self.sp_bt.value())
         motion["blend_r_mm"] = float(self.sp_br.value())
         motion["blend_queue_delay_s"] = float(self.sp_bd.value())
+        motion["init_near_home_mm"] = float(self.sp_near_mm.value())
+        motion["init_near_home_deg"] = float(self.sp_near_deg.value())
         try:
             save_config(self.ctx.cfg)
         except Exception as e:

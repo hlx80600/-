@@ -1,14 +1,16 @@
-"""Qt 显示控件：监控窗原图 / 结果图。"""
+"""Qt 显示控件：监控窗原图 / 结果 / 深度（分页，一格只铺一张大图）。"""
 
 from __future__ import annotations
+
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
     QGroupBox,
-    QHBoxLayout,
     QLabel,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
 )
 
@@ -19,8 +21,13 @@ try:
 except ImportError:
     cv2 = None  # type: ignore
 
+PAGE_RAW = "raw"
+PAGE_VIS = "vis"
+PAGE_DEPTH = "depth"
+_PAGE_INDEX = {PAGE_RAW: 0, PAGE_VIS: 1, PAGE_DEPTH: 2}
 
-def bgr_to_pixmap(img, *, max_side: int = 720) -> QPixmap | None:
+
+def bgr_to_pixmap(img: Any, *, max_side: int = 1280) -> QPixmap | None:
     if img is None or cv2 is None:
         return None
     try:
@@ -45,10 +52,10 @@ def bgr_to_pixmap(img, *, max_side: int = 720) -> QPixmap | None:
 
 
 class FrameView(QLabel):
-    def __init__(self, placeholder: str = "无图", *, max_side: int = 720):
+    def __init__(self, placeholder: str = "无图", *, max_side: int = 1280) -> None:
         super().__init__(placeholder)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setMinimumSize(220, 150)
+        self.setMinimumSize(240, 180)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setStyleSheet(
             "background:#1c2833;color:#bdc3c7;border:1px solid #5d6d7e;border-radius:3px;"
@@ -56,7 +63,7 @@ class FrameView(QLabel):
         self._pix: QPixmap | None = None
         self._max_side = int(max_side)
 
-    def set_bgr(self, img) -> None:
+    def set_bgr(self, img: Any) -> None:
         pix = bgr_to_pixmap(img, max_side=self._max_side)
         if pix is None:
             self._pix = None
@@ -74,43 +81,75 @@ class FrameView(QLabel):
         scaled = self._pix.scaled(
             self.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.FastTransformation,
+            Qt.TransformationMode.SmoothTransformation,
         )
         super().setPixmap(scaled)
 
 
 class CamPane(QGroupBox):
-    def __init__(self, cam_id: str):
+    """一路相机：原图 / 结果 / 深度三页叠放，由监控窗统一切页。"""
+
+    def __init__(self, cam_id: str) -> None:
         super().__init__(CAM_TITLES.get(cam_id, cam_id))
         self.cam_id = cam_id
+        self._page = PAGE_RAW
+        self._depth_ok = True
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.setProperty("hmi_fill", True)
         lay = QVBoxLayout(self)
-        row = QHBoxLayout()
-        left = QVBoxLayout()
-        right = QVBoxLayout()
-        # 监控窗八路同刷：缩小解码尺寸，保证 25fps 时 UI 不卡
-        self.raw_view = FrameView("原图", max_side=480)
-        self.vis_view = FrameView("计算结果", max_side=480)
+        lay.setContentsMargins(6, 8, 6, 4)
+        lay.setSpacing(4)
+        self.stack = QStackedWidget()
+        self.stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        self.raw_view = FrameView("原图")
+        self.vis_view = FrameView("计算结果")
+        self.depth_view = FrameView("深度")
+        self.stack.addWidget(self.raw_view)
+        self.stack.addWidget(self.vis_view)
+        self.stack.addWidget(self.depth_view)
+        lay.addWidget(self.stack, 1)
         self.lbl_raw = QLabel("原图")
         self.lbl_vis = QLabel("计算结果")
-        for lab in (self.lbl_raw, self.lbl_vis):
+        self.lbl_depth = QLabel("深度")
+        for lab in (self.lbl_raw, self.lbl_vis, self.lbl_depth):
             lab.setWordWrap(True)
             lab.setStyleSheet("color:#1a5276;font-size:12px;")
-        left.addWidget(QLabel("原图"))
-        left.addWidget(self.raw_view, 1)
-        left.addWidget(self.lbl_raw)
-        right.addWidget(QLabel("计算结果"))
-        right.addWidget(self.vis_view, 1)
-        right.addWidget(self.lbl_vis)
-        row.addLayout(left, 1)
-        row.addLayout(right, 1)
-        lay.addLayout(row)
+            lay.addWidget(lab)
+        self._sync_caption()
 
-    def show_raw(self, img, text: str) -> None:
+    def set_page(self, page: str) -> None:
+        """切到原图 / 结果 / 深度；本格铺满这一张。"""
+        key = page if page in _PAGE_INDEX else PAGE_RAW
+        self._page = key
+        self.stack.setCurrentIndex(_PAGE_INDEX[key])
+        self._sync_caption()
+
+    def set_depth_visible(self, on: bool) -> None:
+        """该路是否配置了深度输出（无深度时深度页仍显示占位图）。"""
+        self._depth_ok = bool(on)
+        self._sync_caption()
+
+    def show_raw(self, img: Any, text: str) -> None:
         if img is not None:
             self.raw_view.set_bgr(img)
         self.lbl_raw.setText(text)
+        self._sync_caption()
 
-    def show_vis(self, img, text: str) -> None:
+    def show_depth(self, img: Any, text: str) -> None:
+        if img is not None:
+            self.depth_view.set_bgr(img)
+        self.lbl_depth.setText(text)
+        self._sync_caption()
+
+    def show_vis(self, img: Any, text: str) -> None:
         if img is not None:
             self.vis_view.set_bgr(img)
         self.lbl_vis.setText(text)
+        self._sync_caption()
+
+    def _sync_caption(self) -> None:
+        self.lbl_raw.setVisible(self._page == PAGE_RAW)
+        self.lbl_vis.setVisible(self._page == PAGE_VIS)
+        self.lbl_depth.setVisible(self._page == PAGE_DEPTH)

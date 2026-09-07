@@ -18,16 +18,19 @@ system:
   hmi:
     language: zh-CN
     refresh_fast_ms: 33
-    refresh_slow_ms: 100
+    refresh_slow_ms: 200
     refresh_inactive_ms: 250
-    preview_max_fps: 60
+    preview_max_fps: 24
     preview_inactive_fps: 5
-    vision_debug_max_fps: 60
+    vision_debug_max_fps: 10
 motion:
   blend_enable: true
   blend_t_ms: 100
   blend_r_mm: 30.0
   blend_queue_delay_s: 0.08
+  # 初始化前真机须在 home 附近；模拟臂跳过。HMI「运行监控」可改。
+  init_near_home_mm: 80
+  init_near_home_deg: 15
 robots:
   robot1:
     name: 上料机器人
@@ -266,24 +269,28 @@ cameras:
     index: 0
     role: belt_pick
     use_mock: true
+    enable_depth: false
   cam2:
     name: 鞋头对位
     serial: CV27561000FH
-    index: 10
+    index: 8
     role: eye_in_hand
     use_mock: true
+    enable_depth: true
   cam3:
     name: 放料鞋槽
-    serial: ''
+    serial: CPCAC53000R8
     index: 4
     role: place_slot
     use_mock: true
+    enable_depth: true
   cam4:
     name: 取料鞋槽
     serial: ''
     index: 5
     role: pick_slot
     use_mock: true
+    enable_depth: true
 vision:
   use_mock: true
   method: yolo
@@ -296,6 +303,8 @@ vision:
     enable_motion: true
   slot_check:
     model_path: models/slot_check/7.10slot_check.pt
+    imgsz: 640
+    conf: 0.0
   position:
     camera: cam4
     camera_id: 1
@@ -305,7 +314,6 @@ vision:
     cols: 11
     rows: 8
     square_size_mm: 15.0
-  # 手眼标定：记录 TCP 后手动移开臂/夹爪，再拍照点像素（避免遮挡）
   handeye_capture:
     open_gripper: false
     gripper_wait_s: 0.5
@@ -313,7 +321,6 @@ vision:
     repick_vel: 20.0
   photo_retry: 3
   photo_retry_interval_s: 1.0
-  # 生产拍照落盘 logs/vision_snaps/；运送完成回写 transport。监视刷新不存
   save_runtime_snaps: true
   snap_keep_days: 7
   guide_retry: 3

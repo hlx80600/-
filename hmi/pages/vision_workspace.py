@@ -3,12 +3,14 @@
 检测一律旧压鞋机 YOLO（皮带 OBB+手眼、槽分类、鞋头对位、压杆）。
 棋盘格只用 OpenCV 做内参，不做形状模板匹配。
 由 VisionHubPage 再挂「采图训练」页签。
+「视觉参数」按上方相机下拉只显示这一路常用项。
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 import threading
 import time
 
@@ -19,13 +21,23 @@ except ImportError:
     cv2 = None  # type: ignore
     np = None  # type: ignore
 
-from PySide6.QtCore import Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QImage, QMouseEvent, QPixmap
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QImage,
+    QMouseEvent,
+    QPaintEvent,
+    QPainter,
+    QPixmap,
+    QWheelEvent,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -33,8 +45,10 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QTextEdit,
     QVBoxLayout,
@@ -51,6 +65,7 @@ from hmi.tab_titles import T
 from hmi.pages import vision_commission as vcomm
 from vision import calib, roi
 from vision.camera_orbbec import enumerate_devices_text
+from vision.depth_vis import depth_stats_text
 from vision.handeye_solve import enrich_sample, k_from_any, set_clicked_pixel
 from vision.pixel_to_robot import samples_scale_text
 
@@ -60,6 +75,7 @@ _MODELS_DIR = Path(__file__).resolve().parents[2] / "models"
 TAB_CAMERA_ROI = "相机与ROI"
 TAB_CHESSBOARD = "棋盘格内参"
 TAB_HANDEYE = "手眼标定"
+TAB_PARAMS = "视觉参数"
 TAB_DETECT = "检测测试"
 
 
@@ -96,18 +112,75 @@ def _pair(name: str, widget: QWidget, label_w: int = 56) -> QWidget:
     return wrap
 
 
+def _set_label_text(lbl: QLabel, text: str) -> None:
+    """文案没变就不动，避免 word-wrap 高度抖动带动整页闪。"""
+    if lbl.text() != text:
+        lbl.setText(text)
+
+
+# 预览叠图最长边；不要按控件瞬时宽高 resize，否则滚动条出现/消失会闭环闪烁
+_PREVIEW_MAX_SIDE = 1280
+
+
+def scroll_tab_body(inner: QWidget) -> QScrollArea:
+    """子页签自己滚动，避免撑高整页从而改掉左侧预览相框。"""
+    sc = QScrollArea()
+    sc.setWidgetResizable(True)
+    sc.setFrameShape(QFrame.Shape.NoFrame)
+    sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    sc.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    inner.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+    sc.setWidget(inner)
+    return sc
+
+
+class WheelSplit(QSplitter):
+    """竖向分隔：在格子上滚轮改上下高度，原图与深度互不抢对方相框。"""
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        if self.orientation() != Qt.Orientation.Vertical or self.count() < 2:
+            super().wheelEvent(event)
+            return
+        w0 = self.widget(0)
+        w1 = self.widget(1)
+        if w0 is None or w1 is None or not w1.isVisible():
+            event.ignore()
+            return
+        sizes = self.sizes()
+        if len(sizes) < 2:
+            event.ignore()
+            return
+        total = int(sizes[0] + sizes[1])
+        delta = int(event.angleDelta().y())
+        if delta == 0:
+            event.ignore()
+            return
+        step = 40 if delta > 0 else -40
+        min0 = max(96, int(w0.minimumHeight()))
+        min1 = max(72, int(w1.minimumHeight()))
+        top = max(min0, min(total - min1, int(sizes[0]) + step))
+        self.setSizes([top, total - top])
+        event.accept()
+
+
 class PreviewLabel(QLabel):
-    """显示图像；可拖选 ROI（图像像素坐标）。"""
+    """显示图像；可拖选 ROI。
+
+    不用 QLabel.setPixmap 的 sizeHint（跟图走），否则滚动条一出一进，整页闪。
+    """
 
     roi_dragged = Signal(int, int, int, int)  # x,y,w,h
     pixel_clicked = Signal(int, int)  # 图像像素
 
     def __init__(self) -> None:
-        super().__init__("预览")
-        self.setMinimumHeight(320)
-        self.setAlignment(Qt.AlignCenter)
+        super().__init__()
+        self.setMinimumHeight(260)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("background:#222;color:#aaa;")
         self.setMouseTracking(True)
+        self._pix = QPixmap()
+        self._placeholder = "预览"
         self._img_w = 0
         self._img_h = 0
         self._disp_x = 0
@@ -118,16 +191,74 @@ class PreviewLabel(QLabel):
         self._p0 = (0, 0)
         self._p1 = (0, 0)
         self.roi_select_mode = False
+        self._fit_cache = QPixmap()
+        self._fit_key: tuple[int, int, int] | None = None
 
-    def set_display_geom(self, img_w: int, img_h: int, dx: int, dy: int, dw: int, dh: int) -> None:
-        self._img_w, self._img_h = img_w, img_h
-        self._disp_x, self._disp_y, self._disp_w, self._disp_h = dx, dy, dw, dh
+    def sizeHint(self) -> QSize:
+        return QSize(640, 320)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(200, 240)
+
+    def has_frame(self) -> bool:
+        return not self._pix.isNull()
+
+    def show_placeholder(self, text: str) -> None:
+        self._placeholder = text or "预览"
+        self._pix = QPixmap()
+        self._fit_cache = QPixmap()
+        self._fit_key = None
+        self._img_w = self._img_h = 0
+        self.update()
+
+    def clear_frame(self) -> None:
+        self.show_placeholder("预览")
+
+    def set_frame(self, pix: QPixmap, orig_w: int, orig_h: int) -> None:
+        """设置一帧；控件几何不变，只重绘。"""
+        self._pix = pix
+        self._fit_cache = QPixmap()
+        self._fit_key = None
+        self._img_w, self._img_h = int(orig_w), int(orig_h)
+        self._placeholder = ""
+        self.update()
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor("#222222"))
+        if self._pix.isNull():
+            painter.setPen(QColor("#aaaaaa"))
+            painter.drawText(
+                self.rect(),
+                int(Qt.AlignmentFlag.AlignCenter),
+                self._placeholder or "预览",
+            )
+            return
+        target = self.rect()
+        key = (int(self._pix.cacheKey()), int(target.width()), int(target.height()))
+        if self._fit_key != key or self._fit_cache.isNull():
+            self._fit_cache = self._pix.scaled(
+                target.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.FastTransformation,
+            )
+            self._fit_key = key
+        scaled = self._fit_cache
+        x = target.x() + (target.width() - scaled.width()) // 2
+        y = target.y() + (target.height() - scaled.height()) // 2
+        painter.drawPixmap(x, y, scaled)
+        self._disp_x, self._disp_y = x, y
+        self._disp_w, self._disp_h = scaled.width(), scaled.height()
 
     def _to_image(self, pos) -> tuple[int, int] | None:
         if self._disp_w <= 0 or self._disp_h <= 0 or self._img_w <= 0:
             return None
-        x = int((pos.x() - self._disp_x) * self._img_w / self._disp_w)
-        y = int((pos.y() - self._disp_y) * self._img_h / self._disp_h)
+        xn = (float(pos.x()) - float(self._disp_x)) / float(self._disp_w)
+        yn = (float(pos.y()) - float(self._disp_y)) / float(self._disp_h)
+        if xn < 0.0 or yn < 0.0 or xn >= 1.0 or yn >= 1.0:
+            return None
+        x = int(xn * self._img_w)
+        y = int(yn * self._img_h)
         if x < 0 or y < 0 or x >= self._img_w or y >= self._img_h:
             return None
         return x, y
@@ -167,21 +298,25 @@ class PreviewLabel(QLabel):
 
 
 class VisionWorkspace(QWidget):
-    """共享预览与标定状态；上方常驻预览，下方子页签拆 ROI/内参/手眼/检测。"""
+    """共享预览与标定状态；左侧上下对照原图/深度，右侧子页签拆 ROI/内参/手眼/检测。"""
 
     board_detect_done = Signal(int, bool, object, str, int, int)
     board_capture_done = Signal(int, bool, object, str)
     _commission_done = Signal(str, str)
+    _enum_done = Signal(str)
 
     def __init__(self, coord: Coordinator) -> None:
         super().__init__()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.coord = coord
         self.ctx = coord.ctx
         self._calib_images: list = []
         self._syncing_cam_mock = False
         self._freeze = False
         self._frozen_img = None
+        self._frozen_depth = None
         self._last_bgr = None
+        self._last_depth_vis = None
         self._overlay_toe = None  # (gx,gy,tx,ty,length_mm) 全图坐标
         self._crosshair = True
         self._handeye_samples: list = []
@@ -204,6 +339,7 @@ class VisionWorkspace(QWidget):
         self._board_last_ok: bool | None = None
         self._commission_busy = False
         self._preview_pix_buf = None
+        self._depth_pix_buf = None
         self._tab_builders: dict[str, object] = {}
         self._tabs_built: set[str] = set()
         self.board_detect_done.connect(
@@ -215,20 +351,25 @@ class VisionWorkspace(QWidget):
         self._commission_done.connect(
             self._on_commission_done, Qt.ConnectionType.QueuedConnection
         )
+        self._enum_done.connect(self._on_enum_done, Qt.ConnectionType.QueuedConnection)
 
         self._tab_builders = {
             TAB_CAMERA_ROI: self._build_tab_camera_roi,
             TAB_CHESSBOARD: self._build_tab_chessboard,
             TAB_HANDEYE: self._build_tab_handeye,
+            TAB_PARAMS: self._build_tab_params,
             TAB_DETECT: self._build_tab_detect,
         }
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(8)
 
         # —— 常驻：Mock + 状态 ——
         mock_box = QGroupBox("相机分路 Mock（勾选=模拟；取消=真机，立刻生效）")
-        mock_row = QHBoxLayout(mock_box)
+        mock_lay = QVBoxLayout(mock_box)
+        mock_lay.setSpacing(6)
+        mock_row = QHBoxLayout()
         self.chk_cam_mock: dict[str, QCheckBox] = {}
         for key, title in _CAM_TITLES.items():
             cb = QCheckBox(title)
@@ -237,18 +378,19 @@ class VisionWorkspace(QWidget):
             cb.toggled.connect(lambda on, k=key: self._on_cam_mock(k, on))
             self.chk_cam_mock[key] = cb
             mock_row.addWidget(cb)
-        root.addWidget(mock_box)
+        mock_lay.addLayout(mock_row)
 
         self.lbl_stack = QLabel("-")
         self.lbl_stack.setWordWrap(True)
         self.lbl_stack.setStyleSheet("color:#6b3a00;font-weight:bold;")
-        root.addWidget(self.lbl_stack)
+        mock_lay.addWidget(self.lbl_stack)
         self._stack_progress = QProgressBar()
         self._stack_progress.setRange(0, 0)
         self._stack_progress.setFixedHeight(16)
         self._stack_progress.setTextVisible(False)
         self._stack_progress.hide()
-        root.addWidget(self._stack_progress)
+        mock_lay.addWidget(self._stack_progress)
+        root.addWidget(mock_box)
 
         # —— 常驻：相机 + 预览 ——
         top = QHBoxLayout()
@@ -264,11 +406,20 @@ class VisionWorkspace(QWidget):
         self.chk_cross.setChecked(True)
         self.chk_cross.toggled.connect(lambda on: setattr(self, "_crosshair", bool(on)))
         self.chk_roi_drag = QCheckBox("在预览上拖框设检测区")
-        self.chk_roi_drag.setToolTip("勾选后，在上方预览图按住左键拖出一个矩形，作为检测区域 ROI")
+        self.chk_roi_drag.setToolTip("勾选后，在上方原图按住左键拖出一个矩形，作为检测区域 ROI")
         self.chk_roi_drag.toggled.connect(self._on_roi_mode)
+        self.chk_show_depth = QCheckBox("输出深度图")
+        self.chk_show_depth.setChecked(True)
+        self.chk_show_depth.setToolTip(
+            "勾选：本路预览下方深度格、监控「深度」页、运行快照都输出深度伪彩；"
+            "取消则只出彩色（写入 yaml cameras.*.enable_depth）。"
+        )
+        self._syncing_depth_chk = False
+        self.chk_show_depth.toggled.connect(self._on_output_depth)
         top.addWidget(self.chk_freeze, 0)
         top.addWidget(self.chk_cross, 0)
         top.addWidget(self.chk_roi_drag, 0)
+        top.addWidget(self.chk_show_depth, 0)
         btn_snap = QPushButton("截图保存")
         btn_reopen = QPushButton("重开相机")
         style_many([(btn_snap, "primary"), (btn_reopen, "neutral")])
@@ -282,10 +433,26 @@ class VisionWorkspace(QWidget):
         self.preview = PreviewLabel()
         self.preview.roi_dragged.connect(self._on_roi_dragged)
         self.preview.pixel_clicked.connect(self._on_pixel_clicked)
-        root.addWidget(self.preview)
+        self.preview.setMinimumHeight(160)
+        self.preview_depth = PreviewLabel()
+        self.preview_depth.setMinimumHeight(96)
+        self.preview_depth.show_placeholder("深度")
+        self.split_preview = WheelSplit(Qt.Orientation.Vertical)
+        self.split_preview.setChildrenCollapsible(False)
+        self.split_preview.setHandleWidth(8)
+        self.split_preview.setStyleSheet(
+            "QSplitter::handle:vertical { background: #5d6d7e; border-radius: 2px; }"
+        )
+        self.split_preview.addWidget(self.preview)
+        self.split_preview.addWidget(self.preview_depth)
+        self.split_preview.setStretchFactor(0, 3)
+        self.split_preview.setStretchFactor(1, 2)
+        self.split_preview.setSizes([520, 280])
+        self._preview_split_sizes = [520, 280]
+        self.split_preview.splitterMoved.connect(self._on_preview_split_moved)
 
         self.lbl_img = QLabel("图像: -")
-        root.addWidget(self.lbl_img)
+        self.lbl_img.setWordWrap(True)
 
         # —— 子页签（Hub 再追加「采图训练」）——
         # 四个标定页都是轻量表单，一次建完。不要先放「加载中…」再 removeTab：
@@ -293,15 +460,43 @@ class VisionWorkspace(QWidget):
         # 看起来像永远卡在「加载中…」，必须切走再点回来才会真正构建。
         self.inner_tabs = QTabWidget()
         self.inner_tabs.setDocumentMode(True)
+        self.inner_tabs.setMinimumWidth(400)
+        self.inner_tabs.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         self.inner_tabs.blockSignals(True)
-        for tab_name in (TAB_CAMERA_ROI, TAB_CHESSBOARD, TAB_HANDEYE, TAB_DETECT):
-            self.inner_tabs.addTab(self._tab_builders[tab_name](), tab_name)
+        for tab_name in (TAB_CAMERA_ROI, TAB_CHESSBOARD, TAB_HANDEYE, TAB_PARAMS, TAB_DETECT):
+            self.inner_tabs.addTab(scroll_tab_body(self._tab_builders[tab_name]()), tab_name)
             self._tabs_built.add(tab_name)
         self.inner_tabs.setCurrentIndex(0)
         self.inner_tabs.blockSignals(False)
         self.inner_tabs.currentChanged.connect(self._on_inner_tab_changed)
         disable_tab_bar_wheel(self.inner_tabs)
-        root.addWidget(self.inner_tabs, 1)
+
+        prev_wrap = QWidget()
+        prev_wrap.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        prev_col = QVBoxLayout(prev_wrap)
+        prev_col.setSpacing(4)
+        prev_col.setContentsMargins(0, 0, 0, 0)
+        prev_col.addWidget(self.split_preview, 1)
+        prev_col.addWidget(self.lbl_img, 0)
+
+        self.split_mid = QSplitter(Qt.Orientation.Horizontal)
+        self.split_mid.setChildrenCollapsible(False)
+        self.split_mid.setHandleWidth(8)
+        self.split_mid.setStyleSheet(
+            "QSplitter::handle:horizontal { background: #c5d0dc; border-radius: 2px; }"
+        )
+        self.split_mid.addWidget(prev_wrap)
+        self.split_mid.addWidget(self.inner_tabs)
+        self.split_mid.setStretchFactor(0, 3)
+        self.split_mid.setStretchFactor(1, 4)
+        self.split_mid.setSizes([720, 640])
+        self._mid_split_sizes = [720, 640]
+        self.split_mid.splitterMoved.connect(self._on_mid_split_moved)
+        root.addWidget(self.split_mid, 1)
 
         apply_page_chrome(self)
         self.retranslate_ui()
@@ -312,13 +507,14 @@ class VisionWorkspace(QWidget):
             self._roi_by_cam[self._roi_editing_cam] = saved
         self._apply_roi_for(self._roi_editing_cam)
         self._sync_bind_fields()
-        # 重活延后，避免点开瞬间卡死
-        self.lbl_stack.setText("YOLO 栈检查中…")
-        self._stack_progress.show()
+        # 重活延后，避免点开瞬间卡死。不定进度条：动画会带动整页重绘。
+        self.lbl_stack.setText("YOLO 环境后台检查中（检测时才加载模型）…")
+        self._stack_progress.hide()
         self.lbl_check.setText("检查清单加载中…")
         self._handeye_samples = []
         self._commission_tick = 0
         self._last_preview_paint = 0.0
+        self._preview_skip_key = None
         self._preview_timer = QTimer(self)
         self._preview_timer.setTimerType(Qt.TimerType.CoarseTimer)
         self._preview_timer.timeout.connect(self._tick_preview)
@@ -346,7 +542,7 @@ class VisionWorkspace(QWidget):
                 break
         if tab_index < 0:
             return
-        widget = builder()
+        widget = scroll_tab_body(builder())
         tabs = self.inner_tabs
         tabs.blockSignals(True)
         current = tabs.currentIndex()
@@ -371,6 +567,20 @@ class VisionWorkspace(QWidget):
         if idx < 0:
             return
         self._ensure_inner_tab(self.inner_tabs.tabText(idx))
+        self._restore_mid_split()
+
+    def _on_preview_split_moved(self, _pos: int, _index: int) -> None:
+        if self.preview_depth.isVisible():
+            self._preview_split_sizes = self.split_preview.sizes()
+
+    def _on_mid_split_moved(self, _pos: int, _index: int) -> None:
+        self._mid_split_sizes = self.split_mid.sizes()
+
+    def _restore_mid_split(self) -> None:
+        """切页签后把左右分隔拉回原位，避免相框跟着表单高度变。"""
+        sizes = list(getattr(self, "_mid_split_sizes", []) or [])
+        if len(sizes) >= 2:
+            QTimer.singleShot(0, lambda s=sizes: self.split_mid.setSizes(s))
 
     def select_tab(self, name: str) -> bool:
         """按页签标题切换；找不到返回 False。"""
@@ -690,6 +900,13 @@ class VisionWorkspace(QWidget):
         lay.addStretch(1)
         return tab
 
+    def _build_tab_params(self) -> QWidget:
+        """按当前相机显示检测阈值 / 压杆 ROI 等，一个保存按钮。"""
+        from hmi.pages.vision_params_page import VisionParamsPage
+
+        self.params_page = VisionParamsPage(self.coord, cam_id_fn=self._cam_id)
+        return self.params_page
+
     def _build_tab_detect(self) -> QWidget:
         """YOLO 检测测试与结果日志。"""
         tab = QWidget()
@@ -788,12 +1005,15 @@ class VisionWorkspace(QWidget):
             if saved:
                 self._roi_by_cam[cid] = saved
 
-    def _start_commission_heavy(self) -> None:
-        """stack_status / 模型列表在后台算，避免 import YOLO 卡 UI。"""
+    def _start_commission_heavy(self, *, show_busy: bool = False) -> None:
+        """stack_status / 模型列表在后台算，避免 import YOLO 卡 UI。
+
+        周期性复检不要再亮进度条：show/hide 会改布局高度，整页跟着闪。
+        """
         if self._commission_busy:
             return
         self._commission_busy = True
-        if hasattr(self, "_stack_progress"):
+        if show_busy and hasattr(self, "_stack_progress"):
             self._stack_progress.show()
         ctx = self.ctx
 
@@ -813,17 +1033,20 @@ class VisionWorkspace(QWidget):
         if hasattr(self, "_stack_progress"):
             self._stack_progress.hide()
         if hasattr(self, "lbl_stack"):
-            self.lbl_stack.setText(stack)
+            _set_label_text(self.lbl_stack, stack)
         if hasattr(self, "lbl_models"):
-            self.lbl_models.setText(models)
+            _set_label_text(self.lbl_models, models)
 
     def _sync_preview_timer_interval(self) -> None:
         cam = self.ctx.cameras.get(self._cam_id())
-        fps = int(getattr(cam, "target_fps", 0) or 30) if cam else 30
-        # 调试预览不必跟满相机 FPS，上限 15 减轻切页/绘制卡顿
+        if cam is not None and bool(getattr(cam, "use_mock", False)):
+            # 模拟图是静态的，不必高频刷
+            self._preview_timer.setInterval(400)
+            return
+        fps = int(getattr(cam, "target_fps", 0) or 8) if cam else 8
         hmi = (self.ctx.cfg.get("system") or {}).get("hmi") or {}
-        debug_cap = max(8, int(hmi.get("vision_debug_max_fps", 15)))
-        fps = min(fps, debug_cap)
+        debug_cap = max(5, int(hmi.get("vision_debug_max_fps", 10)))
+        fps = min(max(1, fps), debug_cap)
         app = QApplication.instance()
         inactive = bool(
             app is not None
@@ -859,6 +1082,23 @@ class VisionWorkspace(QWidget):
             return None
         return getattr(cam, "last_color", None)
 
+    def _peek_depth_vis(self):
+        """UI 只读深度伪彩缓存。"""
+        if self._freeze and self._frozen_depth is not None:
+            return self._frozen_depth
+        cam = self.ctx.cameras.get(self._cam_id())
+        if cam is not None:
+            dv = getattr(cam, "last_depth_vis", None)
+            if dv is not None:
+                return dv
+        vis = getattr(self.ctx, "vision", None)
+        if vis is None:
+            return None
+        cache = getattr(vis, "last_depth_vis", None)
+        if not isinstance(cache, dict):
+            return None
+        return cache.get(self._cam_id())
+
     # ---------- helpers ----------
     def _log(self, text: str) -> None:
         te = getattr(self, "txt_result", None)
@@ -878,18 +1118,27 @@ class VisionWorkspace(QWidget):
             return
         self.ctx.vision.set_cam_mock(cam_key, bool(on))
         self.ctx.cfg.setdefault("cameras", {}).setdefault(cam_key, {})["use_mock"] = bool(on)
-        try:
-            save_config(self.ctx.cfg)
-        except Exception:
-            pass
+        self._last_bgr = None
+        self._last_depth_vis = None
+        self._preview_skip_key = None
+        self._sync_preview_timer_interval()
         self._log(
-            f"{cam_key} → {'模拟' if on else '真机后台连接中'}（已写入 yaml）\n"
+            f"{cam_key} → {'模拟' if on else '真机'}（已切换，yaml 稍后写入）\n"
             + " ".join(
                 f"{k}:{'模' if self.ctx.vision.cam_is_mock(k) else '真'}"
                 for k in ("cam1", "cam2", "cam3", "cam4")
             )
         )
-        self._refresh_commission()
+        QTimer.singleShot(0, self._tick_preview)
+        QTimer.singleShot(0, lambda k=cam_key, flag=bool(on): self._after_cam_mock(k, flag))
+
+    def _after_cam_mock(self, cam_key: str, on: bool) -> None:
+        """勾选返回后再写盘/刷清单，避免和 Orbbec 抢 GIL。"""
+        try:
+            save_config(self.ctx.cfg)
+        except Exception:
+            pass
+        self._refresh_commission(heavy=False)
 
     def _cam_id(self) -> str:
         d = self.cmb_cam.currentData()
@@ -904,12 +1153,21 @@ class VisionWorkspace(QWidget):
         self._roi_editing_cam = self._cam_id()
         self._apply_roi_for(self._roi_editing_cam)
         self._sync_bind_fields()
+        self._last_bgr = None
+        self._last_depth_vis = None
+        self._preview_skip_key = None
+        self.preview.clear_frame()
+        self.preview_depth.clear_frame()
+        self.preview_depth.show_placeholder("深度")
         self._refresh_commission()
         self._refresh_calib_status()
         self._overlay_toe = None
         self._handeye_samples = calib.load_handeye_samples(self._cam_id())
         self._refresh_handeye_lbl()
         self._sync_preview_timer_interval()
+        page = getattr(self, "params_page", None)
+        if page is not None:
+            page.show_cam(self._cam_id())
 
     def _sync_bind_fields(self) -> None:
         cam = self.ctx.cameras.get(self._cam_id())
@@ -921,16 +1179,80 @@ class VisionWorkspace(QWidget):
         self.sp_index.setValue(int(cam.index or 0))
         self.ed_serial.blockSignals(False)
         self.sp_index.blockSignals(False)
+        self._sync_depth_checkbox()
+
+    def _sync_depth_checkbox(self) -> None:
+        """预览勾选跟当前相机 cameras.*.enable_depth 对齐。"""
+        chk = getattr(self, "chk_show_depth", None)
+        if chk is None:
+            return
+        cam = self.ctx.cameras.get(self._cam_id())
+        want = bool(getattr(cam, "enable_depth", True)) if cam is not None else True
+        self._syncing_depth_chk = True
+        if chk.isChecked() != want:
+            chk.setChecked(want)
+        self._syncing_depth_chk = False
+
+    def _on_output_depth(self, on: bool) -> None:
+        """勾选「输出深度图」：写入本路 yaml，必要时重开相机。"""
+        if getattr(self, "_syncing_depth_chk", False):
+            return
+        cid = self._cam_id()
+        cam = self.ctx.cameras.get(cid)
+        want = bool(on)
+        blk = self.ctx.cfg.setdefault("cameras", {}).setdefault(cid, {})
+        blk["enable_depth"] = want
+        try:
+            save_config(self.ctx.cfg)
+        except Exception:
+            pass
+        if cam is None:
+            QTimer.singleShot(0, self._tick_preview)
+            return
+        cam.enable_depth = want
+        self._preview_skip_key = None
+        if not want:
+            cam.last_depth = None
+            cam.last_depth_vis = None
+            cam.last_depth_stats = ""
+            vis = getattr(self.ctx, "vision", None)
+            if vis is not None and isinstance(getattr(vis, "last_depth_vis", None), dict):
+                vis.last_depth_vis.pop(cid, None)
+            self._last_depth_vis = None
+            self._log(f"{cid} 已关闭深度图输出（只出彩色）")
+            QTimer.singleShot(0, self._tick_preview)
+            return
+        if cam.use_mock:
+            self._log(f"{cid} 已打开深度图输出")
+
+            def _rebuild() -> None:
+                try:
+                    cam.rebuild_mock_frame()
+                except Exception:
+                    pass
+
+            threading.Thread(
+                target=_rebuild, daemon=True, name=f"mock-depth-{cid}"
+            ).start()
+            QTimer.singleShot(50, self._tick_preview)
+            return
+        need_reopen = not bool(getattr(cam, "_has_depth_stream", False))
+        if need_reopen:
+            self._log(f"{cid} 已打开深度图输出，正在后台重开以启用深度流…")
+            cam.reopen_async()
+        else:
+            self._log(f"{cid} 已打开深度图输出")
+        QTimer.singleShot(0, self._tick_preview)
 
     def _refresh_commission(self, *, heavy: bool = True) -> None:
         if not hasattr(self, "lbl_hw"):
             return
         cid = self._cam_id()
         cam = self.ctx.cameras.get(cid)
-        self.lbl_hw.setText(vcomm.hardware_line(cam, cid))
-        self.lbl_check.setText(vcomm.checklist_text(self.ctx, cid))
+        _set_label_text(self.lbl_hw, vcomm.hardware_line(cam, cid))
+        _set_label_text(self.lbl_check, vcomm.checklist_text(self.ctx, cid))
         if heavy:
-            self._start_commission_heavy()
+            self._start_commission_heavy(show_busy=False)
 
     def _open_dir(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
@@ -939,12 +1261,21 @@ class VisionWorkspace(QWidget):
         QMessageBox.information(self, "打开目录", f"无法自动打开，请手动进入：\n{path}")
 
     def _enum_devices(self) -> None:
-        try:
-            text = enumerate_devices_text()
-        except Exception as e:
-            text = f"枚举失败: {e}"
+        """Orbbec Context 枚举可能卡住数秒，必须后台跑。"""
+        self._log("正在后台枚举设备（不阻塞界面）…")
+
+        def _run() -> None:
+            try:
+                text = enumerate_devices_text()
+            except Exception as e:
+                text = f"枚举失败: {e}"
+            self._enum_done.emit(text)
+
+        threading.Thread(target=_run, daemon=True, name="vision-enum").start()
+
+    def _on_enum_done(self, text: str) -> None:
         self._log(text)
-        self._refresh_commission()
+        self._refresh_commission(heavy=False)
 
     def _bind_serial_reopen(self) -> None:
         cid = self._cam_id()
@@ -956,8 +1287,10 @@ class VisionWorkspace(QWidget):
         blk = self.ctx.cfg.setdefault("cameras", {}).setdefault(cid, {})
         blk["serial"] = sn
         blk["index"] = idx
+        blk["enable_depth"] = bool(self.chk_show_depth.isChecked())
         cam.serial = sn
         cam.index = idx
+        cam.enable_depth = bool(self.chk_show_depth.isChecked())
         try:
             save_config(self.ctx.cfg)
         except Exception as e:
@@ -974,10 +1307,14 @@ class VisionWorkspace(QWidget):
 
     def _on_freeze(self, on: bool) -> None:
         self._freeze = bool(on)
+        self._preview_skip_key = None
         if on and self._last_bgr is not None:
             self._frozen_img = self._last_bgr.copy()
+            dv = self._peek_depth_vis()
+            self._frozen_depth = dv.copy() if dv is not None else None
         if not on:
             self._frozen_img = None
+            self._frozen_depth = None
 
     def _set_board_session(self, on: bool, *, keep_buffer: bool = True) -> None:
         self._board_session = bool(on)
@@ -1003,6 +1340,7 @@ class VisionWorkspace(QWidget):
         if resume_live:
             self._freeze = False
             self._frozen_img = None
+            self._frozen_depth = None
             self.chk_freeze.blockSignals(True)
             self.chk_freeze.setChecked(False)
             self.chk_freeze.blockSignals(False)
@@ -1168,16 +1506,12 @@ class VisionWorkspace(QWidget):
         cam = self.ctx.cameras.get(self._cam_id())
         if cam is None:
             return
-        try:
-            cam.close()
-        except Exception:
-            pass
-        if cam.use_mock:
-            ok = cam.open()
-            self._log(f"{self._cam_id()} 重开 → {ok} mock=True")
-            return
-        cam.open_async()
-        self._log(f"{self._cam_id()} 正在后台重开 serial={cam.serial} index={cam.index}")
+        self._preview_skip_key = None
+        cam.reopen_async()
+        self._log(
+            f"{self._cam_id()} 正在后台重开 mock={cam.use_mock} "
+            f"serial={cam.serial or '-'} index={cam.index}"
+        )
 
     def _save_snap(self) -> None:
         img = self._grab()
@@ -1190,7 +1524,13 @@ class VisionWorkspace(QWidget):
         _SNAP_DIR.mkdir(parents=True, exist_ok=True)
         path = _SNAP_DIR / name
         cv2.imwrite(str(path), img)
-        self._log(f"截图已存: {path}")
+        dv = self._peek_depth_vis()
+        if dv is not None:
+            depth_path = _SNAP_DIR / name.replace(".png", "_depth.png")
+            cv2.imwrite(str(depth_path), dv)
+            self._log(f"截图已存: {path}\n深度: {depth_path}")
+        else:
+            self._log(f"截图已存: {path}")
 
     # ---------- ROI ----------
     def _roi_dict(self) -> dict:
@@ -1402,9 +1742,10 @@ class VisionWorkspace(QWidget):
             return
         cid = self._cam_id()
         sess = "采集中" if getattr(self, "_board_session", False) else "未在采集"
-        self.lbl_calib.setText(
+        _set_label_text(
+            self.lbl_calib,
             f"{calib.calib_status_text(cid)} | {calib.handeye_status_text(cid)} | "
-            f"缓冲帧={len(self._calib_images)} | {sess}"
+            f"缓冲帧={len(self._calib_images)} | {sess}",
         )
 
     def _clear_calib(self) -> None:
@@ -1646,9 +1987,10 @@ class VisionWorkspace(QWidget):
         if self._last_handeye_pick_tcp:
             t = self._last_handeye_pick_tcp
             pick_s = f" | 本点Pick X={float(t.get('x', 0)):.0f}"
-        self.lbl_handeye.setText(
+        _set_label_text(
+            self.lbl_handeye,
             f"{calib.handeye_status_text(self._cam_id())} | "
-            f"采样缓冲={n} | {pose_s} | 像素={px if px else '未点选'}{pick_s}"
+            f"采样缓冲={n} | {pose_s} | 像素={px if px else '未点选'}{pick_s}",
         )
 
     def _record_handeye_robot_pose(self) -> None:
@@ -1721,7 +2063,7 @@ class VisionWorkspace(QWidget):
             QMessageBox.information(
                 self,
                 "手眼",
-                "请在上方预览点击标定点像素（移开后无遮挡的画面）",
+                "请在上方原图点击标定点像素（移开后无遮挡的画面）",
             )
             return
         u, v = self._pending_pixel
@@ -1961,9 +2303,9 @@ class VisionWorkspace(QWidget):
 
     # ---------- display ----------
     def _preview_scale(self, ow: int, oh: int) -> float:
-        tw = max(1, int(self.preview.width()))
-        th = max(1, int(self.preview.height()))
-        return min(float(tw) / float(ow), float(th) / float(oh), 1.0)
+        """叠图缩放：按固定最长边，不读控件瞬时尺寸。"""
+        long_side = max(int(ow), int(oh), 1)
+        return min(float(_PREVIEW_MAX_SIDE) / float(long_side), 1.0)
 
     def _resize_for_preview(self, img):
         oh, ow = int(img.shape[0]), int(img.shape[1])
@@ -2022,29 +2364,78 @@ class VisionWorkspace(QWidget):
                 max(1, int(round(2 * scale))),
             )
 
-    def _show_bgr(self, vis, *, orig_wh: tuple[int, int] | None = None) -> None:
+    def _bgr_to_pixmap(self, vis: Any, buf_attr: str) -> QPixmap | None:
+        """BGR → QPixmap；buf_attr 指向本页缓存数组，避免每帧新分配。"""
         if cv2 is None or vis is None:
-            return
+            return None
         oh, ow = int(vis.shape[0]), int(vis.shape[1])
         if oh <= 0 or ow <= 0:
-            return
-        orig_ow, orig_oh = orig_wh if orig_wh is not None else (ow, oh)
+            return None
         rgb = cv2.cvtColor(vis, cv2.COLOR_BGR2RGB)
         h_, w_, ch = rgb.shape
         if np is not None:
-            if self._preview_pix_buf is None or self._preview_pix_buf.shape != rgb.shape:
-                self._preview_pix_buf = np.ascontiguousarray(rgb)
+            buf = getattr(self, buf_attr)
+            if buf is None or buf.shape != rgb.shape:
+                buf = np.ascontiguousarray(rgb)
+                setattr(self, buf_attr, buf)
             else:
-                np.copyto(self._preview_pix_buf, rgb)
-            qimg = QImage(self._preview_pix_buf.data, w_, h_, ch * w_, QImage.Format_RGB888)
+                np.copyto(buf, rgb)
+            qimg = QImage(buf.data, w_, h_, ch * w_, QImage.Format_RGB888).copy()
         else:
             qimg = QImage(rgb.data, w_, h_, ch * w_, QImage.Format_RGB888).copy()
-        pix = QPixmap.fromImage(qimg)
-        self.preview.setPixmap(pix)
-        dw, dh = pix.width(), pix.height()
-        dx = max(0, (self.preview.width() - dw) // 2)
-        dy = max(0, (self.preview.height() - dh) // 2)
-        self.preview.set_display_geom(orig_ow, orig_oh, dx, dy, dw, dh)
+        return QPixmap.fromImage(qimg)
+
+    def _show_bgr(self, vis: Any, *, orig_wh: tuple[int, int] | None = None) -> None:
+        pix = self._bgr_to_pixmap(vis, "_preview_pix_buf")
+        if pix is None:
+            return
+        oh, ow = int(vis.shape[0]), int(vis.shape[1])
+        orig_ow, orig_oh = orig_wh if orig_wh is not None else (ow, oh)
+        self.preview.set_frame(pix, orig_ow, orig_oh)
+
+    def _show_depth_bgr(self, vis: Any) -> None:
+        pix = self._bgr_to_pixmap(vis, "_depth_pix_buf")
+        if pix is None:
+            return
+        oh, ow = int(vis.shape[0]), int(vis.shape[1])
+        self.preview_depth.set_frame(pix, ow, oh)
+
+    def _set_depth_pane_visible(self, on: bool) -> None:
+        """显示或收起下方深度格；收起时记住分隔位置。"""
+        want = bool(on)
+        if self.preview_depth.isVisible() == want:
+            return
+        if not want:
+            self._preview_split_sizes = self.split_preview.sizes()
+            self.preview_depth.hide()
+            return
+        self.preview_depth.show()
+        sizes = list(getattr(self, "_preview_split_sizes", []) or [])
+        if len(sizes) >= 2 and sum(sizes) > 80:
+            self.split_preview.setSizes(sizes)
+        else:
+            self.split_preview.setSizes([3, 2])
+
+    def _update_depth_preview(self, show_depth: bool, dv: Any, cam_now: Any) -> str:
+        """刷新下方深度格。返回状态栏短文案。"""
+        self._set_depth_pane_visible(show_depth)
+        if not show_depth:
+            return ""
+        if dv is not None and not self._freeze:
+            self._last_depth_vis = dv
+        stats = str(getattr(cam_now, "last_depth_stats", "") or "") if cam_now else ""
+        if not stats:
+            depth_mm = getattr(cam_now, "last_depth", None) if cam_now is not None else None
+            stats = depth_stats_text(depth_mm)
+        if dv is not None:
+            self._show_depth_bgr(dv)
+        elif self._last_depth_vis is not None and self._freeze:
+            self._show_depth_bgr(self._last_depth_vis)
+        else:
+            self.preview_depth.show_placeholder(stats or "深度 无图")
+        if self._freeze and not stats:
+            return " | 深度:冻结"
+        return " | " + (stats or "深度:无")
 
     def refresh(self) -> None:
         """状态标签刷新（主窗定时器）；预览由 _preview_timer 驱动。"""
@@ -2073,27 +2464,66 @@ class VisionWorkspace(QWidget):
         ):
             return
         if cv2 is None:
-            self.preview.setText("请安装 opencv-python 后查看预览")
+            self.preview.show_placeholder("请安装 opencv-python 后查看预览")
+            self.preview_depth.show_placeholder("深度")
             return
-        now = time.monotonic()
-        min_dt = 1.0 / 10.0
-        if (now - float(getattr(self, "_last_preview_paint", 0.0))) < min_dt:
-            return
-        self._last_preview_paint = now
         holding = (
             self._board_hold_vis is not None
             and time.monotonic() < float(self._board_hold_until)
         )
+        x, y, w, h = self.sp_x.value(), self.sp_y.value(), self.sp_w.value(), self.sp_h.value()
+        show_depth = bool(
+            getattr(self, "chk_show_depth", None) and self.chk_show_depth.isChecked()
+        )
+        cam_now = self.ctx.cameras.get(self._cam_id())
+        if cam_now is not None and not bool(getattr(cam_now, "enable_depth", True)):
+            show_depth = False
+        if holding:
+            img = self._board_hold_vis
+        else:
+            img = self._peek_preview_frame()
+            if img is None:
+                img = self._last_bgr
+        dv = self._peek_depth_vis() if show_depth else None
+        skip_key = (
+            id(img) if img is not None else 0,
+            id(dv) if dv is not None else 0,
+            bool(show_depth),
+            bool(self._freeze),
+            bool(holding),
+            bool(self._board_busy),
+            int(x),
+            int(y),
+            int(w),
+            int(h),
+            bool(self._crosshair),
+            self._pending_pixel,
+            self._overlay_toe,
+            bool(self._board_session),
+            len(self._calib_images),
+            self._board_last_ok,
+            self._cam_id(),
+        )
+        if (
+            skip_key == getattr(self, "_preview_skip_key", None)
+            and self.preview.has_frame()
+            and not self._board_busy
+        ):
+            return
+        now = time.monotonic()
+        min_dt = 1.0 / 8.0
+        if (now - float(getattr(self, "_last_preview_paint", 0.0))) < min_dt:
+            return
+        self._last_preview_paint = now
+        self._preview_skip_key = skip_key
         orig_ow = orig_oh = 0
         if holding:
             vis, scale, orig_ow, orig_oh = self._resize_for_preview(self._board_hold_vis)
         elif self._board_busy:
-            img = self._peek_preview_frame()
             if img is None:
-                if self._last_bgr is None:
-                    return
-                img = self._last_bgr
-            elif not self._freeze:
+                self._update_depth_preview(show_depth, dv, cam_now)
+                return
+            if not self._freeze:
                 self._last_bgr = img
             vis, scale, orig_ow, orig_oh = self._resize_for_preview(img)
             cv2.putText(
@@ -2106,33 +2536,33 @@ class VisionWorkspace(QWidget):
                 2,
             )
         else:
-            img = self._peek_preview_frame()
-            if img is None and self._last_bgr is not None:
-                img = self._last_bgr
             if img is None:
-                cam = self.ctx.cameras.get(self._cam_id())
+                cam = cam_now
                 if cam is not None and cam.opening:
                     hint = "正在连接真机…"
                 elif cam is not None and not cam.use_mock:
                     hint = f"真机未出图 {cam.last_error or ''}".strip()
                 else:
                     hint = "模拟"
-                self.preview.setText(f"{self._cam_id()} 无图（{hint}）")
-                self.lbl_img.setText("图像: 无")
+                if not self.preview.has_frame():
+                    self.preview.show_placeholder(f"{self._cam_id()} 无图（{hint}）")
+                    _set_label_text(self.lbl_img, "图像: 无")
+                self._update_depth_preview(show_depth, dv, cam_now)
                 return
             if not self._freeze:
                 self._last_bgr = img
             self._note_frame_size(img)
             vis, scale, orig_ow, orig_oh = self._resize_for_preview(img)
             self._draw_preview_overlays(vis, scale)
-        x, y, w, h = self.sp_x.value(), self.sp_y.value(), self.sp_w.value(), self.sp_h.value()
         last = self._board_last_ok
         last_txt = ""
         if last is True:
             last_txt = " | 上一帧:已识别"
         elif last is False:
             last_txt = " | 上一帧:未识别"
-        self.lbl_img.setText(
+        depth_txt = self._update_depth_preview(show_depth, dv, cam_now)
+        _set_label_text(
+            self.lbl_img,
             f"图像: {orig_ow}×{orig_oh} | {self._cam_id()} "
             f"{'模拟' if self.ctx.vision.cam_is_mock(self._cam_id()) else '真机'} | "
             f"ROI[{self._cam_id()}]=({x},{y},{w},{h})"
@@ -2140,5 +2570,6 @@ class VisionWorkspace(QWidget):
             + (" | 查看识别结果" if holding else "")
             + (f" | 标定采集中 有效帧={len(self._calib_images)}" if self._board_session else "")
             + last_txt
+            + depth_txt,
         )
         self._show_bgr(vis, orig_wh=(orig_ow, orig_oh))

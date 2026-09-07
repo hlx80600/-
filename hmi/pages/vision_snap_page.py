@@ -27,6 +27,7 @@ from vision.vision_journal import (
     format_snap_label,
     list_snap_records,
     load_snap_meta,
+    snap_depth_path,
     snap_image_paths,
     snap_root,
 )
@@ -109,7 +110,7 @@ class VisionSnapPage(QWidget):
         self.tip.setText(
             "自动流程拍照与「检测测试」会落盘到 logs/vision_snaps/。"
             "图片文件名含相机与时间（如 cam1_20260828_140455_635_belt_pick_raw.jpg）。"
-            "点一条可看原图、叠图、检测结果；放入鞋槽 / 下料完成后同一条会显示运送结果。"
+            "点一条可看原图、叠图、深度伪彩、检测结果；放入鞋槽 / 下料完成后同一条会显示运送结果。"
             "监视画面刷新不存。本页在「报警记录」里。"
         )
         root.addWidget(self.tip)
@@ -195,8 +196,10 @@ class VisionSnapPage(QWidget):
         imgs = QHBoxLayout()
         self.img_raw = FitImageLabel("原图")
         self.img_vis = FitImageLabel("叠图")
+        self.img_depth = FitImageLabel("深度")
         imgs.addWidget(self.img_raw, 1)
         imgs.addWidget(self.img_vis, 1)
+        imgs.addWidget(self.img_depth, 1)
         right_lay.addLayout(imgs, 3)
         box = QGroupBox("检测结果与运送回写")
         box_lay = QVBoxLayout(box)
@@ -279,6 +282,7 @@ class VisionSnapPage(QWidget):
         self._current_dir = None
         self.img_raw.set_image_path(None)
         self.img_vis.set_image_path(None)
+        self.img_depth.set_image_path(None)
         self.txt.setPlainText("")
 
     def _on_item(self, current: QListWidgetItem | None, _prev: QListWidgetItem | None) -> None:
@@ -293,6 +297,7 @@ class VisionSnapPage(QWidget):
             self._current_dir = None
             self.img_raw.set_image_path(None)
             self.img_vis.set_image_path(None)
+            self.img_depth.set_image_path(None)
             self.txt.setPlainText(f"找不到快照文件：{snap_id}")
             return
         self._current_id = snap_id
@@ -301,6 +306,7 @@ class VisionSnapPage(QWidget):
         raw_path, vis_path = snap_image_paths(meta)
         self.img_raw.set_image_path(raw_path)
         self.img_vis.set_image_path(vis_path)
+        self.img_depth.set_image_path(snap_depth_path(meta))
         self.txt.setPlainText(format_snap_detail(meta))
 
     def _open_log_dir(self) -> None:

@@ -36,7 +36,7 @@ from devices.pose_utils import (
     validate_via_name,
 )
 from hmi.pages.points_page import CORE_POINTS, NoWheelComboBox
-from hmi.style import apply_page_chrome, style_many
+from hmi.style import apply_page_chrome, hbox_pair, style_many
 from stations.step_catalog import (
     AUTO_TITLES,
     auto_title,
@@ -101,7 +101,6 @@ class StepDebugPage(QWidget):
         # —— 程序控制 ——
         box_ctrl = QGroupBox("程序控制")
         bc = QVBoxLayout(box_ctrl)
-        r1 = QHBoxLayout()
         self.btn_mode = QPushButton("切到单步模式")
         self.btn_arm = QPushButton("武装 Auto（从头步10）")
         self.btn_arm_sel = QPushButton("武装到选中步")
@@ -121,11 +120,21 @@ class StepDebugPage(QWidget):
                 (self.btn_abort, "danger"),
             ]
         )
-        for b in (self.btn_mode, self.btn_arm, self.btn_arm_sel, self.btn_run, self.btn_abort):
-            r1.addWidget(b)
+        r1 = QGridLayout()
+        r1.setHorizontalSpacing(8)
+        r1.setVerticalSpacing(6)
+        for i, b in enumerate(
+            (self.btn_mode, self.btn_arm, self.btn_arm_sel, self.btn_run, self.btn_abort)
+        ):
+            r1.addWidget(b, i // 3, i % 3)
+        r1.setColumnStretch(0, 1)
+        r1.setColumnStretch(1, 1)
+        r1.setColumnStretch(2, 1)
         bc.addLayout(r1)
 
-        r2 = QHBoxLayout()
+        r2 = QGridLayout()
+        r2.setHorizontalSpacing(8)
+        r2.setVerticalSpacing(6)
         self.btn_jump = QPushButton("跳到选中步（清锁存）")
         self.btn_skip = QPushButton("强制跳过当前步")
         self.btn_refire = QPushButton("重发当前步（再Move）")
@@ -142,10 +151,13 @@ class StepDebugPage(QWidget):
                 (self.btn_init, "neutral"),
             ]
         )
-        for b in (self.btn_jump, self.btn_skip, self.btn_refire, self.btn_init):
-            r2.addWidget(b)
+        for i, b in enumerate(
+            (self.btn_jump, self.btn_skip, self.btn_refire, self.btn_init)
+        ):
+            r2.addWidget(b, i // 2, i % 2)
+        r2.setColumnStretch(0, 1)
+        r2.setColumnStretch(1, 1)
         bc.addLayout(r2)
-        root.addWidget(box_ctrl)
 
         # —— 路点 / 过渡点 ——
         box_pt = QGroupBox("路点 / 过渡点联调（现场加中间点）")
@@ -155,7 +167,9 @@ class StepDebugPage(QWidget):
         pr.addWidget(QLabel("关联/目标点"))
         pr.addWidget(self.cmb_point, stretch=1)
         bp.addLayout(pr)
-        pr2 = QHBoxLayout()
+        pr2 = QGridLayout()
+        pr2.setHorizontalSpacing(8)
+        pr2.setVerticalSpacing(6)
         self.btn_move_j = QPushButton("MoveJ→选中点")
         self.btn_move_l = QPushButton("MoveL→选中点")
         self.btn_move_off = QPushButton("MoveL→点+上方偏移")
@@ -181,16 +195,22 @@ class StepDebugPage(QWidget):
                 (self.btn_stop, "danger"),
             ]
         )
-        for b in (
-            self.btn_move_j,
-            self.btn_move_l,
-            self.btn_move_off,
-            self.btn_add_via,
-            self.btn_del_via,
-            self.btn_point_undo,
-            self.btn_stop,
+        for i, b in enumerate(
+            (
+                self.btn_move_j,
+                self.btn_move_l,
+                self.btn_move_off,
+                self.btn_add_via,
+                self.btn_del_via,
+                self.btn_point_undo,
+                self.btn_stop,
+            )
         ):
-            pr2.addWidget(b)
+            pr2.addWidget(b, i // 4, i % 4)
+        pr2.setColumnStretch(0, 1)
+        pr2.setColumnStretch(1, 1)
+        pr2.setColumnStretch(2, 1)
+        pr2.setColumnStretch(3, 1)
         bp.addLayout(pr2)
         self.lbl_pt = QLabel("-")
         self.lbl_pt.setWordWrap(True)
@@ -202,7 +222,7 @@ class StepDebugPage(QWidget):
             "background:#eaf2f8;border-radius:4px;"
         )
         bp.addWidget(self.lbl_undo)
-        root.addWidget(box_pt)
+        root.addLayout(hbox_pair(box_ctrl, box_pt))
         self._refresh_undo_label()
 
         # —— 各站总览 ——
@@ -213,7 +233,6 @@ class StepDebugPage(QWidget):
             lb = QLabel(s.name)
             self.labels[s.name] = lb
             grid.addWidget(lb)
-        root.addWidget(box)
 
         # 手动点动
         man = QGroupBox("手动点动")
@@ -246,7 +265,7 @@ class StepDebugPage(QWidget):
         ml.addWidget(b2c, 0, 3)
         ml.addWidget(b3, 1, 0, 1, 2)
         ml.addWidget(b4, 1, 2, 1, 2)
-        root.addWidget(man)
+        root.addLayout(hbox_pair(box, man))
 
         apply_page_chrome(self, accent="#1a5276")
         self._on_station_changed()
@@ -500,7 +519,8 @@ class StepDebugPage(QWidget):
         if not self.coord.init_seq.busy:
             err = self.coord.cmd_init()
             if err:
-                QMessageBox.warning(self, "无法初始化", err)
+                if not self.ctx.alarms.has_alarm:
+                    QMessageBox.warning(self, "无法初始化", err)
                 return
         # 初始化 CASE 认 InitStepPulse；顺带保留旧 token 兼容
         self.ctx.gvl.Main.InitStepPulse = True

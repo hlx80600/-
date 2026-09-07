@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.gripper_bank import motor_cfg, normalize_grippers_cfg, write_motor
-from hmi.style import apply_page_chrome, style_button, style_many
+from hmi.style import apply_page_chrome, hbox_pair, style_button, style_many
 
 
 class GripperDebugPage(QWidget):
@@ -33,7 +33,6 @@ class GripperDebugPage(QWidget):
         self._busy_cmd = False
 
         root = QVBoxLayout(self)
-        apply_page_chrome(self)
 
         tip = QLabel(
             "夹爪独立调试（达妙 DM-J4310-2EC）。自动连续运行中禁止开合；"
@@ -52,7 +51,6 @@ class GripperDebugPage(QWidget):
         fs.addRow("角色绑定", self.lbl_bind)
         self.lbl_ep = QLabel("-")
         fs.addRow("接口 / can_id", self.lbl_ep)
-        root.addWidget(box_sel)
 
         # —— 手动动作 ——
         box_act = QGroupBox("手动开合")
@@ -100,7 +98,7 @@ class GripperDebugPage(QWidget):
         ga.addWidget(self.btn_save_spd, 3, 0, 1, 4)
         for sp in (self.sp_open, self.sp_close):
             sp.wheelEvent = lambda e: e.ignore()  # type: ignore
-        root.addWidget(box_act)
+        root.addLayout(hbox_pair(box_sel, box_act, stretch_l=1, stretch_r=2))
 
         # —— 状态 ——
         box_st = QGroupBox("当前电机状态")
@@ -132,7 +130,6 @@ class GripperDebugPage(QWidget):
         row_lamp.addWidget(self.lamp_open)
         row_lamp.addWidget(self.lamp_close)
         vst.addLayout(row_lamp)
-        root.addWidget(box_st)
 
         # —— 启用电机一览 ——
         box_list = QGroupBox("启用电机一览")
@@ -145,9 +142,10 @@ class GripperDebugPage(QWidget):
         self.tbl.setMinimumHeight(160)
         self.tbl.cellClicked.connect(self._on_table_click)
         vl.addWidget(self.tbl)
-        root.addWidget(box_list)
+        root.addLayout(hbox_pair(box_st, box_list, stretch_l=1, stretch_r=2))
 
         root.addStretch(1)
+        apply_page_chrome(self)
         self._reload_motor_list(select_first=True)
 
     def _gcfg(self) -> dict:

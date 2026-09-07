@@ -117,6 +117,7 @@ def _sections_zh_cn() -> List[Section]:
             + _h("新机投产总顺序（必按序）")
             + _ol(
                 [
+                    f"<b>{_L(T.HOST_DEVICES)}</b> 对照 USB / 网卡 IP 后，"
                     f"<b>{_L(T.CONFIG)}</b>：IP / CAN / 相机 serial / Mock → 保存 → <b>重启程序</b>",
                     f"<b>{_L(T.PAYLOAD)}</b>：手爪 TCP 与抓鞋负载 → 保存并下发",
                     f"<b>{_L(T.POINTS)}</b>：示教进入点、槽点、偏移 → 保存",
@@ -145,7 +146,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>{_L(T.PRODUCTION)}</b>：记件 / CT / UPH",
                     f"<b>{_L(T.STEP_DEBUG)}</b>：按工位单步",
                     f"<b>{_L(T.MOTION)}</b>：按程序步 vel/平滑",
-                    f"<b>{_L(T.VISION)}</b>：总页（相机与ROI / 棋盘格 / 手眼 / 检测 / 采图训练）",
+                    f"<b>{_L(T.VISION)}</b>：总页（相机与ROI / 棋盘格 / 手眼 / 视觉参数 / 检测 / 采图训练）",
                     f"<b>{_L(T.POINTS)}</b>：示教点 / 过渡点",
                     f"<b>{_L(T.SHIELD_PICK)}</b>：cam1 Mock 取料示教",
                     f"<b>{_L(T.DRY_RUN)}</b>：空跑屏蔽信号",
@@ -153,6 +154,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>{_L(T.PRESS_IO)}</b>：压机槽号与地址",
                     f"<b>{_L(T.GRIPPER)}</b>：夹爪单独调试与 GRIP_* 报警复位",
                     f"<b>{_L(T.CONFIG)}</b>：通信与 Mock",
+                    f"<b>{_L(T.HOST_DEVICES)}</b>：本机 USB 列表、网卡 IP、串口/相机 by-id",
                     f"<b>{_L(T.ALARM)}</b>：本次运行 / 落盘错误 / 黑匣子 / 运行快照（生产图，文件名含相机与时间）",
                     f"<b>算法接口 / 工位程序</b>：见本说明后几章",
                 ]
@@ -195,6 +197,7 @@ def _sections_zh_cn() -> List[Section]:
                 ],
                 refs=[
                     f"{_code('core/coordinator.py')} — 初始化/运行模式/启停",
+                    f"{_code('stations/init_sequence.py')} — 初始化前双臂 home 到位检查与回零",
                     f"{_code('core/lights.py')} — 三色灯",
                     f"{_code('core/memory.py')} — Mem 读写",
                     f"{_code('devices/robot_fr5.py')} — SetSpeed",
@@ -211,6 +214,7 @@ def _sections_zh_cn() -> List[Section]:
             + _ol(
                 [
                     "模式选「自动」→ 初始化 → READY（黄+绿）→ 启动。",
+                    "真机初始化前须两臂都在 home 附近（本页「初始位允许」可改 mm/°）；超差立刻报警，复位后再初始化。模拟臂跳过。",
                     "暂停可改记忆和槽号；停止后需重新初始化再启动。",
                     "急停后报警复位 → 再初始化。",
                     "实际臂速 ≈ 本页全局 SetSpeed% ×「运动参数」里该步 vel%。",
@@ -222,9 +226,11 @@ def _sections_zh_cn() -> List[Section]:
             _L(T.CAM_MONITOR),
             _io_block(
                 purpose=(
-                    "独立窗口显示 cam1～4 原图与推演结果。"
+                    "独立窗口四路同时显示。顶部「原图 / 结果 / 深度」整窗切页，每格铺满一张图。"
                     "「刷新原图」后台取流；「实时推演」用缓存帧跑算法不抢相机；"
-                    "「结果跟原图」右侧跟拍叠上次结果文字，避免卡顿掉帧。"
+                    "「结果跟原图」在结果页用最新原图叠上次推演文字，避免卡顿掉帧。"
+                    "深度页是否有伪彩，看「视觉」预览是否勾「输出深度图」"
+                    "（写入 cameras.camN.enable_depth）。"
                 ),
                 impl=[
                     f"{_code('hmi/pages/vision_monitor_page.py')} — VisionMonitorPage / Window",
@@ -321,7 +327,7 @@ def _sections_zh_cn() -> List[Section]:
                 ],
                 used_by=[
                     "投产前必做；训完的 .pt 被 VisionService / Station1～4 加载",
-                    f"点像素预览在「{_L(T.VISION)}」上方预览区 /「手眼标定」页签",
+                    f"点像素预览在「{_L(T.VISION)}」上方原图 /「手眼标定」页签",
                 ],
             )
             + _h("推荐流程")
@@ -340,20 +346,22 @@ def _sections_zh_cn() -> List[Section]:
             _L(T.VISION),
             _io_block(
                 purpose=(
-                    "视觉总页：上方常驻预览；子页签含相机与ROI、棋盘格内参、手眼标定、检测测试、采图训练。"
+                    "视觉总页：左侧上下对照原图 / 深度（拖分隔条或滚轮改高度）；"
+                    "子页签含相机与ROI、棋盘格内参、手眼标定、视觉参数、检测测试、采图训练。"
                     "缺模型时该路保持 Mock。"
                 ),
                 impl=[
                     f"{_code('hmi/pages/vision_hub_page.py')} — VisionHubPage",
                     f"{_code('hmi/pages/vision_workspace.py')} — 共享预览与标定状态",
                     f"{_code('hmi/pages/vision_commission.py')} — 本路检查清单文案",
+                    f"{_code('hmi/pages/vision_params_page.py')} — 按相机改检测参数",
                 ],
                 refs=[
                     f"{_code('vision/camera_orbbec.py')} — 取流",
                     f"{_code('vision/calib.py')} / {_code('vision/roi.py')} / {_code('vision/handeye_solve.py')}",
                     f"{_code('vision/vision_service.py')} — photo_* / guide_place_edge / 测试接口",
                     f"{_code('algorithm_module')} — detect / classify / measure",
-                    f"配置：{_code('config/roi/camN.json')}、{_code('config/calib/')}、{_code('shoe_vision_config.json')}",
+                    f"配置：{_code('config/roi/camN.json')}、{_code('config/calib/')}、{_code('shoe_vision_config.json')}、{_code('position_config.yaml')}",
                 ],
                 used_by=[
                     "「采图训练」写入 json 依赖本页采到的内参/采样",
@@ -371,7 +379,7 @@ def _sections_zh_cn() -> List[Section]:
             )
             + _h("运行快照（到报警记录页查）")
             + _p(
-                "自动流程拍照以及本页「检测测试」，会把当时原图、叠图、检测结果存到 "
+                "自动流程拍照以及本页「检测测试」，会把当时原图、叠图、深度伪彩、检测结果存到 "
                 + _code("logs/vision_snaps/")
                 + "。图片文件名带相机和时间，例如 "
                 + _code("cam1_20260828_140455_635_belt_pick_raw.jpg")
@@ -390,6 +398,7 @@ def _sections_zh_cn() -> List[Section]:
                     "棋盘格：检测 → 多角度「采集有效帧」→「计算并保存内参」；cam1「内参写入皮带 json」。",
                     "手眼（cam1 必做）：预览上点针尖像素 →「记录手眼采样点」"
                     "→ 换位采满 ≥8～12 点 →「保存手眼采样」→「计算手眼4×4写入 json」。",
+                    "「视觉参数」：按上方相机改置信度 / 鞋头前推 / 压杆检测区，点保存。",
                     "「检测测试」测皮带 →「写入 PickPose」→「MoveL 到取料上方」核对。",
                     "其它路：用对应「测试…」按钮验证模型；再切「采图训练」写生产 json / 单步。",
                 ]
@@ -412,14 +421,14 @@ def _sections_zh_cn() -> List[Section]:
                 "不必停机去工控机翻文件夹。"
             )
             + _p(
-                "拍照瞬间写入原图、叠图、检测结果；机器人完成放入鞋槽或下料到皮带后，再把结果写回这一条。"
+                "拍照瞬间写入原图、叠图、深度伪彩、检测结果；机器人完成放入鞋槽或下料到皮带后，再把结果写回这一条。"
                 "HMI「报警记录 → 运行快照」可浏览；也可打开视觉 log 文件夹用资源管理器看原始文件。"
                 "每张 jpg 文件名含相机和时间，拷出来也能分清是哪路、何时拍的。"
             )
             + _h("实现文件")
             + _ul(
                 [
-                    f"{_code('hmi/pages/vision_snap_page.py')} — 历史列表、原图/叠图、详情、打开目录",
+                    f"{_code('hmi/pages/vision_snap_page.py')} — 历史列表、原图/叠图/深度、详情、打开目录",
                     f"{_code('hmi/pages/alarm_page.py')} — 「报警记录」第四个页签「运行快照」",
                     f"{_code('vision/vision_journal.py')} — 落盘、运送回写、列表扫描",
                     f"{_code('vision/vision_service.py')} — photo_* 默认 persist=True；监控推演 persist=False",
@@ -494,7 +503,7 @@ def _sections_zh_cn() -> List[Section]:
                     + _code("logs/vision_snaps/")
                     + "。",
                     "左侧列表新的在前；可用「相机」「类型」筛选；每页 20 条，用首页/上一页/下一页/末页翻。",
-                    "点一条：右侧看原图、叠图；下方看检测数据（坐标、左右脚、鞋长、有无料等）和运送回写。",
+                    "点一条：右侧看原图、叠图、深度伪彩；下方看检测数据和运送回写。",
                     "刚放完料或刚下料：点「刷新」，同一条上会出现「已放槽#n」或「已下料」。",
                     "「打开本条目录」打开这一拍的文件夹（可拷带相机和时间的 jpg 与 meta.json 发给别人）。",
                     "「复制详情」把当前文字说明拷到剪贴板。",
@@ -690,6 +699,32 @@ def _sections_zh_cn() -> List[Section]:
                     "重连：app_context / 各 device 的 reconnect",
                 ],
                 used_by=["所有真机联调第一步；改完建议重启程序（尤其相机 serial）"],
+            ),
+        ),
+        (
+            "host_devices",
+            _L(T.HOST_DEVICES),
+            _io_block(
+                purpose=(
+                    "只读列出本机网卡 IPv4/IPv6、USB 设备（VID:PID、序列号、tty/video 节点）、"
+                    "以及 /dev/serial/by-id 与 /dev/v4l/by-id。"
+                    "填「通信配置」里的机器人 IP、相机 serial 时对照本页。"
+                    "点刷新；双击单元格复制该项；「复制全部」得到纯文本。"
+                    "不调用奥比 SDK 枚举（避免卡住），深度相机也会出现在 USB / V4L 表。"
+                ),
+                impl=[
+                    f"{_code('hmi/pages/host_devices_page.py')} — UI",
+                    f"{_code('core/host_inventory.py')} — 读 /sys 与 ip -json",
+                ],
+                refs=[
+                    "/sys/bus/usb/devices、/sys/class/net、ip addr / ip route",
+                    "/dev/serial/by-id、/dev/v4l/by-id",
+                    f"{_code('hmi/pages/config_page.py')} — 把 IP / serial 填进 yaml",
+                ],
+                used_by=[
+                    f"「{_L(T.CONFIG)}」填机器人 IP、相机 serial、CAN 口前先看本页",
+                    "换 USB 口、换网线后确认本机地址有没有变",
+                ],
             ),
         ),
         (

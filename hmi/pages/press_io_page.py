@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.press_modbus import WORK_STATUS_NAMES
-from hmi.style import apply_page_chrome, style_button
+from hmi.style import apply_page_chrome, hbox_pair, style_button
 
 SLOT_ADDR_ROWS = [
     ("addr_shoe_placed", "放鞋完成"),
@@ -81,14 +81,14 @@ class PressIoPage(QWidget):
         self.sp_cur_place = QSpinBox()
         self.sp_cur_place.setRange(1, 4)
         self.sp_cur_place.setValue(int(self.ctx.press.place_slot))
-        self.sp_cur_place.setMinimumWidth(70)
+        self.sp_cur_place.setMinimumWidth(88)
         self.sp_cur_place.valueChanged.connect(lambda _v: self._on_io_slot_spin("place"))
         slot_row.addWidget(self.sp_cur_place)
         slot_row.addWidget(QLabel("当前取料槽号(右口)"))
         self.sp_cur_pick = QSpinBox()
         self.sp_cur_pick.setRange(1, 4)
         self.sp_cur_pick.setValue(int(self.ctx.press.pick_slot))
-        self.sp_cur_pick.setMinimumWidth(70)
+        self.sp_cur_pick.setMinimumWidth(88)
         self.sp_cur_pick.valueChanged.connect(lambda _v: self._on_io_slot_spin("pick"))
         slot_row.addWidget(self.sp_cur_pick)
         self.chk_slot_lock = QCheckBox("锁定手动槽号")
@@ -139,7 +139,6 @@ class PressIoPage(QWidget):
             lb.setWordWrap(True)
             self.lbl_slot_live[i] = lb
             vl.addWidget(lb)
-        root.addWidget(box_live)
 
         box_tx = QGroupBox("发送信号 TX（最近写入）")
         self.lbl_tx = QLabel("-")
@@ -149,7 +148,7 @@ class PressIoPage(QWidget):
         )
         txl = QVBoxLayout(box_tx)
         txl.addWidget(self.lbl_tx)
-        root.addWidget(box_tx)
+        root.addLayout(hbox_pair(box_live, box_tx, stretch_l=3, stretch_r=2))
 
         press = self.ctx.cfg.get("press") or {}
         fs = press.get("four_slot") or {}
@@ -185,7 +184,6 @@ class PressIoPage(QWidget):
         fm.addRow("取料口物理开口", self.cmb_pick_open)
         fm.addRow("PLC 右口槽号寄存器", self.sp_addr_pick)
         fm.addRow("PLC 左口槽号寄存器", self.sp_addr_place)
-        root.addWidget(box_map)
         self.cmb_seq.currentIndexChanged.connect(self._apply_seq_live)
         self.chk_auto_slot.toggled.connect(self._apply_seq_live)
 
@@ -201,7 +199,7 @@ class PressIoPage(QWidget):
         fg.addRow("旋转命令 / 完成", self._pair(self.sp_cmd_rot, self.sp_rot_done))
         fg.addRow("压合命令 / 完成", self._pair(self.sp_cmd_press, self.sp_press_done))
         fg.addRow("上电完成", self.sp_power)
-        root.addWidget(box_g)
+        root.addLayout(hbox_pair(box_map, box_g))
 
         tabs = QTabWidget()
         slots_cfg = press.get("slots") or {}

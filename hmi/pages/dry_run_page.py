@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from core.config_loader import save_config
 from core.coordinator import Coordinator
 from core.dry_run_shield import DEFAULT_AUTO_PRESS_S, DEFAULT_AUTO_ROTATE_S
-from hmi.style import apply_page_chrome, style_button
+from hmi.style import apply_page_chrome, hbox_pair, style_button
 
 
 class DryRunPage(QWidget):
@@ -81,7 +81,6 @@ class DryRunPage(QWidget):
         style_button(btn_save, "primary")
         btn_save.clicked.connect(self._save_cfg)
         ml.addWidget(btn_save)
-        root.addWidget(box_main)
 
         # —— 手动覆盖（空跑开时仍可临时改，下一周期可能被自动盖掉）——
         box_man = QGroupBox("手动信号（调试覆盖；空跑自动项开启时会被周期改写）")
@@ -124,7 +123,7 @@ class DryRunPage(QWidget):
         r2.addWidget(self.btn_press)
         r2.addWidget(self.btn_rot)
         mg.addLayout(r2)
-        root.addWidget(box_man)
+        root.addLayout(hbox_pair(box_main, box_man))
 
         self.lbl = QLabel("-")
         self.lbl.setWordWrap(True)

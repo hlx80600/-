@@ -1,4 +1,4 @@
-"""运行监控页：按钮、三色灯、记忆、Station 状态、Mock IO。"""
+"""运行总览页：内部分页（总览 / 速度平滑 / 手动 IO），避免整页下滑。"""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QSlider,
     QSpinBox,
     QSizePolicy,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -31,7 +32,9 @@ from core.machine_state import RunMode
 from core.coordinator import Coordinator
 from hmi import i18n
 from hmi.alarm_dialog import format_alarm_text
-from hmi.style import apply_page_chrome, style_button, style_many
+from hmi.scroll_util import disable_tab_bar_wheel
+from hmi.style import PAGE_SPACING, apply_page_chrome, hbox_pair, style_button, style_many
+from stations.init_sequence import read_init_near_home_limits
 
 
 class MonitorPage(QWidget):
@@ -43,13 +46,14 @@ class MonitorPage(QWidget):
         self._syncing_slot_ui = False
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
         self.lbl_mobile = QLabel("")
         self.lbl_mobile.setWordWrap(True)
         self.lbl_mobile.setStyleSheet(
             "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:4px;font-size:13px;"
         )
-        root.addWidget(self.lbl_mobile)
 
         # 按钮行（两排，避免窄窗把「急停复位」等字挤没）
         btn_grid = QGridLayout()
@@ -92,16 +96,14 @@ class MonitorPage(QWidget):
             )
         ):
             btn_grid.addWidget(b, i // 4, i % 4)
-        root.addLayout(btn_grid)
 
         # 初始化完成标识（必须完成初始化后才能启动）
         self.lbl_init_flag = QTextEdit()
         self.lbl_init_flag.setReadOnly(True)
         self.lbl_init_flag.setFrameShape(QFrame.Shape.NoFrame)
-        self.lbl_init_flag.setMinimumHeight(72)
-        self.lbl_init_flag.setMaximumHeight(140)
+        self.lbl_init_flag.setMinimumHeight(56)
+        self.lbl_init_flag.setMaximumHeight(88)
         self.lbl_init_flag.setToolTip("报警全文可选中复制，或点「复制报警」（不弹窗）")
-        root.addWidget(self.lbl_init_flag)
         self._init_flag_text = ""
         self._init_flag_css = ""
         self._init_progress = QProgressBar()
@@ -109,7 +111,6 @@ class MonitorPage(QWidget):
         self._init_progress.setFormat("%p%")
         self._init_progress.setFixedHeight(18)
         self._init_progress.hide()
-        root.addWidget(self._init_progress)
         self._refresh_init_flag()
 
         self.btn_init.clicked.connect(self._on_init)
@@ -122,7 +123,6 @@ class MonitorPage(QWidget):
         self.btn_copy_alarm.clicked.connect(self._on_copy_alarm)
 
         # 模式
-        mode_row = QHBoxLayout()
         self.btn_mode_auto = QPushButton("模式:自动")
         self.btn_mode_step = QPushButton("模式:单步")
         self.btn_mode_manual = QPushButton("模式:手动")
@@ -133,16 +133,11 @@ class MonitorPage(QWidget):
                 (self.btn_mode_manual, "neutral"),
             ]
         )
-        mode_row.addWidget(self.btn_mode_auto)
-        mode_row.addWidget(self.btn_mode_step)
-        mode_row.addWidget(self.btn_mode_manual)
-        root.addLayout(mode_row)
         self.btn_mode_auto.clicked.connect(lambda: self.ctx.machine.set_mode(RunMode.AUTO))
         self.btn_mode_step.clicked.connect(lambda: self.ctx.machine.set_mode(RunMode.SINGLE_STEP))
         self.btn_mode_manual.clicked.connect(lambda: self.ctx.machine.set_mode(RunMode.MANUAL))
 
         # 单步快捷 + 空跑程序
-        step_row = QHBoxLayout()
         self.btn_step_next = QPushButton("单步：下一步")
         self.btn_step_next.setToolTip(
             "切到单步模式；给忙站发 StepPulse（条件满足才跳步）。"
@@ -157,13 +152,8 @@ class MonitorPage(QWidget):
         )
         style_button(self.btn_dry_prog, "success")
         self.btn_dry_prog.clicked.connect(self._on_start_dry_program)
-        step_row.addWidget(self.btn_step_next)
-        step_row.addWidget(self.btn_dry_prog)
-        root.addLayout(step_row)
 
         # 三色灯（大圆灯）+ 模式
-        light_row = QHBoxLayout()
-        light_row.setSpacing(12)
         self.lbl_mode = QLabel("模式: -")
         self.lbl_mode.setStyleSheet("font-size:15px;font-weight:bold;")
         self.light_r = QLabel("红")
@@ -171,31 +161,80 @@ class MonitorPage(QWidget):
         self.light_g = QLabel("绿")
         for w in (self.light_r, self.light_y, self.light_g):
             w.setAlignment(Qt.AlignCenter)
-            w.setFixedSize(56, 56)
+            w.setFixedSize(44, 44)
             w.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        light_row.addWidget(self.light_r)
-        light_row.addWidget(self.light_y)
-        light_row.addWidget(self.light_g)
-        light_row.addSpacing(16)
-        light_row.addWidget(self.lbl_mode)
-        light_row.addStretch(1)
-        root.addLayout(light_row)
         self.lbl_state = QLabel("状态: -")
         self.lbl_state.setWordWrap(True)
         self.lbl_state.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        root.addWidget(self.lbl_state)
         self.lbl_auto_clear = QLabel("")
         self.lbl_auto_clear.setWordWrap(True)
         self.lbl_auto_clear.setVisible(False)
         self.lbl_auto_clear.setStyleSheet(
             "background:#fef9e7;color:#7d6608;padding:6px 8px;border-radius:4px;"
         )
-        root.addWidget(self.lbl_auto_clear)
 
-        # —— 当前槽号 + 记忆：首屏最显眼 ——
+        cmd = QGroupBox("运行")
+        cmd_lay = QVBoxLayout(cmd)
+        cmd_lay.setSpacing(8)
+        cmd_lay.addLayout(btn_grid)
+        mode_row = QHBoxLayout()
+        mode_row.setSpacing(8)
+        mode_row.addWidget(self.btn_mode_auto, 1)
+        mode_row.addWidget(self.btn_mode_step, 1)
+        mode_row.addWidget(self.btn_mode_manual, 1)
+        mode_row.addWidget(self.btn_step_next, 1)
+        mode_row.addWidget(self.btn_dry_prog, 1)
+        cmd_lay.addLayout(mode_row)
+        light_row = QHBoxLayout()
+        light_row.setSpacing(10)
+        light_row.addWidget(self.light_r)
+        light_row.addWidget(self.light_y)
+        light_row.addWidget(self.light_g)
+        light_row.addSpacing(12)
+        light_row.addWidget(self.lbl_mode)
+        light_row.addStretch(1)
+        cmd_lay.addLayout(light_row)
+        cmd_lay.addWidget(self.lbl_init_flag)
+        cmd_lay.addWidget(self._init_progress)
+        near_mm0, near_deg0 = read_init_near_home_limits(self.ctx.cfg)
+        near_row = QHBoxLayout()
+        near_row.setSpacing(8)
+        self.lbl_init_near_mm = QLabel()
+        near_row.addWidget(self.lbl_init_near_mm)
+        self.sp_init_near_mm = QDoubleSpinBox()
+        self.sp_init_near_mm.setRange(1.0, 500.0)
+        self.sp_init_near_mm.setDecimals(0)
+        self.sp_init_near_mm.setSingleStep(5.0)
+        self.sp_init_near_mm.setSuffix(" mm")
+        self.sp_init_near_mm.setValue(near_mm0)
+        self.sp_init_near_mm.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        near_row.addWidget(self.sp_init_near_mm)
+        self.lbl_init_near_deg = QLabel()
+        near_row.addWidget(self.lbl_init_near_deg)
+        self.sp_init_near_deg = QDoubleSpinBox()
+        self.sp_init_near_deg.setRange(0.5, 90.0)
+        self.sp_init_near_deg.setDecimals(1)
+        self.sp_init_near_deg.setSingleStep(1.0)
+        self.sp_init_near_deg.setSuffix(" °")
+        self.sp_init_near_deg.setValue(near_deg0)
+        self.sp_init_near_deg.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        near_row.addWidget(self.sp_init_near_deg)
+        near_row.addStretch(1)
+        for w in (self.sp_init_near_mm, self.sp_init_near_deg):
+            w.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
+            w.editingFinished.connect(self._save_init_near)
+        self.near_box = QGroupBox("初始化近初始位容差")
+        near_box_lay = QVBoxLayout(self.near_box)
+        near_box_lay.addLayout(near_row)
+        cmd_lay.addWidget(self.lbl_state)
+        cmd_lay.addWidget(self.lbl_auto_clear)
+        self.cmd_box = cmd
+
+        # —— 当前槽号 + 记忆：总览首屏 ——
         hero = QGroupBox("当前槽号 / 记忆（自动运行中记忆锁定）")
         self.mem_box = hero
         hero_lay = QVBoxLayout(hero)
+        hero_lay.setSpacing(8)
 
         slot_row = QHBoxLayout()
         self.lbl_hero_place = QLabel("放料槽\n#—")
@@ -203,21 +242,23 @@ class MonitorPage(QWidget):
         for lb in (self.lbl_hero_place, self.lbl_hero_pick):
             lb.setAlignment(Qt.AlignCenter)
             lb.setWordWrap(True)
-            lb.setMinimumHeight(80)
+            lb.setMinimumHeight(56)
             lb.setStyleSheet(
-                "background:#1a5276;color:#ecf0f1;padding:10px;border-radius:6px;"
-                "font-size:22px;font-weight:bold;"
+                "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:6px;"
+                "font-size:20px;font-weight:bold;"
             )
             slot_row.addWidget(lb, 1)
         hero_lay.addLayout(slot_row)
         self.lbl_hero_slot_meta = QLabel("顺序 —")
         self.lbl_hero_slot_meta.setAlignment(Qt.AlignCenter)
+        self.lbl_hero_slot_meta.setWordWrap(True)
         self.lbl_hero_slot_meta.setStyleSheet(
             "background:#273746;color:#f7dc6f;padding:6px;border-radius:4px;font-size:14px;font-weight:bold;"
         )
         hero_lay.addWidget(self.lbl_hero_slot_meta)
 
         edit_row = QHBoxLayout()
+        edit_row.setSpacing(8)
         self.lbl_slot_seq = QLabel()
         edit_row.addWidget(self.lbl_slot_seq)
         self.cmb_mon_seq = QComboBox()
@@ -228,7 +269,7 @@ class MonitorPage(QWidget):
         self.cmb_mon_seq.setCurrentIndex(
             max(0, self.cmb_mon_seq.findData("43214" if seq0 in ("43214", "reverse", "反序") else "12341"))
         )
-        self.cmb_mon_seq.setMinimumWidth(140)
+        self.cmb_mon_seq.setMinimumWidth(160)
         self.cmb_mon_seq.currentIndexChanged.connect(self._on_monitor_seq_changed)
         edit_row.addWidget(self.cmb_mon_seq)
         self.lbl_slot_place = QLabel()
@@ -236,7 +277,7 @@ class MonitorPage(QWidget):
         self.sp_mon_place = QSpinBox()
         self.sp_mon_place.setRange(1, 4)
         self.sp_mon_place.setValue(int(self.ctx.press.place_slot))
-        self.sp_mon_place.setMinimumWidth(64)
+        self.sp_mon_place.setMinimumWidth(88)
         self.sp_mon_place.valueChanged.connect(lambda _v: self._on_monitor_slot_spin("place"))
         edit_row.addWidget(self.sp_mon_place)
         self.lbl_slot_pick = QLabel()
@@ -244,47 +285,56 @@ class MonitorPage(QWidget):
         self.sp_mon_pick = QSpinBox()
         self.sp_mon_pick.setRange(1, 4)
         self.sp_mon_pick.setValue(int(self.ctx.press.pick_slot))
-        self.sp_mon_pick.setMinimumWidth(64)
+        self.sp_mon_pick.setMinimumWidth(88)
         self.sp_mon_pick.valueChanged.connect(lambda _v: self._on_monitor_slot_spin("pick"))
         edit_row.addWidget(self.sp_mon_pick)
         edit_row.addStretch(1)
         hero_lay.addLayout(edit_row)
         edit_row2 = QHBoxLayout()
+        edit_row2.setSpacing(8)
         self.chk_mon_slot_lock = QCheckBox("锁定手动槽号")
         self.chk_mon_slot_lock.setChecked(bool(self.ctx.press.manual_slot_lock))
         self.chk_mon_slot_lock.toggled.connect(self._on_monitor_slot_lock)
-        edit_row2.addWidget(self.chk_mon_slot_lock)
+        self.chk_mon_slot_lock.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
+        edit_row2.addWidget(self.chk_mon_slot_lock, 0)
         self.btn_mon_slot_apply = QPushButton("应用槽号")
         style_button(self.btn_mon_slot_apply, "warn")
         self.btn_mon_slot_apply.clicked.connect(self._apply_monitor_slots)
-        edit_row2.addWidget(self.btn_mon_slot_apply)
+        self.btn_mon_slot_apply.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        edit_row2.addWidget(self.btn_mon_slot_apply, 0)
         edit_row2.addStretch(1)
         hero_lay.addLayout(edit_row2)
         self.lbl_slot_edit_tip = QLabel(
             "停止/暂停后可改：改放料槽则取料槽按顺序联动，改取料槽则放料槽联动。"
         )
+        self.lbl_slot_edit_tip.setWordWrap(True)
         self.lbl_slot_edit_tip.setStyleSheet("color:#555;")
         hero_lay.addWidget(self.lbl_slot_edit_tip)
 
         mem_grid = QGridLayout()
         mem_grid.setHorizontalSpacing(12)
-        mem_grid.setVerticalSpacing(8)
+        mem_grid.setVerticalSpacing(6)
         self.mem_checks = {}
         self.mem_lamps = {}
         for i in range(1, 11):
             lamp = QLabel(f"M{i}")
             lamp.setAlignment(Qt.AlignCenter)
-            lamp.setFixedWidth(72)
-            lamp.setMinimumHeight(32)
+            lamp.setFixedWidth(56)
+            lamp.setMinimumHeight(28)
             lamp.setStyleSheet(
-                "background:#555;color:#ccc;padding:4px;border-radius:3px;font-weight:bold;"
+                "background:#555;color:#ccc;padding:2px;border-radius:3px;font-weight:bold;font-size:12px;"
             )
             cb = QCheckBox()
             cb.setToolTip(f"Mem[{i}]")
-            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             cb.toggled.connect(lambda on, idx=i: self._mem_toggled(idx, on))
             self.mem_checks[i] = cb
             self.mem_lamps[i] = lamp
+            # 两列五行：避免五列挤扁导致中文叠字
             col = 0 if i <= 5 else 2
             row = (i - 1) % 5
             mem_grid.addWidget(lamp, row, col)
@@ -292,39 +342,60 @@ class MonitorPage(QWidget):
         mem_grid.setColumnStretch(1, 1)
         mem_grid.setColumnStretch(3, 1)
         hero_lay.addLayout(mem_grid)
-        root.addWidget(hero)
 
         link_box = QGroupBox("设备连接（Mock=模拟就绪；真机断线将自动重连）")
         link_lay = QVBoxLayout(link_box)
+        link_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
         self.lbl_link_warn = QLabel("")
         self.lbl_link_warn.setWordWrap(True)
         self.lbl_link_warn.setVisible(False)
         link_lay.addWidget(self.lbl_link_warn)
         self._link_grid = QGridLayout()
+        self._link_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._link_grid.setHorizontalSpacing(8)
+        self._link_grid.setVerticalSpacing(8)
         self._link_labels: dict[str, QLabel] = {}
         for i, row in enumerate(self.ctx.device_link_snapshot()):
             lb = QLabel()
-            lb.setMinimumWidth(150)
+            lb.setMinimumWidth(120)
+            lb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self._link_labels[row["name"]] = lb
-            self._link_grid.addWidget(lb, i // 2, i % 2)
+            # 单列：卡片够宽，避免窄列逐字换行叠在一起
+            self._link_grid.addWidget(lb, i, 0)
         link_lay.addLayout(self._link_grid)
-        root.addWidget(link_box)
         # 连接状态由慢刷 _refresh_link_panel 更新，避免拖慢启动
 
         # CT / UPH 速览（详细直方图见「产量统计」页）
-        prod = QHBoxLayout()
+        prod_box = QGroupBox("产量速览")
+        prod = QGridLayout(prod_box)
+        prod.setHorizontalSpacing(8)
+        prod.setVerticalSpacing(6)
         self.lbl_ct = QLabel("CT: -- s")
         self.lbl_uph = QLabel("UPH: --")
         self.lbl_uph_avg = QLabel("UPH均: --")
         self.lbl_hour_cnt = QLabel("本小时: 0")
         self.lbl_total_cnt = QLabel("总产量: 0")
-        for w in (self.lbl_ct, self.lbl_uph, self.lbl_uph_avg, self.lbl_hour_cnt, self.lbl_total_cnt):
-            w.setStyleSheet("background:#34495e;color:#ecf0f1;padding:6px 10px;border-radius:4px;")
-            prod.addWidget(w)
-        root.addLayout(prod)
+        for i, w in enumerate(
+            (self.lbl_ct, self.lbl_uph, self.lbl_uph_avg, self.lbl_hour_cnt, self.lbl_total_cnt)
+        ):
+            w.setWordWrap(True)
+            w.setAlignment(Qt.AlignCenter)
+            w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            w.setStyleSheet(
+                "background:#34495e;color:#ecf0f1;padding:6px 10px;border-radius:4px;"
+            )
+            prod.addWidget(w, i // 3, i % 3)
+        side = QWidget()
+        side.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        side_lay = QVBoxLayout(side)
+        side_lay.setContentsMargins(0, 0, 0, 0)
+        side_lay.setSpacing(PAGE_SPACING)
+        side_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
+        side_lay.addWidget(link_box, 0)
+        side_lay.addWidget(prod_box, 0)
+        side_lay.addStretch(1)
 
         # ---------- 机器人速度条（下发法奥 SetSpeed，示教器「运行速度%」同步）----------
-        # 速度/全局平滑靠上：避免被 Mem/Mock 挤出首屏（用户常找不到）
         vel_box = QGroupBox("机器人速度（%）")
         vel_lay = QVBoxLayout(vel_box)
 
@@ -372,7 +443,6 @@ class MonitorPage(QWidget):
         self.sld_vel2.sliderReleased.connect(lambda: self._save_vel("robot2"))
         self.sld_vel_both.sliderReleased.connect(self._save_vel_both)
         self._update_vel_labels()
-        root.addWidget(vel_box)
 
         # 路径平滑（全局总开关 + 默认 T/R）
         blend_box = QGroupBox("路径平滑（全局总开关 + 默认 blendT/blendR）")
@@ -415,7 +485,10 @@ class MonitorPage(QWidget):
         bl.addLayout(brow2)
         for w in (self.sp_blend_t, self.sp_blend_r, self.sp_blend_delay):
             w.wheelEvent = lambda e: e.ignore()  # type: ignore
-        root.addWidget(blend_box)
+        vel_blend = QHBoxLayout()
+        vel_blend.setSpacing(10)
+        vel_blend.addWidget(vel_box, 1)
+        vel_blend.addWidget(blend_box, 1)
 
         # 夹爪手动：速度 + 开合按键 + 完成状态灯（自动连续运行时锁定按键）
         grip_box = QGroupBox(
@@ -507,7 +580,6 @@ class MonitorPage(QWidget):
         style_button(self.btn_grip_spd_save, "primary")
         self.btn_grip_spd_save.clicked.connect(self._save_grip_speeds)
         gl.addWidget(self.btn_grip_spd_save, 5, 0, 1, 4)
-        root.addWidget(grip_box)
 
         # 压鞋机 / 转盘手动（现场点检；自动跑 Station6 时勿同时猛点）
         press_box = QGroupBox(
@@ -547,18 +619,24 @@ class MonitorPage(QWidget):
         pl.addWidget(self.btn_press_start, 1, 2)
         pl.addWidget(self.btn_press_stop, 1, 3)
         pl.addWidget(self.btn_press_done_sim, 2, 0, 1, 2)
-        root.addWidget(press_box)
+        grip_press = QHBoxLayout()
+        grip_press.setSpacing(10)
+        grip_press.addWidget(grip_box, 1)
+        grip_press.addWidget(press_box, 1)
 
         # Station 状态
         st_box = QGroupBox("Station 状态")
-        st_layout = QVBoxLayout(st_box)
+        st_layout = QGridLayout(st_box)
+        st_layout.setHorizontalSpacing(10)
+        st_layout.setVerticalSpacing(8)
         self.st_labels = {}
-        for s in self.coord.stations:
+        for i, s in enumerate(self.coord.stations):
             lb = QLabel(s.name)
             lb.setWordWrap(True)
+            lb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            lb.setMinimumHeight(28)
             self.st_labels[s.name] = lb
-            st_layout.addWidget(lb)
-        root.addWidget(st_box)
+            st_layout.addWidget(lb, i // 2, i % 2)
 
         # Mock / 空跑信号（详细总控在「空跑联调」页）
         mock = QGroupBox("屏蔽信号快控（完整空跑请用「空跑联调」页）")
@@ -579,7 +657,7 @@ class MonitorPage(QWidget):
         self.btn_dry_off.clicked.connect(self._on_dry_run_off)
         mg.addWidget(self.btn_dry_on, 1, 0)
         mg.addWidget(self.btn_dry_off, 1, 1)
-        # 与顶部「启动空跑程序」同义入口（便于滚到本区时操作）
+        # 与顶部「启动空跑程序」同义入口（便于在本区分页操作）
         self.btn_dry_prog2 = QPushButton("启动空跑程序（屏蔽+自动模式）")
         style_button(self.btn_dry_prog2, "accent")
         self.btn_dry_prog2.clicked.connect(self._on_start_dry_program)
@@ -680,7 +758,44 @@ class MonitorPage(QWidget):
         mg.addWidget(self.btn_fault_r2, 12, 1)
         mg.setColumnStretch(0, 1)
         mg.setColumnStretch(1, 1)
-        root.addWidget(mock)
+
+        # —— 内部分页：总览 / 速度 / 手动 ——
+        overview = QWidget()
+        overview_lay = QVBoxLayout(overview)
+        overview_lay.setContentsMargins(4, 4, 4, 4)
+        overview_lay.setSpacing(PAGE_SPACING)
+        overview_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
+        overview_lay.addWidget(self.lbl_mobile)
+        overview_lay.addWidget(cmd)
+        overview_lay.addLayout(hbox_pair(hero, side, stretch_l=3, stretch_r=2))
+        overview_lay.addWidget(st_box)
+        overview_lay.addStretch(1)
+
+        speed = QWidget()
+        speed_lay = QVBoxLayout(speed)
+        speed_lay.setContentsMargins(4, 4, 4, 4)
+        speed_lay.setSpacing(PAGE_SPACING)
+        speed_lay.addWidget(self.near_box)
+        speed_lay.addLayout(vel_blend)
+        speed_lay.addStretch(1)
+
+        manual = QWidget()
+        manual_lay = QVBoxLayout(manual)
+        manual_lay.setContentsMargins(4, 4, 4, 4)
+        manual_lay.setSpacing(PAGE_SPACING)
+        manual_lay.addLayout(grip_press)
+        manual_lay.addWidget(mock)
+        manual_lay.addStretch(1)
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(overview, "")
+        self.tabs.addTab(speed, "")
+        self.tabs.addTab(manual, "")
+        self._tab_ids = ("overview", "speed", "manual")
+        disable_tab_bar_wheel(self.tabs)
+        root.addWidget(self.tabs, 1)
+
         self._syncing_press_chk = False
         self._syncing_belt_chk = False
         self.vel_box = vel_box
@@ -690,8 +805,29 @@ class MonitorPage(QWidget):
         self.st_box = st_box
         self.mock_box = mock
         self.link_box = link_box
+        self.prod_box = prod_box
         apply_page_chrome(self)
         self._apply_static_i18n()
+
+    def select_tab(self, name: str) -> bool:
+        """按 id / 中文别名切换内部分页。"""
+        aliases = {
+            "overview": "overview",
+            "总览": "overview",
+            "speed": "speed",
+            "速度": "speed",
+            "速度平滑": "speed",
+            "manual": "manual",
+            "手动": "manual",
+            "手动IO": "manual",
+            "mock": "manual",
+        }
+        target = aliases.get(name, name)
+        for i, tab_id in enumerate(self._tab_ids):
+            if tab_id == target:
+                self.tabs.setCurrentIndex(i)
+                return True
+        return False
 
     def retranslate_ui(self) -> None:
         """语言切换后刷新静态文案并重刷动态状态。"""
@@ -706,6 +842,13 @@ class MonitorPage(QWidget):
 
     def _apply_static_i18n(self) -> None:
         t = i18n.tr
+        tab_keys = {
+            "overview": "monitor.tab.overview",
+            "speed": "monitor.tab.speed",
+            "manual": "monitor.tab.manual",
+        }
+        for i, tab_id in enumerate(self._tab_ids):
+            self.tabs.setTabText(i, t(tab_keys[tab_id]))
         self.btn_init.setText(t("monitor.btn.init"))
         self.btn_pause.setText(t("monitor.btn.pause"))
         self.btn_stop.setText(t("monitor.btn.stop"))
@@ -736,6 +879,16 @@ class MonitorPage(QWidget):
         if seq_idx >= 0:
             self.cmb_mon_seq.setCurrentIndex(seq_idx)
         self.cmb_mon_seq.blockSignals(False)
+        self.cmd_box.setTitle(t("monitor.run.title"))
+        self.near_box.setTitle(t("monitor.init.near_title"))
+        self.lbl_init_near_mm.setText(t("monitor.init.near_mm"))
+        self.lbl_init_near_deg.setText(t("monitor.init.near_deg"))
+        near_tip = t("monitor.init.near_tip")
+        self.lbl_init_near_mm.setToolTip(near_tip)
+        self.lbl_init_near_deg.setToolTip(near_tip)
+        self.sp_init_near_mm.setToolTip(near_tip)
+        self.sp_init_near_deg.setToolTip(near_tip)
+        self.prod_box.setTitle(t("monitor.prod.board"))
         self.link_box.setTitle(t("monitor.link.title"))
         self.vel_box.setTitle(t("monitor.vel.title"))
         self.blend_box.setTitle(t("monitor.blend.title"))
@@ -804,9 +957,40 @@ class MonitorPage(QWidget):
 
     def _on_init(self) -> None:
         err = self.coord.cmd_init()
-        if err:
+        # 已 raise_alarm 的拒绝（如不在初始位）由主窗报警弹窗提示，避免双弹窗
+        if err and not self.ctx.alarms.has_alarm:
             QMessageBox.warning(self, i18n.tr("monitor.msg.init_fail"), err)
         self._refresh_init_flag()
+
+    def _save_init_near(self) -> None:
+        """把初始化到位允许范围写入 yaml，立即对下次「初始化」生效。"""
+        motion = self.ctx.cfg.setdefault("motion", {})
+        if not isinstance(motion, dict):
+            motion = {}
+            self.ctx.cfg["motion"] = motion
+        motion["init_near_home_mm"] = float(self.sp_init_near_mm.value())
+        motion["init_near_home_deg"] = float(self.sp_init_near_deg.value())
+        try:
+            save_config(self.ctx.cfg)
+        except Exception as e:
+            QMessageBox.warning(self, i18n.tr("monitor.run.title"), str(e))
+
+    def _sync_init_near_spins(self) -> None:
+        """设置页改过范围后，运行监控旋钮跟着 yaml 走（编辑中不抢焦点）。"""
+        if self.sp_init_near_mm.hasFocus() or self.sp_init_near_deg.hasFocus():
+            return
+        mm, deg = read_init_near_home_limits(self.ctx.cfg)
+        if (
+            abs(float(self.sp_init_near_mm.value()) - mm) < 0.05
+            and abs(float(self.sp_init_near_deg.value()) - deg) < 0.05
+        ):
+            return
+        self.sp_init_near_mm.blockSignals(True)
+        self.sp_init_near_deg.blockSignals(True)
+        self.sp_init_near_mm.setValue(mm)
+        self.sp_init_near_deg.setValue(deg)
+        self.sp_init_near_mm.blockSignals(False)
+        self.sp_init_near_deg.blockSignals(False)
 
     def _on_start(self) -> None:
         err = self.coord.cmd_start()
@@ -1423,28 +1607,42 @@ class MonitorPage(QWidget):
                 lb = QLabel()
                 n = len(self._link_labels)
                 self._link_labels[r["name"]] = lb
-                self._link_grid.addWidget(lb, n // 2, n % 2)
+                self._link_grid.addWidget(lb, n, 0)
             tip = f"{r['endpoint']}"
             if r.get("error"):
                 tip += f"\n{r['error']}"
             if r["mock"]:
-                text = f"{r['name']}\n{i18n.tr('monitor.link.mock')}"
-                css = "background:#5d6d7e;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
+                text = f"{r['name']}  ·  {i18n.tr('monitor.link.mock')}"
+                css = (
+                    "background:#5d6d7e;color:#fff;padding:8px 10px;border-radius:5px;"
+                    "font-weight:bold;font-size:13px;"
+                )
             elif r.get("opening"):
-                text = f"{r['name']}\n{i18n.tr('monitor.link.opening')}"
-                css = "background:#b9770e;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
+                text = f"{r['name']}  ·  {i18n.tr('monitor.link.opening')}"
+                css = (
+                    "background:#b9770e;color:#fff;padding:8px 10px;border-radius:5px;"
+                    "font-weight:bold;font-size:13px;"
+                )
             elif r["ok"]:
-                text = f"{r['name']}\n{i18n.tr('monitor.link.ok')}"
-                css = "background:#1a7a37;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
+                text = f"{r['name']}  ·  {i18n.tr('monitor.link.ok')}"
+                css = (
+                    "background:#1a7a37;color:#fff;padding:8px 10px;border-radius:5px;"
+                    "font-weight:bold;font-size:13px;"
+                )
             else:
-                text = f"{r['name']}\n{r['status']}"
-                css = "background:#c0392b;color:#fff;padding:6px 8px;border-radius:5px;font-weight:bold;"
+                text = f"{r['name']}  ·  {r['status']}"
+                css = (
+                    "background:#c0392b;color:#fff;padding:8px 10px;border-radius:5px;"
+                    "font-weight:bold;font-size:13px;"
+                )
             lb.setText(text)
             lb.setToolTip(tip)
             lb.setStyleSheet(css)
-            lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lb.setWordWrap(True)
-            lb.setMinimumHeight(48)
+            lb.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+            lb.setWordWrap(False)
+            lb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            lb.setMinimumHeight(40)
+            lb.setMaximumHeight(48)
         if missing:
             names = "、".join(f"{r['name']}({r['endpoint']})" for r in missing)
             self.lbl_link_warn.setText(i18n.tr("monitor.link.warn", names=names))
@@ -1575,6 +1773,7 @@ class MonitorPage(QWidget):
         if not self.isVisible():
             return
         self.refresh_fast()
+        self._sync_init_near_spins()
         snap = self.ctx.machine.snapshot()
         init_tag = (
             i18n.tr("monitor.state.init_ok")

@@ -30,7 +30,7 @@ from core.blackbox import (
 from core.coordinator import Coordinator
 from hmi import i18n
 from hmi.alarm_dialog import format_alarm_text, show_copyable_alarm
-from hmi.style import style_button
+from hmi.style import apply_page_chrome, style_button
 from hmi.pages.vision_snap_page import VisionSnapPage
 
 # 触摸屏一页条数（约一屏，避免一次刷几百条）
@@ -165,6 +165,7 @@ class AlarmPage(QWidget):
         self._status_until = 0.0
         self._disk_at = 0.0
         root = QVBoxLayout(self)
+        apply_page_chrome(self)
 
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)

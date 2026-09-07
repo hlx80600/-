@@ -71,6 +71,11 @@ class LiveGrabber:
             return
         self.vision.last_raw[cid] = copy_bgr(img)
         self.vision.last_raw_ts[cid] = time.time()
+        dv = getattr(cam, "last_depth_vis", None)
+        if dv is not None and bool(getattr(cam, "enable_depth", True)):
+            self.vision.last_depth_vis[cid] = copy_bgr(dv)
+        else:
+            self.vision.last_depth_vis.pop(cid, None)
 
     def _loop(self) -> None:
         """读相机后台流缓存，不抢 grab 锁；尽量跟满相机帧率。"""
@@ -79,4 +84,4 @@ class LiveGrabber:
                 if self._stop.is_set() or not self._enabled:
                     break
                 self._adopt_last_color(cid)
-            time.sleep(0.001)
+            time.sleep(0.05)

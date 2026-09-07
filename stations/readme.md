@@ -8,7 +8,7 @@
 
 | 文件 | 工位 | 职责 |
 |------|------|------|
-| `init_sequence.py` | 初始化 | 上电复位、回零、夹爪/压机就绪 |
+| `init_sequence.py` | 初始化 | 上电前检查双臂是否在 home 附近，再复位、回零、夹爪/压机就绪 |
 | `station1_belt_photo.py` | Station1 | 皮带 YOLO 取料位 |
 | `station2_robot1.py` | Station2 | 上料臂取鞋 → 放槽 |
 | `station3_place_slot_photo.py` | Station3 | 放槽后拍照（可选） |

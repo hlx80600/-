@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QLabel, QWidget
 _BADGE = Path(__file__).resolve().parent / "assets" / "rsdt_badge.png"
 
 # 侧栏要够大，环上 R.S.D.T 才能看清；工具条/启动窗略小
-NAV_PX = 140
+NAV_PX = 100
 BAR_PX = 64
 SPLASH_PX = 100
 LOAD_PX = 88
@@ -58,7 +58,8 @@ class LogoLabel(QLabel):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("rsdtLogo")
-        self._side = max(24, int(side))
+        self._design_side = max(24, int(side))
+        self._side = self._design_side
         self._scaled: QPixmap | None = None
         self._scaled_key: tuple[int, float] = (0, 0.0)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -70,6 +71,22 @@ class LogoLabel(QLabel):
         src = source_pixmap()
         if src.isNull():
             self.hide()
+
+    def set_side(self, side: int) -> None:
+        """按界面比例改徽章边长；从原图重新取样，避免发糊。"""
+        nxt = max(24, int(side))
+        if nxt == self._side:
+            return
+        self._side = nxt
+        self._scaled = None
+        self.setFixedSize(nxt, nxt)
+        self.update()
+
+    def apply_ui_scale(self) -> None:
+        """按当前窗口比例缩放徽章，从原图重取样。"""
+        from hmi import ui_scale
+
+        self.set_side(ui_scale.px(self._design_side, min_v=24))
 
     def sizeHint(self) -> QSize:
         return QSize(self._side, self._side)

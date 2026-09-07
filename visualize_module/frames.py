@@ -6,6 +6,7 @@ from typing import Any, Sequence
 
 from vision.numpy_compat import np
 from vision.roi import load_roi
+from vision.draw_overlay import draw_hud_lines
 
 try:
     import cv2  # type: ignore
@@ -42,7 +43,7 @@ def draw_roi(img: Any, cam_id: str) -> Any:
     if w < 4 or h < 4:
         return img
     vis = img
-    cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 220, 80), 2)
+    cv2.rectangle(vis, (x, y), (x + w, y + h), (0, 220, 80), 1, lineType=cv2.LINE_AA)
     return vis
 
 
@@ -64,21 +65,11 @@ def annotate_bgr(
         vis = img.copy()
     if cam_id:
         vis = draw_roi(vis, cam_id)
-    color = (40, 200, 40) if ok else (40, 40, 230)
-    y0 = 28
     header = " ".join(p for p in (cam_id.upper(), kind) if p)
     texts = [header] if header else []
     texts.extend(str(x) for x in lines if x)
-    for i, line in enumerate(texts[:8]):
-        cv2.putText(
-            vis,
-            line[:72],
-            (12, y0 + i * 26),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.72,
-            color,
-            2,
-        )
+    if texts:
+        draw_hud_lines(vis, texts[:6], ok=ok)
     return vis
 
 

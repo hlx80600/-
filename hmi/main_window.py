@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QCloseEvent, QGuiApplication, QShowEvent
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QResizeEvent, QShowEvent
 from PySide6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from core.coordinator import Coordinator
 from hmi import i18n
+from hmi import ui_scale
 from hmi.i18n import fonts as i18n_fonts
 from hmi.alarm_dialog import show_copyable_alarm
 from hmi.load_progress import run_with_progress
@@ -29,15 +30,20 @@ from hmi.pages.monitor_page import MonitorPage
 from hmi.scroll_util import MONITOR_WHEEL_SCALE, harden_wheel, wrap_in_scroll
 from hmi.clock_label import ClockLabel
 from hmi.logo_label import NAV_PX, LogoLabel, apply_window_icon
-from hmi.style import style_button
+from hmi.style import apply_page_chrome, chrome_qss, restyle_role_buttons, style_button
 from hmi.tab_titles import T, nav_title
 
 
-_APP_QSS_BASE = """
-QMainWindow, QWidget {{
+def _build_app_qss(font_family: str) -> str:
+    ff = font_family.replace("\\", "\\\\").replace('"', '\\"')
+    px = ui_scale.px
+    fpx = ui_scale.font_px
+    return f"""
+QMainWindow {{
     background: #eef1f4;
     color: #1c2833;
     font-family: "{ff}";
+    font-size: {fpx(14)}px;
 }}
 QPushButton, QLabel, QCheckBox, QRadioButton, QGroupBox, QTabWidget, QTabBar,
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QTextEdit, QPlainTextEdit,
@@ -49,16 +55,16 @@ QListWidget#navList {{
     color: #ecf0f1;
     border: none;
     outline: none;
-    font-size: 14px;
+    font-size: {fpx(14, min_v=13)}px;
     font-weight: bold;
     font-family: "{ff}";
-    padding: 6px 0;
+    padding: {px(6)}px 0;
 }}
 QListWidget#navList::item {{
-    padding: 12px 14px;
-    margin: 2px 6px;
-    border-radius: 5px;
-    min-height: 22px;
+    padding: {px(10)}px {px(12)}px;
+    margin: {px(2)}px {px(8)}px;
+    border-radius: {px(5)}px;
+    min-height: {px(20, min_v=18)}px;
 }}
 QListWidget#navList::item:selected {{
     background: #f7f9fb;
@@ -74,48 +80,58 @@ QWidget#navLogoWrap {{
 QLabel#navTitle {{
     background: #154360;
     color: #ffffff;
-    font-size: 15px;
+    font-size: {fpx(15, min_v=13)}px;
     font-weight: bold;
     font-family: "{ff}";
-    padding: 12px 10px;
+    padding: {px(12)}px {px(10)}px;
 }}
 QFrame#contentFrame, QWidget#contentHost {{
     background: #f7f9fb;
     border: 1px solid #c5d0dc;
-    border-radius: 6px;
+    border-radius: {px(6)}px;
 }}
 QScrollBar:vertical {{
-    width: 14px;
+    width: {px(14, min_v=12)}px;
     background: #e8eef3;
     margin: 0;
 }}
 QScrollBar::handle:vertical {{
     background: #7f8c8d;
-    min-height: 40px;
-    border-radius: 6px;
+    min-height: {px(40, min_v=32)}px;
+    border-radius: {px(6)}px;
 }}
 QScrollBar::handle:vertical:hover {{
     background: #5d6d7e;
 }}
 QScrollBar:horizontal {{
-    height: 14px;
+    height: {px(14, min_v=12)}px;
     background: #e8eef3;
 }}
 QScrollBar::handle:horizontal {{
     background: #7f8c8d;
-    min-width: 40px;
-    border-radius: 6px;
+    min-width: {px(40, min_v=32)}px;
+    border-radius: {px(6)}px;
 }}
 QStatusBar {{
     background: #dce3ea;
     font-family: "{ff}";
 }}
-"""
-
-
-def _build_app_qss(font_family: str) -> str:
-    ff = font_family.replace("\\", "\\\\").replace('"', '\\"')
-    return _APP_QSS_BASE.format(ff=ff)
+QWidget#pageHeader {{
+    background: #e8eef3;
+    border: 1px solid #c5d0dc;
+    border-radius: {px(6)}px;
+}}
+QLabel#pageTitle {{
+    font-size: {fpx(17, min_v=14)}px;
+    font-weight: bold;
+    color: #1a5276;
+    padding: 0 {px(8)}px;
+}}
+QLabel#clockLabel {{
+    font-size: {fpx(14, min_v=12)}px;
+    font-weight: bold;
+}}
+""" + chrome_qss()
 
 
 def _create_page(title: str, coord: Coordinator) -> QWidget:
@@ -164,6 +180,10 @@ def _create_page(title: str, coord: Coordinator) -> QWidget:
         from hmi.pages.settings_hub_page import SettingsHubPage
 
         return SettingsHubPage(coord)
+    if title == T.HOST_DEVICES:
+        from hmi.pages.host_devices_page import HostDevicesPage
+
+        return HostDevicesPage(coord)
     if title == T.CONFIG:
         from hmi.pages.settings_hub_page import SettingsHubPage
 
@@ -182,12 +202,13 @@ def _create_page(title: str, coord: Coordinator) -> QWidget:
 
 
 # (标题, 是否包滚动层, 滚轮倍率或 None)
+# 总览内部分页；仍包轻量滚动，避免矮屏把控件压扁叠字
 _NAV_SPEC: list[tuple[str, bool, float | None]] = [
     (T.MONITOR, True, MONITOR_WHEEL_SCALE),
     (T.PRODUCTION, True, None),
     (T.STEP_DEBUG, True, None),
     (T.MOTION, True, None),
-    (T.VISION, True, None),
+    (T.VISION, False, None),
     (T.POINTS, True, None),
     (T.SHIELD_PICK, True, None),
     (T.DRY_RUN, True, None),
@@ -195,6 +216,7 @@ _NAV_SPEC: list[tuple[str, bool, float | None]] = [
     (T.PRESS_IO, True, None),
     (T.GRIPPER, True, None),
     (T.SETTINGS, True, None),
+    (T.HOST_DEVICES, True, None),
     (T.ALARM, True, None),
     (T.HELP, False, None),
 ]
@@ -224,7 +246,8 @@ class MainWindow(QMainWindow):
 
         # —— 左侧导航 ——
         nav_wrap = QWidget()
-        nav_wrap.setFixedWidth(168)
+        self._nav_wrap = nav_wrap
+        nav_wrap.setFixedWidth(ui_scale.px(176, min_v=148))
         nav_lay = QVBoxLayout(nav_wrap)
         nav_lay.setContentsMargins(0, 0, 0, 0)
         nav_lay.setSpacing(0)
@@ -255,9 +278,14 @@ class MainWindow(QMainWindow):
         self.stack.setObjectName("contentHost")
         for idx, (title, wrap, wheel) in enumerate(_NAV_SPEC):
             if idx == 0:
-                self.stack.addWidget(
-                    wrap_in_scroll(self.monitor, wheel_scale=wheel or MONITOR_WHEEL_SCALE)
-                )
+                if wrap:
+                    self.stack.addWidget(
+                        wrap_in_scroll(
+                            self.monitor, wheel_scale=wheel or MONITOR_WHEEL_SCALE
+                        )
+                    )
+                else:
+                    self.stack.addWidget(self.monitor)
             else:
                 ph = QWidget()
                 ph.setProperty("_lazy_placeholder", True)
@@ -268,8 +296,17 @@ class MainWindow(QMainWindow):
 
         right = QWidget()
         right_lay = QVBoxLayout(right)
-        right_lay.setContentsMargins(6, 6, 6, 6)
-        cam_bar = QHBoxLayout()
+        right_lay.setContentsMargins(
+            ui_scale.px(8), ui_scale.px(8), ui_scale.px(8), ui_scale.px(8)
+        )
+        right_lay.setSpacing(ui_scale.px(8))
+        header = QWidget()
+        header.setObjectName("pageHeader")
+        cam_bar = QHBoxLayout(header)
+        cam_bar.setContentsMargins(
+            ui_scale.px(10), ui_scale.px(6), ui_scale.px(12), ui_scale.px(6)
+        )
+        cam_bar.setSpacing(ui_scale.px(10))
         self.btn_cam_win = QPushButton()
         self.btn_cam_win.setToolTip("")
         style_button(self.btn_cam_win, "motion")
@@ -281,14 +318,16 @@ class MainWindow(QMainWindow):
         self.btn_jog_win.clicked.connect(lambda: self.show_jog_pendant())
         cam_bar.addWidget(self.btn_jog_win, 0)
         self.lbl_page = QLabel()
-        self.lbl_page.setStyleSheet("font-size:16px;font-weight:bold;color:#1a5276;")
+        self.lbl_page.setObjectName("pageTitle")
         cam_bar.addWidget(self.lbl_page, 0)
         cam_bar.addStretch(1)
         self.lbl_clock = ClockLabel()
         cam_bar.addWidget(self.lbl_clock, 0)
-        right_lay.addLayout(cam_bar)
+        right_lay.addWidget(header, 0)
         right_lay.addWidget(self.stack, 1)
         self._content_host = right
+        self._right_lay = right_lay
+        self._header_lay = cam_bar
 
         wrap = QWidget()
         lay = QHBoxLayout(wrap)
@@ -321,7 +360,7 @@ class MainWindow(QMainWindow):
 
         hmi_cfg = (self.ctx.cfg.get("system") or {}).get("hmi") or {}
         self._fast_ms_active = max(16, int(hmi_cfg.get("refresh_fast_ms", 33)))
-        self._slow_ms_active = max(50, int(hmi_cfg.get("refresh_slow_ms", 100)))
+        self._slow_ms_active = max(50, int(hmi_cfg.get("refresh_slow_ms", 200)))
         self._inactive_ms = max(100, int(hmi_cfg.get("refresh_inactive_ms", 250)))
         self._app_active = True
 
@@ -353,7 +392,69 @@ class MainWindow(QMainWindow):
 
         self._last_popup_code = None
         self._fitted = False
+        self._scale_timer = QTimer(self)
+        self._scale_timer.setSingleShot(True)
+        self._scale_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._scale_timer.setInterval(90)
+        self._scale_timer.timeout.connect(self._apply_ui_scale)
         self.resize(1100, 720)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        if getattr(self, "_scale_timer", None) is not None:
+            self._scale_timer.start()
+
+    def _apply_ui_scale(self, *, force: bool = False) -> None:
+        """按窗口大小等比缩放间距与字号（矢量字体，有下限）。"""
+        nxt = ui_scale.compute(self.width(), self.height())
+        if not force and not ui_scale.set_scale(nxt):
+            return
+        if force:
+            ui_scale.set_scale(nxt)
+        font, family = i18n.apply_ui_font()
+        self.setStyleSheet(_build_app_qss(family))
+        i18n_fonts.apply_font_to_widget(self, font)
+        self._nav_wrap.setFixedWidth(ui_scale.px(176, min_v=148))
+        for logo in self.findChildren(LogoLabel):
+            logo.apply_ui_scale()
+        self._right_lay.setContentsMargins(
+            ui_scale.px(8), ui_scale.px(8), ui_scale.px(8), ui_scale.px(8)
+        )
+        self._right_lay.setSpacing(ui_scale.px(8))
+        self._header_lay.setContentsMargins(
+            ui_scale.px(10), ui_scale.px(6), ui_scale.px(12), ui_scale.px(6)
+        )
+        self._header_lay.setSpacing(ui_scale.px(10))
+        restyle_role_buttons(self)
+        for w in self.findChildren(QWidget):
+            ss = w.styleSheet() or ""
+            if "/*hmi-page-chrome*/" in ss:
+                try:
+                    apply_page_chrome(w)
+                except Exception:
+                    pass
+        cam = getattr(self, "_cam_win", None)
+        if cam is not None:
+            cam.setStyleSheet(
+                "QMainWindow { background: #eef1f4; color: #1c2833; }\n" + chrome_qss()
+            )
+            restyle_role_buttons(cam)
+            for logo in cam.findChildren(LogoLabel):
+                logo.apply_ui_scale()
+            page = getattr(cam, "page", None)
+            if page is not None:
+                try:
+                    apply_page_chrome(page)
+                except Exception:
+                    pass
+                i18n_fonts.apply_font_to_widget(cam, font)
+                for w in page.findChildren(QWidget):
+                    ss = w.styleSheet() or ""
+                    if "/*hmi-page-chrome*/" in ss:
+                        try:
+                            apply_page_chrome(w)
+                        except Exception:
+                            pass
 
     def _load_page_if_needed(self, idx: int) -> None:
         if idx in self._loaded_indices:
@@ -421,6 +522,9 @@ class MainWindow(QMainWindow):
             self.cam_monitor = win.page
             font, _ = i18n.apply_ui_font()
             i18n_fonts.apply_font_to_widget(self._cam_win, font)
+            self._cam_win.setStyleSheet(
+                "QMainWindow { background: #eef1f4; color: #1c2833; }\n" + chrome_qss()
+            )
             return win
 
         return run_load_task(
@@ -505,7 +609,7 @@ class MainWindow(QMainWindow):
         """设置页保存后更新定时器间隔。"""
         hmi_cfg = (self.ctx.cfg.get("system") or {}).get("hmi") or {}
         self._fast_ms_active = max(16, int(hmi_cfg.get("refresh_fast_ms", 33)))
-        self._slow_ms_active = max(50, int(hmi_cfg.get("refresh_slow_ms", 100)))
+        self._slow_ms_active = max(50, int(hmi_cfg.get("refresh_slow_ms", 200)))
         self._inactive_ms = max(100, int(hmi_cfg.get("refresh_inactive_ms", 250)))
         if not self._timers_started:
             return
@@ -627,6 +731,7 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if not self._fitted:
             self._fit_to_screen()
+            self._apply_ui_scale(force=True)
         if not self._timers_started:
             self._timers_started = True
             self._fast_timer.start()
@@ -690,6 +795,8 @@ class MainWindow(QMainWindow):
             return False
         if raw in (T.VISION, T.VISION_SETUP, "视觉采图", "视觉调试", "vision", "vision_setup"):
             nav_id = T.VISION
+        elif raw in (T.MONITOR, "运行监控", "总览", "monitor", "overview"):
+            nav_id = T.MONITOR
         elif raw in (T.CONFIG, "通信配置", "config", "communication"):
             nav_id = T.SETTINGS
             settings_tab = vision_tab or "communication"
@@ -704,6 +811,18 @@ class MainWindow(QMainWindow):
             return False
         elif raw == T.SETTINGS or raw in ("设置", "settings"):
             nav_id = T.SETTINGS
+        elif raw in (
+            T.HOST_DEVICES,
+            "本机设备",
+            "usb",
+            "USB",
+            "ip",
+            "IP",
+            "host",
+            "host_devices",
+            "网络",
+        ):
+            nav_id = T.HOST_DEVICES
         else:
             for nid in self._nav_ids:
                 if raw == nid or raw == nav_title(nid):
@@ -722,6 +841,11 @@ class MainWindow(QMainWindow):
                         fn(tab)
                 elif tab and nav_id == T.SETTINGS:
                     page = self._page_cache.get(T.SETTINGS)
+                    fn = getattr(page, "select_tab", None) if page is not None else None
+                    if callable(fn):
+                        fn(tab)
+                elif tab and nav_id == T.MONITOR:
+                    page = self._page_cache.get(T.MONITOR)
                     fn = getattr(page, "select_tab", None) if page is not None else None
                     if callable(fn):
                         fn(tab)

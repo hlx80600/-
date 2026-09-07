@@ -35,6 +35,8 @@ def hardware_line(cam: Any, cid: str) -> str:
     else:
         link = "真机未打开"
     err = (getattr(cam, "last_error", "") or "").strip()
+    if mock and err.startswith("正在"):
+        err = ""
     err_s = f" | {err}" if err else ""
     return (
         f"{CAM_TITLES.get(cid, cid)} | {link} | serial={cam.serial or '（空）'} "

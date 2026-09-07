@@ -37,6 +37,7 @@
 | `pages/jog_pendant.py` | 独立示教器窗口（点动封装） |
 | `pages/step_debug_page.py` | 运动步调试 |
 | `pages/config_page.py` | 通信与设备 |
+| `pages/host_devices_page.py` | 本机 USB / 网卡 IP（对照通信配置） |
 | `pages/settings_*` | 设置（语言、界面） |
 | `pages/alarm_page.py` | 报警记录（本次运行 / 落盘错误 / 黑匣子 / 运行快照） |
 

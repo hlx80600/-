@@ -69,10 +69,12 @@ def _img_loop() -> None:
         job = _img_q.get() if _img_q is not None else None
         if job is None:
             return
-        shot_dir, raw, vis, raw_name, vis_name = job
+        shot_dir, raw, vis, raw_name, vis_name, depth, depth_name = job
         try:
             _write_jpg(shot_dir / str(raw_name), raw)
             _write_jpg(shot_dir / str(vis_name), vis)
+            if depth_name:
+                _write_jpg(shot_dir / str(depth_name), depth)
         except Exception as e:
             log.warning("[视觉快照] 写图失败 %s: %s", shot_dir, e)
 
@@ -173,14 +175,14 @@ def _file_token(text: str, fallback: str) -> str:
     return cleaned.strip("_") or fallback
 
 
-def jpg_names(cam_id: str, kind: str, when: datetime) -> tuple[str, str]:
-    """原图/叠图文件名：相机_日期时刻毫秒_类型_raw/vis.jpg。"""
+def jpg_names(cam_id: str, kind: str, when: datetime) -> tuple[str, str, str]:
+    """原图/叠图/深度文件名：相机_日期时刻毫秒_类型_raw/vis/depth.jpg。"""
     base = (
         f"{_file_token(cam_id, 'cam')}_"
         f"{when.strftime('%Y%m%d_%H%M%S_%f')[:-3]}_"
         f"{_file_token(kind, 'shot')}"
     )
-    return f"{base}_raw.jpg", f"{base}_vis.jpg"
+    return f"{base}_raw.jpg", f"{base}_vis.jpg", f"{base}_depth.jpg"
 
 
 def save_vision_shot(
@@ -193,15 +195,21 @@ def save_vision_shot(
     vis: Any = None,
     extra: Optional[dict[str, Any]] = None,
     keep_days_n: int = _KEEP_DAYS_DEFAULT,
+    depth: Any = None,
 ) -> str:
     """拍照当时落盘。返回 snap_id；运送结果稍后用 record_transport 回写。"""
     now = datetime.now()
     cam = _file_token(cam_id, "cam")
     kind_tok = _file_token(kind, "shot")
     snap_id = f"{now.strftime('%Y%m%d_%H%M%S_%f')[:-3]}_{cam}_{kind_tok}"
-    raw_name, vis_name = jpg_names(cam_id, kind, now)
+    raw_name, vis_name, depth_name = jpg_names(cam_id, kind, now)
     shot_dir = SNAP_ROOT / now.strftime("%Y-%m-%d") / snap_id
     shot_dir.mkdir(parents=True, exist_ok=True)
+    files: dict[str, str] = {"raw": raw_name, "vis": vis_name}
+    if depth is not None:
+        files["depth"] = depth_name
+    else:
+        depth_name = ""
     meta: dict[str, Any] = {
         "id": snap_id,
         "ts": now.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
@@ -211,7 +219,7 @@ def save_vision_shot(
         "message": str(message or ""),
         "vision": dict(extra or {}),
         "transport": {},
-        "files": {"raw": raw_name, "vis": vis_name},
+        "files": files,
     }
     _write_json(shot_dir / "meta.json", meta)
     _append_index(
@@ -233,14 +241,14 @@ def save_vision_shot(
     _ensure_worker()
     if _img_q is not None:
         try:
-            _img_q.put_nowait((shot_dir, raw, vis, raw_name, vis_name))
+            _img_q.put_nowait((shot_dir, raw, vis, raw_name, vis_name, depth, depth_name))
         except Full:
             try:
                 _img_q.get_nowait()
             except Exception:
                 pass
             try:
-                _img_q.put_nowait((shot_dir, raw, vis, raw_name, vis_name))
+                _img_q.put_nowait((shot_dir, raw, vis, raw_name, vis_name, depth, depth_name))
             except Full:
                 log.warning("[视觉快照] 写图队列满，跳过图像 id=%s", snap_id)
     if do_prune:
@@ -406,6 +414,21 @@ def snap_image_paths(meta: dict[str, Any]) -> tuple[Path | None, Path | None]:
     return raw_path, vis_path
 
 
+def snap_depth_path(meta: dict[str, Any]) -> Path | None:
+    """解析深度伪彩路径；旧快照没有则返回 None。"""
+    shot = Path(str(meta.get("_dir") or ""))
+    if not shot.is_dir():
+        return None
+    files = meta.get("files") if isinstance(meta.get("files"), dict) else {}
+    name = str(files.get("depth") or "")
+    if name:
+        path = shot / name
+        if path.is_file():
+            return path
+    found = sorted(shot.glob("*_depth.jpg"))
+    return found[0] if found else None
+
+
 def list_snap_records(
     *,
     cam_id: str = "",
@@ -546,6 +569,7 @@ def format_snap_detail(meta: dict[str, Any]) -> str:
     files = meta.get("files") if isinstance(meta.get("files"), dict) else {}
     raw_name = str(files.get("raw") or "raw.jpg")
     vis_name = str(files.get("vis") or "vis.jpg")
+    depth_name = str(files.get("depth") or "")
     lines = [
         f"时间: {meta.get('ts') or '-'}",
         f"编号: {meta.get('id') or '-'}",
@@ -556,6 +580,7 @@ def format_snap_detail(meta: dict[str, Any]) -> str:
         f"目录: {meta.get('_dir') or '-'}",
         f"原图文件: {raw_name}",
         f"叠图文件: {vis_name}",
+        f"深度文件: {depth_name or '（无）'}",
         "",
         "—— 检测数据 ——",
     ]

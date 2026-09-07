@@ -401,7 +401,10 @@ class Coordinator:
         self.ctx.raise_link_failures_if_needed()
 
     def cmd_init(self) -> Optional[str]:
-        """返回拒绝原因（None=已开始初始化）。"""
+        """返回拒绝原因（None=已开始初始化）。
+
+        真机须先在示教 home 附近，否则 raise INIT_HOME 并不启动回零。
+        """
         self.ctx.link_alarm_armed = True
         if self.ctx.machine.state == MachineState.ESTOP:
             return "急停中，请先急停复位"
@@ -411,6 +414,11 @@ class Coordinator:
         if err:
             self.ctx.raise_link_failures_if_needed()
             return err
+        near_err = init_sequence.check_both_near_home(self.ctx)
+        if near_err:
+            log.warning("初始化拒绝（不在初始位）: %s", near_err.replace("\n", " | "))
+            self.ctx.raise_alarm("INIT_HOME", near_err, "Init", 0)
+            return near_err
         init_sequence.start_init(self.ctx)
         return None
 

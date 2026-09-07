@@ -39,7 +39,7 @@ from devices.pose_utils import (
     resolve_via_point_key,
     validate_via_name,
 )
-from hmi.style import apply_page_chrome, style_button, style_many
+from hmi.style import apply_page_chrome, hbox_pair, style_button, style_many
 
 _POINT_HOLD_MS = 200
 
@@ -52,8 +52,9 @@ class NoWheelSpinBox(QDoubleSpinBox):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.UpDownArrows)
         self.setStyleSheet(
-            "QDoubleSpinBox{padding:4px 8px;min-height:30px;font-size:13px;}"
-            "QDoubleSpinBox::up-button,QDoubleSpinBox::down-button{width:24px;}"
+            "QDoubleSpinBox{padding-top:2px;padding-bottom:2px;padding-left:8px;"
+            "padding-right:2px;min-height:32px;font-size:13px;}"
+            "QDoubleSpinBox::up-button,QDoubleSpinBox::down-button{width:22px;}"
         )
 
     def wheelEvent(self, event) -> None:
@@ -67,7 +68,10 @@ class NoWheelComboBox(QComboBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setStyleSheet("QComboBox{padding:4px 8px;min-height:30px;}")
+        self.setStyleSheet(
+            "QComboBox{padding-top:2px;padding-bottom:2px;padding-left:8px;"
+            "padding-right:4px;min-height:32px;}"
+        )
 
     def wheelEvent(self, event) -> None:
         event.ignore()
@@ -185,7 +189,8 @@ class PointsPage(QWidget):
         self.lbl_key.setStyleSheet("color:#666;")
         root.addWidget(self.lbl_key)
 
-        form = QFormLayout()
+        box_cart = QGroupBox("笛卡尔 TCP / 备注")
+        form = QFormLayout(box_cart)
         self.ed_name = QLineEdit()
         self.ed_name.setPlaceholderText("中文备注，建议带【上料R1】或【下料R2】前缀")
         form.addRow("中文备注", self.ed_name)
@@ -219,17 +224,21 @@ class PointsPage(QWidget):
             self.spins[k] = sp
             form.addRow(k.upper(), sp)
             sp.valueChanged.connect(self._on_spin_changed)
+
+        box_jnt = QGroupBox("关节角（MoveJ）")
+        fj = QFormLayout(box_jnt)
         self.lbl_joint_hint = QLabel("关节角（MoveJ 必填，单位 °；滚轮已禁用，请点右侧箭头或键盘输入）")
         self.lbl_joint_hint.setStyleSheet("color:#a04000;font-weight:bold;")
-        form.addRow(self.lbl_joint_hint)
+        self.lbl_joint_hint.setWordWrap(True)
+        fj.addRow(self.lbl_joint_hint)
         self.joint_spins = {}
         for k in JOINT_AXES:
             sp = NoWheelSpinBox()
             sp.setRange(-3600, 3600)
             sp.setDecimals(3)
             self.joint_spins[k] = sp
-            form.addRow(k.upper(), sp)
-        root.addLayout(form)
+            fj.addRow(k.upper(), sp)
+        root.addLayout(hbox_pair(box_cart, box_jnt, stretch_l=3, stretch_r=2))
 
         edit_row = QHBoxLayout()
         btn_save = QPushButton("保存当前点")
@@ -282,7 +291,6 @@ class PointsPage(QWidget):
             "background:#eaf2f8;border-radius:4px;"
         )
         bv.addWidget(self.lbl_undo)
-        root.addWidget(box_via)
         self._refresh_undo_label()
 
         box1 = QGroupBox("单点调试（按住才动，松开即停；只动当前标签页那台臂）")
@@ -329,7 +337,6 @@ class PointsPage(QWidget):
         mv.addWidget(self.btn_move_l)
         mv.addWidget(btn_stop)
         b1.addLayout(mv)
-        root.addWidget(box1)
 
         box_off = QGroupBox(
             "偏移量试跑（基点 + 偏移 = 实际目标；偏移不是绝对坐标，请用这里走点）"
@@ -360,7 +367,7 @@ class PointsPage(QWidget):
         off_btns.addWidget(btn_oj)
         off_btns.addWidget(btn_ol)
         bo.addLayout(off_btns)
-        root.addWidget(box_off)
+        root.addLayout(hbox_pair(box_via, box1))
 
         box2 = QGroupBox("路径试跑（仅本臂点位之间）")
         b2 = QVBoxLayout(box2)
@@ -381,7 +388,7 @@ class PointsPage(QWidget):
         path_btns.addWidget(btn_pj)
         path_btns.addWidget(btn_pl)
         b2.addLayout(path_btns)
-        root.addWidget(box2)
+        root.addLayout(hbox_pair(box_off, box2))
 
         self.lbl_dbg = QLabel("调试状态: 空闲")
         self.lbl_dbg.setWordWrap(True)

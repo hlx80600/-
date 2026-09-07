@@ -1,6 +1,9 @@
-from RSDT_Simple_Automation.automation_machine import automationMachine
-import numpy as np
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any, Protocol
+
+import numpy as np
 import yaml
 
 from position_obb import OBBOnlyDetector
@@ -12,13 +15,23 @@ from position_geometry import (
 from postion_slot_check import is_slot_position_good
 
 
+class AutomationMachine(Protocol):
+    """旧栈 ``automationMachine`` 的结构化接口。
+
+    本仓库不捆绑 ``RSDT_Simple_Automation``；调用方注入任意具备
+    ``hardwareModule.activate_orbbec_camera`` 的对象即可。
+    """
+
+    hardwareModule: Any
+
+
 DEFAULT_POSITION_CONFIG_PATH = Path(__file__).resolve().parent / "position_config.yaml"
 
 
 class Position:
     """封装压杆对位和卡鞋检测相关的视觉逻辑。"""
 
-    __rod_yolo4d: OBBOnlyDetector = None
+    __rod_yolo4d: OBBOnlyDetector | None = None
     __CONFIG_ATTRS = {
         "cam_left_sn",
         "cam_right_sn",
@@ -115,7 +128,7 @@ class Position:
 
     def __init_camera(
         self,
-        machine: automationMachine,
+        machine: AutomationMachine,
         alias: str,
         sn: str,
         side_name: str,
@@ -158,7 +171,7 @@ class Position:
 
     def __init__(
         self,
-        machine: automationMachine,
+        machine: AutomationMachine,
         artifact_save: bool | None = None,
         config_path: str | Path = DEFAULT_POSITION_CONFIG_PATH,
     ):

@@ -72,6 +72,7 @@ class VisionService:
         # 相机监控页：每路最近原图 / 计算结果
         self.last_raw: Dict[str, Any] = {}
         self.last_vis: Dict[str, Any] = {}
+        self.last_depth_vis: Dict[str, Any] = {}
         self.last_raw_ts: Dict[str, float] = {}
         self.last_vis_meta: Dict[str, Dict[str, Any]] = {}
 
@@ -82,25 +83,31 @@ class VisionService:
             return bool(cam.use_mock)
         return bool(self.use_mock)
 
+    def _cam_wants_depth(self, cam_id: str) -> bool:
+        """该路是否应输出深度图（cameras.*.enable_depth）。"""
+        cam = self.cameras.get(cam_id)
+        if cam is None:
+            return True
+        return bool(getattr(cam, "enable_depth", True))
+
     def set_cam_mock(self, cam_key: str, mock: bool) -> None:
-        """运行中切换某相机 Mock。切真机后台打开，避免堵死 HMI。"""
+        """运行中切换 Mock。不 close 真机管道（pipeline.stop 会卡住整个界面）。"""
         cam = self.cameras.get(cam_key)
         if cam is None:
             return
         want = bool(mock)
-        if bool(cam.use_mock) == want and (want or cam.opened or cam.opening):
-            return
-        try:
-            cam.close()
-        except Exception:
-            pass
-        cam.use_mock = want
+        cam.apply_use_mock(want)
         if want:
-            cam.open()
-            log.info("[视觉] %s 已切模拟", cam_key)
-            return
-        cam.open_async()
-        log.info("[视觉] %s 切真机，后台连接 serial=%s index=%s", cam_key, cam.serial, cam.index)
+            log.info("[视觉] %s 已切模拟（真机管道保持，不 stop）", cam_key)
+        else:
+            log.info(
+                "[视觉] %s 切真机 serial=%s index=%s opened=%s hw=%s",
+                cam_key,
+                cam.serial,
+                cam.index,
+                cam.opened,
+                cam.has_hardware,
+            )
 
     def method(self) -> str:
         from vision.legacy_pipeline import vision_method
@@ -127,7 +134,22 @@ class VisionService:
             self.last_raw[cam_id] = copy_bgr(img)
             if fresh or cam_id not in self.last_raw_ts:
                 self.last_raw_ts[cam_id] = time.time()
+        if cam is not None:
+            self._cache_depth_vis(cam_id, cam)
         return img
+
+    def _cache_depth_vis(self, cam_id: str, cam: OrbbecCamera | None) -> None:
+        """把相机上的深度伪彩拷到监控缓存。"""
+        if cam is None:
+            return
+        if not bool(getattr(cam, "enable_depth", True)):
+            self.last_depth_vis.pop(cam_id, None)
+            return
+        dv = getattr(cam, "last_depth_vis", None)
+        if dv is None:
+            self.last_depth_vis.pop(cam_id, None)
+            return
+        self.last_depth_vis[cam_id] = copy_bgr(dv)
 
     def publish_vis(
         self,
@@ -162,6 +184,8 @@ class VisionService:
         if isinstance(extra, dict):
             meta.update(extra)
         self.last_vis_meta[cam_id] = meta
+        cam = self.cameras.get(cam_id)
+        self._cache_depth_vis(cam_id, cam)
 
     def _persist_shot(
         self,
@@ -188,6 +212,11 @@ class VisionService:
                 message=str(message or ""),
                 raw=self.last_raw.get(cam_id),
                 vis=self.last_vis.get(cam_id),
+                depth=(
+                    self.last_depth_vis.get(cam_id)
+                    if self._cam_wants_depth(cam_id)
+                    else None
+                ),
                 extra=extra,
                 keep_days_n=keep_days(self.cfg if isinstance(self.cfg, dict) else None),
             )

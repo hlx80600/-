@@ -19,7 +19,7 @@ from devices.gripper_can import create_gripper_from_config
 from devices.io_manager import IOManager
 from devices.press_modbus import PressMachine
 from devices.robot_fr5 import RobotFR5
-from core.camera_config import resolve_camera_color_res, resolve_camera_fps
+from core.camera_config import resolve_camera_color_res, resolve_camera_fps, resolve_enable_depth
 from vision.camera_orbbec import OrbbecCamera
 from vision.vision_service import VisionService
 
@@ -166,6 +166,7 @@ class AppContext:
                 fps=resolve_camera_fps(key, ccfg, self.cfg),
                 color_width=cw,
                 color_height=ch,
+                enable_depth=resolve_enable_depth(ccfg),
             )
         vis_cfg = self.cfg.get("vision", {})
         self.vision = VisionService(

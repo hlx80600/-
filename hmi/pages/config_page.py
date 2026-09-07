@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,10 +23,13 @@ from PySide6.QtWidgets import (
 )
 
 from core.app_context import device_use_mock
+from core.camera_config import resolve_enable_depth
 from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.gripper_bank import MAX_MOTORS, motor_cfg, normalize_grippers_cfg, write_motor
-from hmi.style import apply_page_chrome, style_button
+from hmi import i18n
+from hmi.scroll_util import disable_tab_bar_wheel
+from hmi.style import apply_page_chrome, hbox_pair, style_button
 
 
 def _spin_int(lo: int, hi: int, val: int, *, hex_mode: bool = False) -> QSpinBox:
@@ -59,6 +63,15 @@ class ConfigPage(QWidget):
 
         root = QVBoxLayout(self)
 
+        host_bar = QHBoxLayout()
+        self.btn_host = QPushButton("查看本机 USB / IP")
+        style_button(self.btn_host, "neutral")
+        self.btn_host.setToolTip("打开「本机设备」页，对照网卡地址和 USB 序列号")
+        self.btn_host.clicked.connect(self._goto_host_devices)
+        host_bar.addWidget(self.btn_host, 0)
+        host_bar.addStretch(1)
+        root.addLayout(host_bar)
+
         # —— 系统 ——
         box_sys = QGroupBox("系统")
         fs = QFormLayout(box_sys)
@@ -73,7 +86,6 @@ class ConfigPage(QWidget):
         fs.addRow("断线重连间隔 s", self.sp_recon)
         fs.addRow(self.chk_bypass)
         fs.addRow(self.chk_sys)
-        root.addWidget(box_sys)
 
         # —— 机器人 ——
         r1 = cfg["robots"]["robot1"]
@@ -105,7 +117,6 @@ class ConfigPage(QWidget):
         fr.addRow("下料 tool / user", self._pair(self.sp_r2_tool, self.sp_r2_user))
         fr.addRow("下料速度 %", self.sp_r2_vel)
         fr.addRow(self.chk_r2)
-        root.addWidget(box_r)
 
         # —— 夹爪：最多 99 路，先选数量再填地址 ——
         gcfg = normalize_grippers_cfg(cfg)
@@ -137,10 +148,21 @@ class ConfigPage(QWidget):
             ["序号", "名称", "CAN接口", "can_id(hex)", "type", "开/合速度", "模拟"]
         )
         self.tbl_motors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_motors.setMinimumHeight(180)
+        self.tbl_motors.setMinimumHeight(140)
         vg.addWidget(self.tbl_motors)
         self._rebuild_motor_table()
-        root.addWidget(box_g)
+
+        tab_robots = QWidget()
+        lay_robots = QVBoxLayout(tab_robots)
+        lay_robots.setContentsMargins(4, 4, 4, 4)
+        lay_robots.addLayout(hbox_pair(box_sys, box_r, stretch_l=1, stretch_r=2))
+        lay_robots.addStretch(1)
+
+        tab_grip = QWidget()
+        lay_grip = QVBoxLayout(tab_grip)
+        lay_grip.setContentsMargins(4, 4, 4, 4)
+        lay_grip.addWidget(box_g)
+        lay_grip.addStretch(1)
 
         # —— 压鞋机 ——
         press = cfg.get("press") or {}
@@ -168,7 +190,6 @@ class ConfigPage(QWidget):
         fp.addRow("Mock 压鞋完成延时 s", self.sp_mock_press_s)
         fp.addRow("Mock 旋转完成延时 s", self.sp_mock_rot_s)
         fp.addRow(self.chk_press)
-        root.addWidget(box_p)
 
         # —— IO ——
         io = cfg.get("io") or {}
@@ -184,13 +205,12 @@ class ConfigPage(QWidget):
         fio.addRow("急停 DI", self.sp_estop)
         fio.addRow("三色灯 DO 红/黄/绿", self._triple(self.sp_lt_r, self.sp_lt_y, self.sp_lt_g))
         fio.addRow(self.chk_io)
-        root.addWidget(box_io)
 
         # —— 相机 ——
         box_c = QGroupBox("相机（Orbbec：index / serial；空 serial 则用 index）")
         fc = QFormLayout(box_c)
         cams = cfg.get("cameras") or {}
-        self.cam_ed: dict[str, tuple[QLineEdit, QSpinBox, QCheckBox]] = {}
+        self.cam_ed: dict[str, tuple[QLineEdit, QSpinBox, QCheckBox, QCheckBox]] = {}
         cam_labels = {
             "cam1": "相机1 皮带上料",
             "cam2": "相机2 鞋头对位",
@@ -206,20 +226,39 @@ class ConfigPage(QWidget):
                 cb.setChecked(bool(self.ctx.cameras[key].use_mock))
             else:
                 cb.setChecked(device_use_mock(ccfg, sys_def))
+            cb_depth = QCheckBox("输出深度图")
+            cam_rt = self.ctx.cameras.get(key)
+            if cam_rt is not None:
+                cb_depth.setChecked(bool(getattr(cam_rt, "enable_depth", True)))
+            else:
+                cb_depth.setChecked(resolve_enable_depth(ccfg))
+            cb_depth.setToolTip("勾选后预览/监控/快照输出深度伪彩；无深度的 USB 相机请取消")
             row = QHBoxLayout()
             row.addWidget(QLabel("serial"))
             row.addWidget(ed_ser, 1)
             row.addWidget(QLabel("index"))
             row.addWidget(sp_idx)
             row.addWidget(cb)
+            row.addWidget(cb_depth)
             w = QWidget()
             w.setLayout(row)
             fc.addRow(title, w)
-            self.cam_ed[key] = (ed_ser, sp_idx, cb)
+            self.cam_ed[key] = (ed_ser, sp_idx, cb, cb_depth)
         self.chk_vision = QCheckBox("视觉算法兜底 vision.use_mock（相机未单独配置时）")
         self.chk_vision.setChecked(device_use_mock(cfg.get("vision", {}), sys_def))
         fc.addRow(self.chk_vision)
-        root.addWidget(box_c)
+
+        tab_press = QWidget()
+        lay_press = QVBoxLayout(tab_press)
+        lay_press.setContentsMargins(4, 4, 4, 4)
+        lay_press.addLayout(hbox_pair(box_p, box_io))
+        lay_press.addStretch(1)
+
+        tab_cam = QWidget()
+        lay_cam = QVBoxLayout(tab_cam)
+        lay_cam.setContentsMargins(4, 4, 4, 4)
+        lay_cam.addWidget(box_c)
+        lay_cam.addStretch(1)
 
         # —— 手机 Web ——
         mw = (cfg.get("system") or {}).get("mobile_web") or {}
@@ -234,8 +273,9 @@ class ConfigPage(QWidget):
         fm.addRow("host", self.ed_mw_host)
         fm.addRow("port", self.sp_mw_port)
         fm.addRow("token", self.ed_mw_token)
-        root.addWidget(box_m)
 
+        box_st = QGroupBox("当前运行态")
+        st_lay = QVBoxLayout(box_st)
         self.lbl_status = QLabel(
             "当前运行态："
             + self.ctx.mock_status_text()
@@ -243,7 +283,24 @@ class ConfigPage(QWidget):
             + self.ctx.connection_status_text()[0]
         )
         self.lbl_status.setWordWrap(True)
-        root.addWidget(self.lbl_status)
+        st_lay.addWidget(self.lbl_status)
+
+        tab_misc = QWidget()
+        lay_misc = QVBoxLayout(tab_misc)
+        lay_misc.setContentsMargins(4, 4, 4, 4)
+        lay_misc.addLayout(hbox_pair(box_m, box_st))
+        lay_misc.addStretch(1)
+
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.addTab(tab_robots, "系统/机器人")
+        self.tabs.addTab(tab_grip, "夹爪")
+        self.tabs.addTab(tab_press, "压机/IO")
+        self.tabs.addTab(tab_cam, "相机")
+        self.tabs.addTab(tab_misc, "手机/状态")
+        self._tab_ids = ("robots", "grippers", "press_io", "cameras", "misc")
+        disable_tab_bar_wheel(self.tabs)
+        root.addWidget(self.tabs, 1)
 
         btn_row = QHBoxLayout()
         btn = QPushButton("保存配置（写入 yaml 并尽量立刻生效）")
@@ -256,6 +313,26 @@ class ConfigPage(QWidget):
         btn_row.addWidget(btn_reload)
         root.addLayout(btn_row)
         apply_page_chrome(self)
+        self.retranslate_ui()
+
+    def retranslate_ui(self) -> None:
+        """通信内部分页标题（其余表单暂仍中文硬编码）。"""
+        titles = {
+            "robots": i18n.tr("config.tab.robots"),
+            "grippers": i18n.tr("config.tab.grippers"),
+            "press_io": i18n.tr("config.tab.press_io"),
+            "cameras": i18n.tr("config.tab.cameras"),
+            "misc": i18n.tr("config.tab.misc"),
+        }
+        for i, tab_id in enumerate(self._tab_ids):
+            self.tabs.setTabText(i, titles[tab_id])
+
+    def _goto_host_devices(self) -> None:
+        """切到「本机设备」页，对照 USB / IP。"""
+        w = self.window()
+        fn = getattr(w, "goto_page", None)
+        if callable(fn):
+            fn("host_devices")
 
     @staticmethod
     def _pair(a: QWidget, b: QWidget) -> QWidget:
@@ -441,15 +518,20 @@ class ConfigPage(QWidget):
 
         # 相机 / 视觉
         cfg.setdefault("vision", {})["use_mock"] = bool(self.chk_vision.isChecked())
-        for key, (ed_ser, sp_idx, cb) in self.cam_ed.items():
+        for key, (ed_ser, sp_idx, cb, cb_depth) in self.cam_ed.items():
             c = cfg.setdefault("cameras", {}).setdefault(key, {})
             c["serial"] = ed_ser.text().strip()
             c["index"] = int(sp_idx.value())
             c["use_mock"] = bool(cb.isChecked())
+            c["enable_depth"] = bool(cb_depth.isChecked())
             cam = self.ctx.cameras.get(key)
             if cam is not None:
                 cam.serial = str(c["serial"])
                 cam.index = int(c["index"])
+                cam.enable_depth = bool(c["enable_depth"])
+                if not cam.enable_depth:
+                    cam.last_depth = None
+                    cam.last_depth_vis = None
             self.ctx.vision.set_cam_mock(key, bool(cb.isChecked()))
 
         # —— 立刻应用到运行对象 ——
@@ -509,5 +591,6 @@ class ConfigPage(QWidget):
             "接口参数已写入 config/default.yaml，并已尽量应用到当前运行实例。\n"
             "夹爪：若改了「启用电机数量」，请重启程序以重建电机实例。\n"
             "相机改 serial 后后台连接，失败会弹「连接失败」报警，无需重启。\n"
+            "「输出深度图」刚勾上时，请到视觉页对该路点「重开相机」。\n"
             f"{self.ctx.mock_status_text()}",
         )

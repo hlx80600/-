@@ -19,6 +19,7 @@ class NavId:
     PRESS_IO = "press_io"
     GRIPPER = "gripper"
     SETTINGS = "settings"
+    HOST_DEVICES = "host_devices"
     ALARM = "alarm"
     HELP = "help"
     CAM_MONITOR = "cam_monitor"

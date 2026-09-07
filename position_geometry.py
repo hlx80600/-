@@ -7,6 +7,8 @@
 import cv2
 import numpy as np
 
+from vision.draw_overlay import put_text_outline
+
 
 def get_obb_center_x(obb_points):
     """返回四点 OBB 的中心 X 坐标。"""
@@ -54,50 +56,45 @@ def draw_reference_point_overlay(
     ref_x = max(0, min(img_w - 1, ref_x))
     ref_y = max(0, min(img_h - 1, ref_y))
 
-    cv2.circle(vis, shoe_center, 6, (0, 255, 255), thickness=-1)
-    cv2.putText(
+    cv2.circle(vis, shoe_center, 3, (0, 255, 255), thickness=-1, lineType=cv2.LINE_AA)
+    put_text_outline(
         vis,
-        "shoe_center",
-        (shoe_center[0] + 8, max(20, shoe_center[1] - 8)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        "shoe",
+        (shoe_center[0] + 6, max(14, shoe_center[1] - 6)),
         (0, 255, 255),
-        2,
-        lineType=cv2.LINE_AA,
+        scale=0.4,
+        thickness=1,
     )
 
-    cv2.circle(vis, (ref_x, ref_y), 6, (0, 0, 255), thickness=-1)
+    cv2.circle(vis, (ref_x, ref_y), 3, (0, 0, 255), thickness=-1, lineType=cv2.LINE_AA)
     cv2.drawMarker(
         vis,
         (ref_x, ref_y),
         (0, 0, 255),
         markerType=cv2.MARKER_CROSS,
-        markerSize=20,
-        thickness=2,
+        markerSize=12,
+        thickness=1,
+        line_type=cv2.LINE_AA,
     )
-    cv2.putText(
+    put_text_outline(
         vis,
-        f"ref_point({ref_x},{ref_y})",
-        (ref_x + 8, max(20, ref_y - 8)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        f"ref({ref_x},{ref_y})",
+        (ref_x + 6, max(14, ref_y - 6)),
         (0, 0, 255),
-        2,
-        lineType=cv2.LINE_AA,
+        scale=0.4,
+        thickness=1,
     )
 
     line_y = shoe_center[1]
-    cv2.line(vis, shoe_center, (ref_x, line_y), (255, 200, 0), 2, lineType=cv2.LINE_AA)
+    cv2.line(vis, shoe_center, (ref_x, line_y), (255, 200, 0), 1, lineType=cv2.LINE_AA)
     cv2.line(vis, (ref_x, 0), (ref_x, img_h - 1), (0, 0, 255), 1, lineType=cv2.LINE_AA)
-    cv2.putText(
+    put_text_outline(
         vis,
-        f"dx_px={ref_x - shoe_center[0]}",
-        (min(shoe_center[0], ref_x) + 8, max(25, line_y - 12)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
+        f"dx={ref_x - shoe_center[0]}",
+        (min(shoe_center[0], ref_x) + 6, max(16, line_y - 8)),
         (255, 200, 0),
-        2,
-        lineType=cv2.LINE_AA,
+        scale=0.4,
+        thickness=1,
     )
     return vis
 

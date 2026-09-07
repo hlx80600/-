@@ -7,6 +7,16 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 
+def resolve_enable_depth(ccfg: Dict[str, Any] | None, *, default: bool = True) -> bool:
+    """cameras.camN.enable_depth；缺省为 True（有深度的 Orbbec 默认出图）。"""
+    if not isinstance(ccfg, dict) or "enable_depth" not in ccfg:
+        return bool(default)
+    raw = ccfg.get("enable_depth")
+    if isinstance(raw, str):
+        return raw.strip().lower() not in ("0", "false", "no", "off")
+    return bool(raw)
+
+
 def resolve_camera_fps(key: str, ccfg: Dict[str, Any], cfg: Dict[str, Any]) -> int:
     raw = ccfg.get("fps")
     if raw is not None:
@@ -57,6 +67,6 @@ def preview_interval_ms(cfg: Dict[str, Any], fps: int, *, inactive: bool = False
     if inactive:
         cap = max(1, int(hmi.get("preview_inactive_fps", 5)))
     else:
-        cap = max(15, int(hmi.get("preview_max_fps", 60)))
-    use_fps = min(max(1, int(fps or 30)), cap)
-    return max(8, int(1000 / use_fps))
+        cap = max(4, int(hmi.get("preview_max_fps", 24)))
+    use_fps = min(max(1, int(fps or 8)), cap)
+    return max(40, int(1000 / use_fps))

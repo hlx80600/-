@@ -1,14 +1,16 @@
 """四路相机监控：独立窗口，可与调试页同时显示。
 
 可视化能力来自 visualize_module（取流 / 画框 / Qt 控件 / 实时推演）。
+- 原图 / 结果 / 深度：整窗切页，2×2 每格只铺一张图
 - 原图：后台 LiveGrabber 连续取流
 - 计算结果：LiveComputeLoop 用缓存帧推演（不抢 grab），忙则跳过
-- 「结果跟原图」：右侧用最新原图叠加上次推演文字，画面跟得上、不卡顿
+- 「结果跟原图」：结果页用最新原图叠上次推演文字，画面跟得上、不卡顿
 """
 
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
@@ -20,6 +22,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QPushButton,
+    QSizePolicy,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -28,8 +32,9 @@ from core.coordinator import Coordinator
 from core.camera_config import preview_interval_ms
 from hmi.clock_label import ClockLabel
 from hmi.logo_label import BAR_PX, LogoLabel, apply_window_icon
-from hmi.style import apply_page_chrome, style_many
+from hmi.style import apply_page_chrome, chrome_qss, style_many
 from visualize_module import viz
+from vision.depth_vis import depth_placeholder_bgr
 
 _frames = viz.activate_frames()
 _qt = viz.activate_qt_views()
@@ -39,10 +44,13 @@ copy_bgr = _frames.copy_bgr
 draw_roi = _frames.draw_roi
 annotate_bgr = _frames.annotate_bgr
 CamPane = _qt.CamPane
+PAGE_RAW = _qt.PAGE_RAW
+PAGE_VIS = _qt.PAGE_VIS
+PAGE_DEPTH = _qt.PAGE_DEPTH
 
 # 监控窗 UI：跟相机目标帧率（上限见 system.hmi.preview_max_fps）
-_UI_MIN_INTERVAL = 1.0 / 60.0
-_UI_VIS_INTERVAL = 1.0 / 20.0
+_UI_MIN_INTERVAL = 1.0 / 12.0
+_UI_VIS_INTERVAL = 1.0 / 8.0
 
 
 def _app_is_active() -> bool:
@@ -121,10 +129,29 @@ class VisionMonitorPage(QWidget):
         )
 
         root = QVBoxLayout(self)
+        root.setContentsMargins(8, 6, 8, 8)
+        root.setSpacing(6)
 
         bar = QHBoxLayout()
+        bar.setSpacing(8)
         self.lbl_logo = LogoLabel(side=BAR_PX)
         bar.addWidget(self.lbl_logo, 0)
+        self.chk_top = QCheckBox("窗口置顶")
+        self.chk_top.setToolTip("勾选后始终浮在主界面之上，方便一边点调试一边看图")
+        bar.addWidget(self.chk_top, 0)
+        self.page_tabs = QTabBar()
+        self.page_tabs.setExpanding(False)
+        self.page_tabs.setDrawBase(False)
+        self.page_tabs.addTab("原图")
+        self.page_tabs.addTab("结果")
+        self.page_tabs.addTab("深度")
+        self.page_tabs.setTabToolTip(0, "四路同时显示彩色原图（含检测区）")
+        self.page_tabs.setTabToolTip(1, "四路同时显示推演叠图")
+        self.page_tabs.setTabToolTip(
+            2, "四路同时显示深度伪彩；该路需在视觉页勾选「输出深度图」"
+        )
+        self._view_page = PAGE_RAW
+        bar.addWidget(self.page_tabs, 0)
         self.chk_live = QCheckBox("刷新原图")
         self.chk_live.setChecked(True)
         self.chk_live.setToolTip("后台连续取流；关掉则停止抢相机")
@@ -138,7 +165,7 @@ class VisionMonitorPage(QWidget):
         self.chk_overlay = QCheckBox("结果跟原图")
         self.chk_overlay.setChecked(True)
         self.chk_overlay.setToolTip(
-            "右侧用最新原图叠加上次推演文字/状态；画面跟原图同频，数字随推演更新"
+            "结果页用最新原图叠上次推演文字/状态；画面跟原图同频，数字随推演更新"
         )
         self.btn_once = QPushButton("立即推演全部")
         self.btn_one = QPushButton("推演下一台")
@@ -157,18 +184,15 @@ class VisionMonitorPage(QWidget):
         bar.addWidget(self.lbl_clock, 0)
         root.addLayout(bar)
 
-        tip = QLabel(
-            "实时推演 = 缓存帧算法（不掉原图帧）；结果跟原图 = 右侧跟拍叠加上次计算结果。"
-            "cam1 显示中心→鞋头距离，以及抓鞋前TCP(工具1)/抓鞋后TCP(工具2) 变更参数。"
-        )
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color:#5d6d7e;font-size:12px;")
-        root.addWidget(tip)
-
         grid = QGridLayout()
+        grid.setSpacing(8)
         self.panes: dict[str, CamPane] = {}
         for i, cid in enumerate(CAM_IDS):
             pane = CamPane(cid)
+            pane.set_page(self._view_page)
+            pane.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
             self.panes[cid] = pane
             grid.addWidget(pane, i // 2, i % 2)
         grid.setRowStretch(0, 1)
@@ -178,6 +202,14 @@ class VisionMonitorPage(QWidget):
         root.addLayout(grid, 1)
 
         apply_page_chrome(self)
+        root.setContentsMargins(6, 4, 6, 6)
+        root.setSpacing(6)
+        self.setProperty("hmi_lock_margins", True)
+        for pane in self.panes.values():
+            pane.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+        self.page_tabs.currentChanged.connect(self._on_page_id)
         self._compute_done.connect(self._on_compute_done)
 
         self._app_active = True
@@ -213,11 +245,11 @@ class VisionMonitorPage(QWidget):
         super().hideEvent(event)
 
     def _sync_ui_timer_interval(self) -> None:
-        fps = 30
+        fps = 8
         for cid in CAM_IDS:
             cam = self.ctx.cameras.get(cid)
             if cam is not None:
-                fps = max(fps, int(getattr(cam, "target_fps", 0) or 30))
+                fps = max(fps, min(12, int(getattr(cam, "target_fps", 0) or 8)))
         inactive = not self._app_active or not _app_is_active()
         self._ui_timer.setInterval(
             preview_interval_ms(self.ctx.cfg, fps, inactive=inactive)
@@ -243,6 +275,16 @@ class VisionMonitorPage(QWidget):
         self._grabber.set_enabled(self._want_live_grab())
         self._compute.set_enabled(self._want_live_compute())
         self.lbl_run.setText(self._compute.status_text())
+
+    def _on_page_id(self, page_id: int) -> None:
+        mapping = (PAGE_RAW, PAGE_VIS, PAGE_DEPTH)
+        if 0 <= int(page_id) < len(mapping):
+            self._view_page = mapping[int(page_id)]
+        for pane in self.panes.values():
+            pane.set_page(self._view_page)
+        for cid in CAM_IDS:
+            self._paint_raw(cid, force=True)
+            self._paint_vis(cid, force=True)
 
     def _stop_workers(self) -> None:
         self._grabber.stop()
@@ -283,6 +325,8 @@ class VisionMonitorPage(QWidget):
         pane = self.panes[cid]
         cam = self.ctx.cameras.get(cid)
         mock = vis.cam_is_mock(cid) if cam is not None else True
+        cam_wants = bool(cam is not None and getattr(cam, "enable_depth", True))
+        pane.set_depth_visible(cam_wants)
         raw = vis.last_raw.get(cid)
         if raw is None and cam is not None:
             raw = getattr(cam, "last_color", None)
@@ -293,6 +337,7 @@ class VisionMonitorPage(QWidget):
                 f"原图 无图 | {'模拟' if mock else '真机'} "
                 f"{(getattr(cam, 'last_error', '') or '') if cam else ''}".strip()
             )
+            self._push_depth(pane, cid, cam, mock, cam_wants)
             return
         if not force and ts > 0 and self._raw_shown_ts.get(cid) == ts:
             age = now - ts
@@ -305,9 +350,43 @@ class VisionMonitorPage(QWidget):
             shown = draw_roi(shown, cid)
         age = now - ts if ts else 0.0
         pane.show_raw(shown, f"原图  {'模拟' if mock else '真机'}  {age:.1f}s前")
+        self._push_depth(pane, cid, cam, mock, cam_wants)
         self._raw_paint_wall[cid] = now
         if ts > 0:
             self._raw_shown_ts[cid] = ts
+
+    def _push_depth(
+        self,
+        pane: CamPane,
+        cid: str,
+        cam: Any,
+        mock: bool,
+        cam_wants: bool,
+    ) -> None:
+        """把该路深度伪彩或占位图写到深度页（不改变当前切页）。"""
+        vis = self.ctx.vision
+        depth = vis.last_depth_vis.get(cid)
+        if depth is None and cam is not None:
+            depth = getattr(cam, "last_depth_vis", None)
+        dstat = ""
+        if cam is not None:
+            dstat = str(getattr(cam, "last_depth_stats", "") or "")
+        if not cam_wants:
+            pane.show_depth(
+                depth_placeholder_bgr(240, 320, "DEPTH OFF"),
+                "深度  本路未勾选输出深度图",
+            )
+            return
+        if depth is None:
+            pane.show_depth(
+                depth_placeholder_bgr(240, 320),
+                f"深度  {dstat or '无'}  {'模拟' if mock else '真机'}",
+            )
+            return
+        pane.show_depth(
+            depth,
+            f"深度  {dstat or '无'}  {'模拟' if mock else '真机'}",
+        )
 
     def _paint_vis(self, cid: str, *, force: bool = False) -> None:
         vis = self.ctx.vision
@@ -424,23 +503,16 @@ class VisionMonitorWindow(QMainWindow):
         self._allow_close = False
         self.setWindowTitle("相机监控")
         apply_window_icon(self)
-        self.setMinimumSize(880, 560)
+        self.setMinimumSize(1100, 700)
         self.setStyleSheet(
-            """
-            QMainWindow, QWidget { background: #eef1f4; color: #1c2833; }
-            """
+            "QMainWindow { background: #eef1f4; color: #1c2833; }\n" + chrome_qss()
         )
         self.page = VisionMonitorPage(coord)
         wrap = QWidget()
         lay = QVBoxLayout(wrap)
-        lay.setContentsMargins(6, 6, 6, 6)
-        top = QHBoxLayout()
-        self.chk_top = QCheckBox("窗口置顶")
-        self.chk_top.setToolTip("勾选后始终浮在主界面之上，方便一边点调试一边看图")
-        self.chk_top.toggled.connect(self._on_stay_top)
-        top.addWidget(self.chk_top)
-        top.addStretch(1)
-        lay.addLayout(top)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(0)
+        self.page.chk_top.toggled.connect(self._on_stay_top)
         lay.addWidget(self.page, 1)
         self.setCentralWidget(wrap)
 

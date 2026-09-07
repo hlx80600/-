@@ -19,12 +19,12 @@ class ClockLabel(QLabel):
         )
         if dark:
             self.setStyleSheet(
-                "color:#d5dbdb;font-size:14px;font-weight:bold;"
+                "color:#d5dbdb;font-weight:bold;"
                 "padding:4px 8px;background:#0e1a24;border-radius:4px;"
             )
         else:
             self.setStyleSheet(
-                "color:#1a5276;font-size:14px;font-weight:bold;"
+                "color:#1a5276;font-weight:bold;"
                 "padding:4px 10px;background:#eaf2f8;border-radius:6px;"
             )
         self._timer = QTimer(self)

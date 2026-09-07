@@ -5,11 +5,117 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from core.machine_state import MachineState
 from core.plc_util import cmd_reset, pulse_cmd, recover_stuck_move_cmd
+from devices.pose_utils import (
+    extract_joints,
+    joints_max_abs_diff_deg,
+    numeric_pose,
+    pose_rpy_max_abs_diff_deg,
+    pose_xyz_distance_mm,
+)
 
 log = logging.getLogger(__name__)
+
+# 初始化前「在 home 附近」的缺省允许范围（HMI / yaml 可改）
+DEFAULT_INIT_NEAR_HOME_MM = 80.0
+DEFAULT_INIT_NEAR_HOME_DEG = 15.0
+_NEAR_HOME_MM_MIN = 1.0
+_NEAR_HOME_MM_MAX = 500.0
+_NEAR_HOME_DEG_MIN = 0.5
+_NEAR_HOME_DEG_MAX = 90.0
+
+_ROBOT_KEYS: tuple[str, ...] = ("robot1", "robot2")
+
+
+def read_init_near_home_limits(cfg: dict[str, Any] | None) -> tuple[float, float]:
+    """读初始化到位允许范围：XYZ [mm]、关节或姿态 [°]。越界则夹到合法区间。"""
+    raw = (cfg or {}).get("motion")
+    motion = raw if isinstance(raw, dict) else {}
+    try:
+        mm = float(motion.get("init_near_home_mm", DEFAULT_INIT_NEAR_HOME_MM))
+    except (TypeError, ValueError):
+        mm = DEFAULT_INIT_NEAR_HOME_MM
+    try:
+        deg = float(motion.get("init_near_home_deg", DEFAULT_INIT_NEAR_HOME_DEG))
+    except (TypeError, ValueError):
+        deg = DEFAULT_INIT_NEAR_HOME_DEG
+    mm = max(_NEAR_HOME_MM_MIN, min(_NEAR_HOME_MM_MAX, mm))
+    deg = max(_NEAR_HOME_DEG_MIN, min(_NEAR_HOME_DEG_MAX, deg))
+    return mm, deg
+
+
+def check_robot_near_home(ctx: Any, robot_key: str) -> str | None:
+    """真机须在示教 home 附近；Mock 跳过。
+
+    Args:
+        ctx: AppContext。
+        robot_key: ``robot1`` / ``robot2``。
+
+    Returns:
+        None 表示通过或跳过；否则为该臂的中文失败说明。
+    """
+    robot = ctx.robot1 if robot_key == "robot1" else ctx.robot2
+    label = str(getattr(robot, "name", None) or robot_key)
+    if bool(getattr(robot, "use_mock", True)):
+        log.debug("%s 为 Mock，跳过初始化到位检查", label)
+        return None
+
+    mm_lim, deg_lim = read_init_near_home_limits(getattr(ctx, "cfg", None))
+    pts = (getattr(ctx, "cfg", {}) or {}).get("points") or {}
+    rpts = pts.get(robot_key) if isinstance(pts, dict) else None
+    home_raw = rpts.get("home") if isinstance(rpts, dict) else None
+    if not isinstance(home_raw, dict):
+        return f"{label} 未配置初始位 home，无法校验到位。"
+
+    home_pose = numeric_pose(home_raw)
+    home_joints = extract_joints(home_raw)
+    try:
+        cur_pose = robot.get_actual_tcp_pose()
+    except Exception as e:
+        return f"{label} 读取当前位姿失败：{e}"
+
+    xyz = pose_xyz_distance_mm(cur_pose, home_pose)
+    parts: list[str] = [f"位置偏差 {xyz:.1f} mm（允许 {mm_lim:.0f} mm）"]
+    ang_ok = True
+    if home_joints is not None:
+        try:
+            cur_joints = robot.get_actual_joint_pos()
+        except Exception as e:
+            return f"{label} 读取当前关节角失败：{e}"
+        jdiff = joints_max_abs_diff_deg(cur_joints, home_joints)
+        parts.append(f"关节最大偏差 {jdiff:.1f}°（允许 {deg_lim:.1f}°）")
+        ang_ok = jdiff <= deg_lim
+    else:
+        rpy = pose_rpy_max_abs_diff_deg(cur_pose, home_pose)
+        parts.append(f"姿态最大偏差 {rpy:.1f}°（允许 {deg_lim:.1f}°）")
+        ang_ok = rpy <= deg_lim
+
+    if xyz <= mm_lim and ang_ok:
+        return None
+    return f"{label} 不在初始位附近：{'，'.join(parts)}"
+
+
+def check_both_near_home(ctx: Any) -> str | None:
+    """初始化前检查双臂。任一真机不在 home 附近则返回完整报警文案。
+
+    Returns:
+        None 表示可以继续初始化。
+    """
+    fails: list[str] = []
+    for key in _ROBOT_KEYS:
+        err = check_robot_near_home(ctx, key)
+        if err:
+            fails.append(err)
+    if not fails:
+        return None
+    head = (
+        "初始化已中止：机器人不在初始位（home）附近，未开始回零。"
+        "请点动回到初始位后点「报警复位」，再重新「初始化」。"
+    )
+    return head + "\n" + "\n".join(fails)
 
 
 def start_init(ctx) -> None:

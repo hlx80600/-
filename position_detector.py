@@ -7,9 +7,7 @@
 import cv2
 import numpy as np
 
-
 ROI_BOX_COLOR = (255, 0, 255)
-ROI_TEXT_COLOR = (255, 0, 255)
 
 
 def normalize_roi(roi, image_shape):
@@ -133,16 +131,7 @@ def detect_with_roi_filter(
         (x0, y0),
         (x0 + w - 1, y0 + h - 1),
         ROI_BOX_COLOR,
-        2,
-    )
-    cv2.putText(
-        full_vis,
-        f"ROI({x0},{y0},{w},{h})",
-        (x0 + 6, max(20, y0 - 8)),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.6,
-        ROI_TEXT_COLOR,
-        2,
+        1,
         lineType=cv2.LINE_AA,
     )
     return filtered_result, full_vis

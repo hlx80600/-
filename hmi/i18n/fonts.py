@@ -81,12 +81,18 @@ def font_family_for(lang: str) -> str:
 
 
 def build_app_font(lang: str) -> QFont:
-    """构造应用级 QFont。"""
+    """构造应用级 QFont；字号随窗口比例变，但不低于可读下限。"""
+    from hmi.ui_scale import font_pt
+
     family = font_family_for(lang)
-    pt = _POINT_SIZE_CJK if lang in ("zh-CN", "zh-TW", "ja-JP") else _POINT_SIZE_DEFAULT
-    font = QFont(family, pt)
+    cjk = lang in ("zh-CN", "zh-TW", "ja-JP")
+    base = _POINT_SIZE_CJK if cjk else _POINT_SIZE_DEFAULT
+    pt = font_pt(base, min_pt=10.0 if cjk else 9.5)
+    font = QFont(family)
+    font.setPointSizeF(pt)
     font.setStyleHint(QFont.StyleHint.SansSerif)
-    font.setHintingPreference(QFont.HintingPreference.PreferDefaultHinting)
+    font.setHintingPreference(QFont.HintingPreference.PreferFullHinting)
+    font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     return font
 
 
