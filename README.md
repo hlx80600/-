@@ -22,6 +22,7 @@
 | [docs/程序总览.md](docs/程序总览.md) | `docs/` | **架构 + 主循环 + 一条鞋流程** + 核心对象表 |
 | [docs/界面操作手册.md](docs/界面操作手册.md) | `docs/` | **HMI 每页怎么点**、投产顺序、手眼逐步点击 |
 | [docs/操作说明.md](docs/操作说明.md) | `docs/` | **yaml 改址表**、设备 IP/CAN/Modbus、联调检查清单 |
+| [docs/相机算法说明.md](docs/相机算法说明.md) | `docs/` | **生产/调试相机算法**：cam1–4、工位入口、模型与输出 |
 | [docs/夹爪使用说明.md](docs/夹爪使用说明.md) | `docs/` | 达妙 DM-J4310-2EC：48V、CAN、接线、试夹、GRIP 报警 |
 | [docs/Codesys对照说明.md](docs/Codesys对照说明.md) | `docs/` | 旧 PLC/Codesys 变量与现程序对照（迁移用） |
 | HMI「使用说明」 | `hmi/help_content.py` | 与界面同步的**在线手册**（页职责 / 实现文件 / 引用） |
@@ -123,7 +124,13 @@ sudo apt install -y fonts-noto-cjk
 
 ```bash
 python3 main.py
+# 桌面图标会先检查依赖，缺什么就用清华镜像自动装（带进度条）：
+bash tools/install_desktop_shortcut.sh
+# 也可命令行走同一套检查：
+python3 tools/ensure_deps_and_run.py
 ```
+
+桌面会生成 **「四槽压鞋机」** 快捷方式（项目根目录也有同名 `.desktop`，可再复制到其它电脑桌面；换机器后请重新跑一次安装脚本以刷新路径）。若首次双击提示未信任，右键 → **允许启动**。双击后若缺 PySide6 / numpy 等，会弹出安装进度窗，装完自动进入程序。
 
 1. 读 [docs/从零看懂本程序.md](docs/从零看懂本程序.md)  
 2. Mock 空跑：运行监控 → 初始化 → 启动 →「模拟光电感应到位」  
@@ -258,6 +265,7 @@ python3 main.py
 |--------|------|
 | 知道程序怎么跑起来 | [docs/程序总览.md](docs/程序总览.md) |
 | 改 IP、CAN、压机地址 | [docs/操作说明.md](docs/操作说明.md) + `config/default.yaml` |
+| 查流程里相机算法/模型 | [docs/相机算法说明.md](docs/相机算法说明.md) |
 | 学 HMI 怎么点、手眼标定、运行快照 | [docs/界面操作手册.md](docs/界面操作手册.md)（§14.4 报警记录 · 运行快照） |
 | 查视觉函数谁调谁 | [algorithm_module/readme.md](algorithm_module/readme.md) |
 | 夹爪接线与试夹 | [docs/夹爪使用说明.md](docs/夹爪使用说明.md) |

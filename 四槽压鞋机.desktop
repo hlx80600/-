@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=四槽压鞋机
+Name[zh_CN]=四槽压鞋机
+GenericName=四槽压鞋机控制程序
+Comment=莆田鞋厂四槽机器控制程序（Casbot_FourSlot_Press_Shoes）
+Exec=/home/hlx8060/文档/program/试验/莆田鞋厂四槽机器控制程序/启动四槽压鞋机.sh
+Icon=/home/hlx8060/文档/program/试验/莆田鞋厂四槽机器控制程序/hmi/assets/rsdt_badge.png
+Path=/home/hlx8060/文档/program/试验/莆田鞋厂四槽机器控制程序
+Terminal=false
+StartupNotify=true
+Categories=Utility;Industrial;
+Keywords=RSDT;压鞋;四槽;机器人;

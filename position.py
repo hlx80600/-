@@ -32,6 +32,52 @@ class Position:
     """封装压杆对位和卡鞋检测相关的视觉逻辑。"""
 
     __rod_yolo4d: OBBOnlyDetector | None = None
+    # YAML 经 __apply_config 写入；先声明供类型检查器识别 name-mangled 属性
+    __cam_left_sn: str
+    __cam_right_sn: str
+    __cam_left_K: list[float]
+    __cam_right_K: list[float]
+    __cam_left_color_exposure: int
+    __cam_left_color_gain: int
+    __cam_right_color_exposure: int
+    __cam_right_color_gain: int
+    __rod_obb_model_path: str
+    __cam_left_robot_base_rotation_degrees: list[float]
+    __cam_right_robot_base_rotation_degrees: list[float]
+    __rgb_resolution_setting: list[int]
+    __depth_resolution_setting: list[int]
+    __fps_setting: int
+    __measurement_retry_count: int
+    __rod_obb_img_size: int
+    __rod_obb_detection_conf: float
+    __rod_default_shift: list[list[int]]
+    __cam_left_rod_preset_xyz: list[float]
+    __cam_right_rod_preset_xyz: list[float]
+    __cam_left_gripper_preset_xyz: list[float]
+    __cam_right_gripper_preset_xyz: list[float]
+    __roi_width: int
+    __roi_height: int
+    __cam_left_rod_roi: list[list[int]] | None
+    __cam_right_rod_roi: list[list[int]] | None
+    __slot_check_model_path: str
+    __slot_check_conf: float
+    __slot_check_img_size: int
+    __slot_check_depth_alpha: float
+    __slot_check_depth_beta: float
+    __slot_check_color_start_depth_mm: float | None
+    __slot_check_color_range_mm: float
+    __slot_check_min_depth_mm: float
+    __slot_check_max_depth_mm: float
+    __slot_check_roi_start: list[int]
+    __slot_check_roi_size: list[int]
+    __enable_detection_artifact_save: bool
+    __detection_artifact_root: Path
+    __slot_check_config: dict[str, Any]
+    __cam_left: Any
+    __cam_right: Any
+    __cam_left_cov: list[float]
+    __cam_right_cov: list[float]
+
     __CONFIG_ATTRS = {
         "cam_left_sn",
         "cam_right_sn",
@@ -76,17 +122,24 @@ class Position:
 
     # ===== 初始化与基础能力 =====
 
-    def __load_config(self, config_path: str | Path) -> dict:
+    def __load_config(self, config_path: str | Path) -> dict[str, Any]:
         config_path = Path(config_path).expanduser()
         if not config_path.is_absolute():
             config_path = Path(__file__).resolve().parent / config_path
         try:
             with open(config_path, "r", encoding="utf-8") as config_file:
-                config = yaml.safe_load(config_file) or {}
+                raw = yaml.safe_load(config_file)
         except FileNotFoundError as exc:
             raise FileNotFoundError(f"定位配置文件不存在: {config_path}") from exc
         except yaml.YAMLError as exc:
             raise ValueError(f"定位配置文件解析失败: {config_path}: {exc}") from exc
+
+        if raw is None:
+            config: dict[str, Any] = {}
+        elif isinstance(raw, dict):
+            config = {str(key): value for key, value in raw.items()}
+        else:
+            raise ValueError(f"定位配置文件根节点必须是映射: {config_path}")
 
         missing_keys = sorted(self.__CONFIG_ATTRS - set(config.keys()))
         if missing_keys:
@@ -94,15 +147,65 @@ class Position:
                 f"定位配置文件缺少配置项: {', '.join(missing_keys)} ({config_path})"
             )
 
-        artifact_root = Path(config["detection_artifact_root"]).expanduser()
+        artifact_root = Path(str(config["detection_artifact_root"])).expanduser()
         if not artifact_root.is_absolute():
             artifact_root = Path(__file__).resolve().parent / artifact_root
         config["detection_artifact_root"] = artifact_root
         return config
 
-    def __apply_config(self, config: dict) -> None:
-        for key in self.__CONFIG_ATTRS:
-            setattr(self, f"_Position__{key}", config[key])
+    def __apply_config(self, config: dict[str, Any]) -> None:
+        self.__cam_left_sn = str(config["cam_left_sn"])
+        self.__cam_right_sn = str(config["cam_right_sn"])
+        self.__cam_left_K = list(config["cam_left_K"])
+        self.__cam_right_K = list(config["cam_right_K"])
+        self.__cam_left_color_exposure = int(config["cam_left_color_exposure"])
+        self.__cam_left_color_gain = int(config["cam_left_color_gain"])
+        self.__cam_right_color_exposure = int(config["cam_right_color_exposure"])
+        self.__cam_right_color_gain = int(config["cam_right_color_gain"])
+        self.__rod_obb_model_path = str(config["rod_obb_model_path"])
+        self.__cam_left_robot_base_rotation_degrees = list(
+            config["cam_left_robot_base_rotation_degrees"]
+        )
+        self.__cam_right_robot_base_rotation_degrees = list(
+            config["cam_right_robot_base_rotation_degrees"]
+        )
+        self.__rgb_resolution_setting = list(config["rgb_resolution_setting"])
+        self.__depth_resolution_setting = list(config["depth_resolution_setting"])
+        self.__fps_setting = int(config["fps_setting"])
+        self.__measurement_retry_count = int(config["measurement_retry_count"])
+        self.__rod_obb_img_size = int(config["rod_obb_img_size"])
+        self.__rod_obb_detection_conf = float(config["rod_obb_detection_conf"])
+        self.__rod_default_shift = list(config["rod_default_shift"])
+        self.__cam_left_rod_preset_xyz = list(config["cam_left_rod_preset_xyz"])
+        self.__cam_right_rod_preset_xyz = list(config["cam_right_rod_preset_xyz"])
+        self.__cam_left_gripper_preset_xyz = list(config["cam_left_gripper_preset_xyz"])
+        self.__cam_right_gripper_preset_xyz = list(
+            config["cam_right_gripper_preset_xyz"]
+        )
+        self.__roi_width = int(config["roi_width"])
+        self.__roi_height = int(config["roi_height"])
+        left_roi = config["cam_left_rod_roi"]
+        right_roi = config["cam_right_rod_roi"]
+        self.__cam_left_rod_roi = None if left_roi is None else list(left_roi)
+        self.__cam_right_rod_roi = None if right_roi is None else list(right_roi)
+        self.__slot_check_model_path = str(config["slot_check_model_path"])
+        self.__slot_check_conf = float(config["slot_check_conf"])
+        self.__slot_check_img_size = int(config["slot_check_img_size"])
+        self.__slot_check_depth_alpha = float(config["slot_check_depth_alpha"])
+        self.__slot_check_depth_beta = float(config["slot_check_depth_beta"])
+        start_depth = config["slot_check_color_start_depth_mm"]
+        self.__slot_check_color_start_depth_mm = (
+            None if start_depth is None else float(start_depth)
+        )
+        self.__slot_check_color_range_mm = float(config["slot_check_color_range_mm"])
+        self.__slot_check_min_depth_mm = float(config["slot_check_min_depth_mm"])
+        self.__slot_check_max_depth_mm = float(config["slot_check_max_depth_mm"])
+        self.__slot_check_roi_start = list(config["slot_check_roi_start"])
+        self.__slot_check_roi_size = list(config["slot_check_roi_size"])
+        self.__enable_detection_artifact_save = bool(
+            config["enable_detection_artifact_save"]
+        )
+        self.__detection_artifact_root = Path(config["detection_artifact_root"])
 
     def __get_camera_config_prefix(self, camera_id: int) -> str | None:
         if camera_id == 1:
@@ -111,7 +214,7 @@ class Position:
             return "cam_right"
         return None
 
-    def __build_slot_check_config(self) -> dict:
+    def __build_slot_check_config(self) -> dict[str, Any]:
         return {
             "model_path": self.__slot_check_model_path,
             "img_conf": self.__slot_check_conf,

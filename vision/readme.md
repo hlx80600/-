@@ -1,6 +1,7 @@
 # vision — 视觉业务层
 
-> 相机取流、标定、手眼、VisionService；**算法实现**在 `algorithm_module/`（门面 `algo`）。
+> 相机取流、标定、手眼、VisionService；**算法实现**在 `algorithm_module/`（门面 `algo`）。  
+> **生产主流程各相机算法清单**见 [docs/相机算法说明.md](../docs/相机算法说明.md)。
 
 ---
 

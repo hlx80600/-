@@ -23,6 +23,7 @@
 ## 与视觉 / 设备的关系
 
 - 拍照、手眼、PickPose：调 `ctx.vision.*`（见 [vision/readme.md](../vision/readme.md)）  
+- **各工位相机算法明细**：[docs/相机算法说明.md](../docs/相机算法说明.md)  
 - 机械臂 / 夹爪 / 压机：调 `ctx.robots` / `ctx.grippers` / `ctx.press`（见 [devices/readme.md](../devices/readme.md)）  
 - 算法门面：`algorithm_module`（见 [algorithm_module/readme.md](../algorithm_module/readme.md)）
 
