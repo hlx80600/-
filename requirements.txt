@@ -11,8 +11,9 @@ scipy>=1.10.0
 # 压鞋机 Modbus
 pymodbus>=3.5.0
 
-# 夹爪 CAN（Casbot CANGripperController / socketcan）
+# 夹爪 CAN：python-can（SocketCAN）+ pyserial（达妙 USB2CAN /dev/ttyACM0）
 python-can>=4.3.0
+pyserial>=3.5
 
 # 法奥 SDK：请把同级目录 fairino 装到环境，或自行 pip 安装官方包
 # pip install -e ../fairino

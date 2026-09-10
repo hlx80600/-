@@ -21,7 +21,16 @@ from PySide6.QtWidgets import (
 
 from core.config_loader import save_config
 from core.coordinator import Coordinator
-from devices.gripper_bank import motor_cfg, normalize_grippers_cfg, write_motor
+from devices.gripper_bank import (
+    LINK_LOAD,
+    LINK_UNLOAD,
+    motor_cfg,
+    normalize_grippers_cfg,
+    normalize_link_role,
+    write_motor,
+)
+from devices.gripper_group import GripperGroup
+from hmi.pages.can_motor_scan import run_can_motor_scan
 from hmi.style import apply_page_chrome, hbox_pair, style_button, style_many
 
 
@@ -59,6 +68,9 @@ class GripperDebugPage(QWidget):
         self.btn_close = QPushButton("夹紧")
         self.btn_reconnect = QPushButton("重连")
         self.btn_drop = QPushButton("掉落检测")
+        self.btn_scan = QPushButton("扫描电机")
+        self.btn_together_open = QPushButton("同时张开")
+        self.btn_together_close = QPushButton("同时夹紧")
         self.btn_alarm_reset = QPushButton("报警复位（含夹爪）")
         style_many(
             [
@@ -66,6 +78,9 @@ class GripperDebugPage(QWidget):
                 (self.btn_close, "warn"),
                 (self.btn_reconnect, "primary"),
                 (self.btn_drop, "neutral"),
+                (self.btn_scan, "primary"),
+                (self.btn_together_open, "success"),
+                (self.btn_together_close, "warn"),
                 (self.btn_alarm_reset, "danger"),
             ]
         )
@@ -73,12 +88,18 @@ class GripperDebugPage(QWidget):
         self.btn_close.clicked.connect(lambda: self._cmd_open_close(False))
         self.btn_reconnect.clicked.connect(self._cmd_reconnect)
         self.btn_drop.clicked.connect(self._cmd_drop)
+        self.btn_scan.clicked.connect(self._cmd_scan)
+        self.btn_together_open.clicked.connect(lambda: self._cmd_together(True))
+        self.btn_together_close.clicked.connect(lambda: self._cmd_together(False))
         self.btn_alarm_reset.clicked.connect(self._cmd_alarm_reset)
         ga.addWidget(self.btn_open, 0, 0)
         ga.addWidget(self.btn_close, 0, 1)
         ga.addWidget(self.btn_reconnect, 0, 2)
         ga.addWidget(self.btn_drop, 0, 3)
-        ga.addWidget(self.btn_alarm_reset, 1, 0, 1, 4)
+        ga.addWidget(self.btn_scan, 1, 0)
+        ga.addWidget(self.btn_together_open, 1, 1)
+        ga.addWidget(self.btn_together_close, 1, 2)
+        ga.addWidget(self.btn_alarm_reset, 1, 3)
 
         ga.addWidget(QLabel("张开速度"), 2, 0)
         self.sp_open = QDoubleSpinBox()
@@ -207,9 +228,14 @@ class GripperDebugPage(QWidget):
         m = motor_cfg(gcfg, idx)
         roles = []
         if idx == int(gcfg.get("load_index", 1)):
-            roles.append("上料→gripper1")
+            roles.append("上料主爪→gripper1")
         if idx == int(gcfg.get("unload_index", 2)):
-            roles.append("下料→gripper2")
+            roles.append("下料主爪→gripper2")
+        link = normalize_link_role(m.get("link_role"))
+        if link == LINK_LOAD:
+            roles.append("随上料同时动")
+        elif link == LINK_UNLOAD:
+            roles.append("随下料同时动")
         self.lbl_bind.setText("、".join(roles) if roles else "未绑定工位（仅调试）")
         self.lbl_ep.setText(f"{m.get('interface', '?')} / 0x{int(m.get('can_id', 0)):X}")
         if g is not None:
@@ -280,6 +306,51 @@ class GripperDebugPage(QWidget):
             self._refresh_status()
             self._refresh_table()
 
+    def _group_for_current(self):
+        """当前电机所属上料/下料组；单独电机返回它自己。"""
+        idx = self._current_index()
+        gcfg = self._gcfg()
+        load_i = int(gcfg.get("load_index", 1))
+        unload_i = int(gcfg.get("unload_index", 2))
+        role = normalize_link_role(motor_cfg(gcfg, idx).get("link_role"))
+        if idx == load_i or role == LINK_LOAD:
+            return self.ctx.gripper1
+        if idx == unload_i or role == LINK_UNLOAD:
+            return self.ctx.gripper2
+        return self._gripper()
+
+    def _cmd_together(self, open_: bool) -> None:
+        if self._busy_cmd:
+            return
+        if self._auto_locked():
+            QMessageBox.information(self, "夹爪调试", "自动连续运行中请先暂停/停止。")
+            return
+        g = self._group_for_current()
+        if g is None:
+            QMessageBox.warning(self, "夹爪调试", "当前电机实例不存在。")
+            return
+        self._busy_cmd = True
+        try:
+            ok = g.open_claw() if open_ else g.close_claw()
+            act = "同时张开" if open_ else "同时夹紧"
+            n = 1
+            if isinstance(g, GripperGroup):
+                n = len(g.members)
+            if not ok:
+                QMessageBox.warning(
+                    self,
+                    "夹爪调试",
+                    f"{act}失败：{g.last_error or '无反馈'}",
+                )
+            else:
+                QMessageBox.information(self, "夹爪调试", f"{act}完成（{n} 路）")
+        except Exception as e:
+            QMessageBox.warning(self, "夹爪调试", f"异常: {e}")
+        finally:
+            self._busy_cmd = False
+            self._refresh_status()
+            self._refresh_table()
+
     def _cmd_reconnect(self) -> None:
         g = self._gripper()
         if g is None:
@@ -291,6 +362,47 @@ class GripperDebugPage(QWidget):
             f"{'成功' if ok else '失败'}: {g.interface} 0x{g.can_id:X}\n{g.last_error or ''}",
         )
         self._refresh_status()
+        self._refresh_table()
+
+    def _cmd_scan(self) -> None:
+        """扫描总线，把第一台电机写入当前选中序号并尝试连接。"""
+        if self._auto_locked():
+            QMessageBox.information(self, "夹爪调试", "自动连续运行中请先暂停/停止。")
+            return
+        hits = run_can_motor_scan(self)
+        if not hits:
+            return
+        hit = hits[0]
+        idx = self._current_index()
+        gcfg = self._gcfg()
+        write_motor(
+            gcfg,
+            idx,
+            {
+                "interface": str(hit.get("interface") or "can0"),
+                "can_id": int(hit.get("can_id") or 0),
+                "use_mock": False,
+            },
+        )
+        save_config(self.ctx.cfg)
+        g = self._gripper()
+        extra = ""
+        if g is not None:
+            g.use_mock = False
+            g.interface = str(hit.get("interface") or "can0")
+            g.can_id = int(hit.get("can_id") or 0)
+            ok = g.connect()
+            extra = f"\n连接：{'成功' if ok else '失败'} {g.last_error or ''}"
+        more = ""
+        if len(hits) > 1:
+            more = f"\n另发现 {len(hits) - 1} 台，请到通信配置点扫描并填入其余行。"
+        QMessageBox.information(
+            self,
+            "扫描电机",
+            f"电机{idx} ← {hit.get('interface')} 0x{int(hit.get('can_id') or 0):X}"
+            f"{extra}{more}",
+        )
+        self._on_motor_changed()
         self._refresh_table()
 
     def _cmd_drop(self) -> None:

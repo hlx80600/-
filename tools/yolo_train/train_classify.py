@@ -73,47 +73,27 @@ def main() -> None:
     ap.add_argument("--no-install", action="store_true", help="不自动拷到 models/")
     args = ap.parse_args()
 
-    try:
-        from ultralytics import YOLO
-    except ImportError as e:
-        raise SystemExit(
-            "未安装 ultralytics。先执行：\n"
-            "  python3 -m pip install --user ultralytics torch torchvision\n"
-            f"详情: {e}"
-        ) from e
-
     cfg = TASK_CFG[args.task]
     data = (args.data or cfg["data"]).resolve()
     _check_layout(data)
-    base = args.base or cfg["base"]
-    device = args.device or None
+    if args.data is not None and data != cfg["data"].resolve():
+        print(f"提示：统一入口使用 datasets/{args.task}/，请把图放到该目录。当前检查了 {data}")
 
-    print(f"任务={args.task}  数据={data}  基座={base}")
-    print(f"类约定: {cfg['classes_hint']}")
-    model = YOLO(base)
-    results = model.train(
-        data=str(data),
-        epochs=int(args.epochs),
-        imgsz=int(args.imgsz),
-        batch=int(args.batch),
-        project=str(ROOT / "runs" / "classify"),
-        name=args.task,
-        exist_ok=True,
-        device=device,
-    )
-    # best.pt
-    save_dir = Path(getattr(results, "save_dir", ROOT / "runs" / "classify" / args.task))
-    best = save_dir / "weights" / "best.pt"
-    if not best.exists():
-        # 兼容不同 ultralytics 版本
-        cands = list((ROOT / "runs" / "classify" / args.task).rglob("best.pt"))
-        best = cands[0] if cands else best
-    print(f"训练完成: {best}")
-    if not args.no_install and best.exists():
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from install_model import install_pt
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from vision import ultralytics_hparams as uhp
+    from vision.ultralytics_runner import cmd_train
 
-        install_pt(best, cfg["install"], task=args.task)
+    hp = uhp.load_hparams(args.task, task="classify")
+    hp["epochs"] = int(args.epochs)
+    hp["imgsz"] = int(args.imgsz)
+    hp["batch"] = int(args.batch)
+    if args.device:
+        hp["device"] = args.device
+    if args.base:
+        hp["model"] = args.base
+    path = uhp.save_hparams(args.task, hp)
+    raise SystemExit(cmd_train(args.task, path, no_install=bool(args.no_install)))
 
 
 if __name__ == "__main__":

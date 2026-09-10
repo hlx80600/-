@@ -14,8 +14,9 @@ from core.lights import TowerLight
 from core.machine_state import MachineController, MachineState, RunMode
 from core.memory import MemoryBank
 from core.production_stats import ProductionStats
-from devices.gripper_bank import normalize_grippers_cfg
+from devices.gripper_bank import normalize_grippers_cfg, role_motor_indices
 from devices.gripper_can import create_gripper_from_config
+from devices.gripper_group import GripperGroup
 from devices.io_manager import IOManager
 from devices.press_modbus import PressMachine
 from devices.robot_fr5 import RobotFR5
@@ -150,6 +151,7 @@ class AppContext:
         self.gripper2.motor_index = unload_i
         self.gripper1.on_fault = self._make_gripper_fault_cb(load_i)
         self.gripper2.on_fault = self._make_gripper_fault_cb(unload_i)
+        self.bind_gripper_groups()
         self._last_grip_alarm_key: Optional[tuple] = None
 
         press_cfg = self.cfg.get("press", {})
@@ -247,6 +249,37 @@ class AppContext:
             if cam is not None:
                 parts.append(tag(key, cam.use_mock))
         return " | ".join(parts)
+
+    def bind_gripper_groups(self) -> None:
+        """按 yaml 把跟随电机绑到 gripper1（上料）/ gripper2（下料）。"""
+        gcfg = normalize_grippers_cfg(self.cfg)
+        bank = getattr(self, "grippers", {}) or {}
+
+        def _members(role: str) -> list[Any]:
+            out: list[Any] = []
+            for idx in role_motor_indices(gcfg, role):
+                g = bank.get(idx)
+                if g is not None:
+                    out.append(g)
+            return out
+
+        load_i = int(gcfg.get("load_index", 1))
+        unload_i = int(gcfg.get("unload_index", 2))
+        g1 = bank.get(load_i) or self.gripper1
+        g2 = bank.get(unload_i) or self.gripper2
+        if isinstance(g1, GripperGroup):
+            g1 = g1.primary
+        if isinstance(g2, GripperGroup):
+            g2 = g2.primary
+        self.gripper1 = GripperGroup(g1, _members("load"))
+        self.gripper2 = GripperGroup(g2, _members("unload"))
+
+    def gripper_primary(self, which: int) -> Any:
+        """which=1 上料主爪，2 下料主爪（不含跟随）。"""
+        g = self.gripper1 if int(which) == 1 else self.gripper2
+        if isinstance(g, GripperGroup):
+            return g.primary
+        return g
 
     def _make_gripper_fault_cb(self, motor_index: int):
         def _cb(code: str, message: str) -> None:

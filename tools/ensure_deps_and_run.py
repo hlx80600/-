@@ -33,6 +33,7 @@ _PACKAGE_IMPORTS: dict[str, str] = {
     "scipy": "scipy",
     "pymodbus": "pymodbus",
     "python-can": "can",
+    "pyserial": "serial",
 }
 
 

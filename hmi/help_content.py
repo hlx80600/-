@@ -314,32 +314,40 @@ def _sections_zh_cn() -> List[Section]:
             f"{_L(T.VISION)} · 采图训练",
             _io_block(
                 purpose=(
-                    "「视觉」总页「采图训练」子页签：挂/训模型、采图、将棋盘格内参与手眼写入 shoe_vision_config.json、"
-                    "测皮带取料、写入 PickPose、MoveL 试抓。左右脚可本页重训。"
+                    "「视觉」总页「采图训练」：海康式五步工作台（采集→标注→训练→验证→模型），"
+                    "底层 Ultralytics。手眼 / 内参 / 皮带试走仍在「棋盘格 / 手眼 / 检测测试」。"
+                    "「视觉方案」页签是精简流程图，只预览不改 GVL。"
                 ),
-                impl=[f"{_code('hmi/pages/zero_to_pick_page.py')}"],
+                impl=[
+                    f"{_code('hmi/pages/dl_workbench.py')} — 五步工作台",
+                    f"{_code('hmi/pages/label_canvas.py')} — 检测/OBB/分割标注",
+                    f"{_code('hmi/pages/vision_scheme_page.py')} — 视觉方案流程图",
+                    f"{_code('vision/ultralytics_runner.py')} — train/val/predict/export",
+                ],
                 refs=[
+                    f"{_code('vision/model_store.py')} — 槽位、超参、导入旧权重/数据集/runs",
+                    f"{_code('vision/ultralytics_hparams.py')} — datasets/<slot>/hparams.yaml",
+                    f"{_code('vision/label_io.py')} — YOLO detect/obb/seg 标签",
                     f"{_code('algorithm_module')} / {_code('vision/commission_actions.py')} — 写内参手眼、试抓",
-                    f"{_code('vision/model_store.py')} — 数据集槽位、train_cmd、CUDA 检测",
-                    f"{_code('vision/obb_label.py')} / {_code('hmi/pages/obb_label_widget.py')} — OBB 圈框",
-                    f"{_code('hmi/pages/cls_preview_widget.py')} — 分类预览旋转裁剪",
-                    f"{_code('shoe_vision_config.json')} — 生产手眼与内参",
+                    f"{_code('config/vision_schemes/')} — 方案 yaml",
                 ],
                 used_by=[
-                    "投产前必做；训完的 .pt 被 VisionService / Station1～4 加载",
-                    f"点像素预览在「{_L(T.VISION)}」上方原图 /「手眼标定」页签",
+                    "投产前训/验模型；启用到产线后被 VisionService / Station1～4 加载",
+                    "自定义工程必须映射到现有 6 槽之一才会改 Station 行为",
                 ],
             )
             + _h("推荐流程")
             + _ol(
                 [
-                    "① 挂接旧模型或自选 .pt；可 pip 装 ultralytics（CPU/GPU 版）。",
-                    "② 采图/训练；「训练设备」选 CPU 或 GPU。",
-                    f"③ 切到「{_L(T.VISION)}」其它页签：ROI → 棋盘格内参 → 手眼采样 → 回「采图训练」写入 json。",
-                    f"④ 取消 cam1 Mock → 测皮带 → 写 PickPose → MoveL 试上方 →「{_L(T.STEP_DEBUG)}」单步。",
+                    "① 选工程槽位。旧资产：挂接旧模型（可选手选目录，只补缺失软链）或「一键从旧工程」（可选拷 datasets/runs）。导入 .pt / 数据集 / runs 后先验证，再启用到产线。",
+                    "② 采集：拍 1 / 连拍 / 文件夹 / 失败快照；分类先点类别（快捷键 1/2）。",
+                    "③ 标注：检测拖矩形、OBB 滚轮旋转、分割多边形；多类、上一张/下一张、撤销。",
+                    "④ 训练：基本参数 + 可展开高级（学习率/增强）；曲线读 results.csv；可从 last.pt 继续。",
+                    "⑤ 验证：预览叠图、val 指标、混淆矩阵；皮带 OBB 必须用 cam1 实图确认。",
+                    "⑥ 模型：启用到产线（自定义需映射 6 槽）、导出 ONNX。手眼/试走切其它页签。",
                 ]
             )
-            + _p("完整检查清单：" + _code("docs/界面操作手册.md") + " §C。"),
+            + _p("命令行备查：" + _code("tools/yolo_train/README.md") + "；完整检查清单：" + _code("docs/界面操作手册.md") + " §C。"),
         ),
         (
             "vision",
@@ -347,7 +355,7 @@ def _sections_zh_cn() -> List[Section]:
             _io_block(
                 purpose=(
                     "视觉总页：左侧上下对照原图 / 深度（拖分隔条或滚轮改高度）；"
-                    "子页签含相机与ROI、棋盘格内参、手眼标定、视觉参数、检测测试、采图训练。"
+                    "子页签含相机与ROI、棋盘格内参、手眼标定、视觉参数、检测测试、采图训练（五步工作台）、视觉方案（流程图预览）。"
                     "缺模型时该路保持 Mock。"
                 ),
                 impl=[
@@ -364,7 +372,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"配置：{_code('config/roi/camN.json')}、{_code('config/calib/')}、{_code('shoe_vision_config.json')}、{_code('position_config.yaml')}",
                 ],
                 used_by=[
-                    "「采图训练」写入 json 依赖本页采到的内参/采样",
+                    "「采图训练」工作台训模型；手眼 json 在「手眼标定」；试走在「检测测试」",
                     "自动流程不直接开本页，但用同一套 VisionService；生产拍照落盘后到「报警记录 → 运行快照」查",
                 ],
             )
@@ -868,13 +876,16 @@ def _sections_zh_cn() -> List[Section]:
                     "达妙 DM-J4310-2EC（48V），CAN 1 Mbps，位置速度模式，gripper_type=2",
                     "最多 99 路：grippers.motor_count + motors；HMI 通信配置选数量后填地址",
                     "上料绑定 load_index → ctx.gripper1；下料绑定 unload_index → ctx.gripper2",
-                    "其余启用电机：ctx.grippers[序号]",
+                    "额外电机在通信配置「联动」选随上料/随下料，取放料时与主爪同时开合",
+                    "运行监控「上料同时张开/夹紧」；夹爪调试「同时张开/夹紧」",
+                    "其余单独电机：ctx.grippers[序号]",
                 ]
             )
             + _h("现场改什么")
             + _ul(
                 [
-                    f"「{_L(T.CONFIG)}」：启用数量、每路 CAN/can_id、上料/下料绑定 → 保存；改数量后重启",
+                    f"「{_L(T.CONFIG)}」：启用数量、每路 CAN/can_id、联动（随上料/随下料）、上料/下料绑定 → 保存",
+                    f"「{_L(T.CONFIG)}」/「{_L(T.GRIPPER)}」：「扫描电机」探测 USB 转 CAN（SocketCAN）上的达妙 ID",
                     f"「{_L(T.GRIPPER)}」：单独调试开合、速度、重连、掉落检测、报警复位",
                     f"开合速度也可在「{_L(T.MONITOR)}」保存到 yaml",
                     "接线、试夹：docs/夹爪使用说明.md",

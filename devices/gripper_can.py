@@ -20,6 +20,7 @@ HMI / 脚本（阻塞到反馈）：
 
 单独测试：
   python3 -m devices.gripper_can --side 1
+  python3 -m devices.gripper_can --scan
 """
 
 from __future__ import annotations
@@ -33,13 +34,24 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 import can
 
+from devices.usb2can import (
+    acquire_can_bus,
+    is_usb2can_channel,
+    list_usb2can_ports,
+)
+
 log = logging.getLogger(__name__)
 
 DEFAULT_GRIP_SPEED = 50.0
+# 达妙 MIT/位置速度：全 0xFF + 0xFC = 使能
+ENABLE_FRAME = bytes([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC])
+_ARPHRD_CAN = 280
+_SYS_NET = Path("/sys/class/net")
 
 __all__ = [
     "DEFAULT_GRIP_SPEED",
@@ -48,6 +60,9 @@ __all__ = [
     "GripperConfig",
     "create_gripper",
     "create_gripper_from_config",
+    "list_can_interfaces",
+    "scan_damiao_motors",
+    "format_connect_fail",
 ]
 
 class ClawState(Enum):
@@ -76,6 +91,261 @@ class DriverStatus(Enum):
     COIL_OVER_TEMP = 12
     COMMUNICATION_LOST = 13
     OVERLOAD = 14
+
+
+def list_can_interfaces() -> list[dict[str, str]]:
+    """列出本机 SocketCAN 网口（USB 转 CAN 绑定后一般为 can0）。"""
+    rows: list[dict[str, str]] = []
+    if not _SYS_NET.is_dir():
+        return rows
+    try:
+        kids = sorted(_SYS_NET.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return rows
+    for dev in kids:
+        raw = ""
+        try:
+            raw = (dev / "type").read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        try:
+            if int(raw) != _ARPHRD_CAN:
+                continue
+        except ValueError:
+            continue
+        try:
+            state = (dev / "operstate").read_text(encoding="utf-8").strip()
+        except OSError:
+            state = "?"
+        rows.append({"name": dev.name, "state": state or "?"})
+    return rows
+
+
+def _default_probe_ids() -> list[int]:
+    """达妙 ESC ID 1～16；位置速度模式常用 0x100+ESC（本工程 0x101/0x103）。"""
+    ids: list[int] = list(range(0, 17))
+    ids.extend((0x11, 0x21))
+    ids.extend(range(0x101, 0x111))
+    return ids
+
+
+def _program_can_id(command_id: int, motor_id: int) -> int:
+    """夹爪驱动按位置速度模式发 0x100+ESC；扫描到的 ESC 要写成这个 can_id。"""
+    if int(command_id) >= 0x100:
+        return int(command_id)
+    mid = int(motor_id) if int(motor_id) > 0 else int(command_id)
+    return mid + 0x100
+
+
+def scan_damiao_motors(
+    interfaces: list[str] | None = None,
+    *,
+    command_ids: list[int] | None = None,
+    listen_s: float = 0.25,
+    probe_timeout_s: float = 0.08,
+    progress: Callable[[int, int, str], None] | None = None,
+    cancelled: Callable[[], bool] | None = None,
+) -> dict[str, Any]:
+    """扫描 SocketCAN 与达妙 USB2CAN 串口上的电机。
+
+    达妙调试助手走 /dev/ttyACM0（USB CDC），不是 can0。本函数两种都扫。
+    """
+    ifaces_info = list_can_interfaces()
+    serials = list_usb2can_ports()
+    for port in serials:
+        ifaces_info.append({"name": port, "state": "usb2can"})
+    if interfaces:
+        names = [str(x) for x in interfaces]
+    else:
+        names = [r["name"] for r in list_can_interfaces()] + list(serials)
+    probe_ids = list(command_ids) if command_ids else _default_probe_ids()
+    motors: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    steps = max(1, len(names) * (1 + len(probe_ids)))
+    step = 0
+
+    def _tick(text: str) -> None:
+        nonlocal step
+        step += 1
+        if progress is not None:
+            progress(min(step, steps), steps, text)
+
+    def _stop() -> bool:
+        return bool(cancelled is not None and cancelled())
+
+    def _add_hit(name: str, cid: int, mid: int, fid: int, source: str) -> None:
+        key = (name, int(mid))
+        prog_id = _program_can_id(cid, mid)
+        if key in seen:
+            for row in motors:
+                if row.get("interface") == name and int(row.get("motor_id", -1)) == mid:
+                    # 已有 ESC 时，优先写成 0x100+ESC
+                    if int(row.get("can_id", 0)) < 0x100 and prog_id >= 0x100:
+                        row["can_id"] = prog_id
+                        row["feedback_id"] = int(fid)
+                        row["source"] = source
+                    break
+            return
+        seen.add(key)
+        motors.append(
+            {
+                "interface": name,
+                "can_id": prog_id,
+                "motor_id": int(mid),
+                "feedback_id": int(fid),
+                "error": "",
+                "source": source,
+            }
+        )
+
+    if not names:
+        hint = (
+            "未发现 can0/can1，也未发现 /dev/ttyACM0。\n"
+            "达妙官方 USB 转 CAN 请用调试助手同一方式：通道填 /dev/ttyACM0（需 dialout 权限），"
+            "不要指望只插 USB 就出现 SocketCAN。\n"
+            "若要用 can0：sudo ip link set can0 type can bitrate 1000000 && sudo ip link set can0 up"
+        )
+        return {"ifaces": ifaces_info, "motors": motors, "hint": hint}
+
+    for name in names:
+        if _stop():
+            break
+        _tick(f"打开 {name}")
+        state = next((r["state"] for r in ifaces_info if r["name"] == name), "?")
+        bus = None
+        old_cmd = None
+        try:
+            bus = acquire_can_bus(name)
+            if is_usb2can_channel(name) and hasattr(bus, "forward_cmd"):
+                old_cmd = bus.forward_cmd
+                bus.forward_cmd = 0x01
+        except Exception as e:
+            motors.append(
+                {
+                    "interface": name,
+                    "can_id": 0,
+                    "motor_id": -1,
+                    "feedback_id": -1,
+                    "error": f"打开失败（{state}）：{e}",
+                }
+            )
+            step += len(probe_ids)
+            continue
+
+        try:
+            rates = (1_000_000, 500_000) if is_usb2can_channel(name) else (1_000_000,)
+            found_here = False
+            for bitrate in rates:
+                if _stop() or found_here:
+                    break
+                if is_usb2can_channel(name) and hasattr(bus, "set_can_bitrate"):
+                    _tick(f"{name} CAN {bitrate // 1000} kbps")
+                    try:
+                        bus.set_can_bitrate(int(bitrate))
+                    except Exception:
+                        pass
+                    time.sleep(0.08)
+                deadline = time.time() + max(0.0, float(listen_s))
+                while time.time() < deadline and not _stop():
+                    msg = bus.recv(timeout=0.05)
+                    if msg is None or len(msg.data) < 8:
+                        continue
+                    _add_hit(name, msg.data[0] & 0x0F, msg.data[0] & 0x0F, msg.arbitration_id, "listen")
+                for cid in probe_ids:
+                    if _stop():
+                        break
+                    _tick(f"{name} 探测 0x{int(cid):X}")
+                    try:
+                        while bus.recv(timeout=0.0) is not None:
+                            pass
+                        bus.send(
+                            can.Message(
+                                arbitration_id=int(cid),
+                                data=ENABLE_FRAME,
+                                is_extended_id=False,
+                            )
+                        )
+                        if int(cid) < 0x100:
+                            bus.send(
+                                can.Message(
+                                    arbitration_id=int(cid) + 0x100,
+                                    data=ENABLE_FRAME,
+                                    is_extended_id=False,
+                                )
+                            )
+                    except Exception:
+                        continue
+                    deadline = time.time() + max(0.02, float(probe_timeout_s))
+                    while time.time() < deadline:
+                        msg = bus.recv(timeout=0.02)
+                        if msg is None or len(msg.data) < 8:
+                            continue
+                        mid = msg.data[0] & 0x0F
+                        if mid != (int(cid) & 0x0F):
+                            continue
+                        _add_hit(name, int(cid), mid, msg.arbitration_id, "probe")
+                        found_here = True
+                        break
+                if any(m.get("interface") == name and not m.get("error") for m in motors):
+                    found_here = True
+        finally:
+            if bus is not None:
+                if old_cmd is not None:
+                    try:
+                        bus.forward_cmd = old_cmd
+                    except Exception:
+                        pass
+                try:
+                    bus.shutdown()
+                except Exception:
+                    pass
+
+    hits = [m for m in motors if not m.get("error") and int(m.get("can_id", 0)) > 0]
+    if hits:
+        hint = (
+            f"找到 {len(hits)} 台电机。CAN接口填 can0 或 /dev/ttyACM0（与达妙调试助手相同）；"
+            "can_id 为本程序位置速度模式地址（一般为 0x100+电机号）。"
+            "一块达妙 USB2CAN 上的多台电机共用同一串口、ID 不同。"
+        )
+    else:
+        hint = (
+            "未收到达妙反馈。达妙调试助手能找到、本页找不到时：请确认助手用的是「达妙 USB2CAN」"
+            "且通道为 /dev/ttyACM0，本扫描现在也会扫该串口。还请关掉助手再扫（串口不能同时占用）、"
+            "用户在 dialout 组、电机已上电、CANH/L 接到转接器 CAN 口。"
+        )
+    return {"ifaces": ifaces_info, "motors": motors, "hint": hint}
+
+
+def format_connect_fail(ctrl: Any, interface: str, can_id: int) -> str:
+    """把使能失败拆成：网口打不开 / ID 不匹配 / 总线无应答。"""
+    iface = interface.strip() or "can0"
+    if getattr(ctrl, "bus", None) is None:
+        err = str(getattr(ctrl, "last_bus_error", "") or "CAN 打开失败")
+        extra = ""
+        if is_usb2can_channel(iface) or iface.startswith("/dev/"):
+            extra = (
+                " 达妙 USB2CAN 请填 /dev/ttyACM0（与调试助手相同），并加入 dialout 组；"
+                "先关掉达妙调试程序再连，串口不能两人同时占用。"
+            )
+        else:
+            extra = (
+                f" 若用的是达妙官方 USB 转 CAN，不要填 can0，应填 /dev/ttyACM0。"
+                f" SocketCAN 示例：sudo ip link set {iface} type can bitrate 1000000 && sudo ip link set {iface} up"
+            )
+        return f"无法打开 CAN 接口 {iface}：{err}。{extra}"
+    others = list(getattr(ctrl, "last_mismatch_ids", None) or [])
+    if others:
+        seen = "、".join(str(i) for i in others)
+        return (
+            f"已发使能，但配置 can_id=0x{int(can_id):X}（期望反馈电机号 {int(can_id) & 0x0F}）"
+            f"与总线上见到的电机号 {seen} 不一致。请点「扫描电机」把正确 can_id 写进配置。"
+        )
+    return (
+        f"CAN 夹爪使能/反馈失败（{iface} 0x{int(can_id):X}）。"
+        "电机有电不等于 CAN 已通。达妙官方模块请把 CAN接口写成 /dev/ttyACM0（与「达妙调试」相同），"
+        "不要写成 can0。一块转换器两台电机共用该串口、can_id 不同（0x101/0x103）。"
+    )
+
 
 class CANGripperController:
     """基于 CAN 总线的夹爪控制器，负责发命令、收反馈和解析状态。"""
@@ -126,6 +396,8 @@ class CANGripperController:
         self.drop_detected = False
         self.feedback_timeout = 1.0
         self.feedback_can_id = None
+        self.last_bus_error = ""
+        self.last_mismatch_ids: list[int] = []
         self.last_status_name = None
         self.last_mos_temp = None
         self.last_rotor_temp = None
@@ -195,19 +467,15 @@ class CANGripperController:
         return
 
     def setup_bus(self):
-        """配置CAN总线"""
+        """配置 CAN：SocketCAN（can0）或达妙 USB2CAN（/dev/ttyACM0）。"""
         try:
-            # 注意：设置波特率需要先配置系统CAN接口
-            # 例如: sudo ip link set can0 type can bitrate 500000
-            self.bus = can.interface.Bus(
-                channel=self.interface,
-                interface='socketcan',
-                can_filters=self.can_filters,
-                receive_own_messages=self.loopback
+            self.bus = acquire_can_bus(self.interface, can_bitrate=int(self.bitrate))
+            self.logger.info(
+                f"CAN初始化成功，接口: {self.interface}, 波特率: {self.bitrate}bps"
             )
-            self.logger.info(f"CAN初始化成功，接口: {self.interface}, 波特率: {self.bitrate}bps")
             return True
         except Exception as e:
+            self.last_bus_error = str(e)
             self.logger.info(f"CAN初始化失败: {str(e)}")
             self.connected = False
             return False
@@ -320,6 +588,7 @@ class CANGripperController:
         """在指定超时时间内接收一帧有效反馈，并更新本地状态缓存。"""
         if not self.bus:
             return False
+        self.last_mismatch_ids = []
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
@@ -333,6 +602,8 @@ class CANGripperController:
                 feedback_motor_id = msg.data[0] & 0x0F
                 expected_motor_id = self.can_id & 0x0F
                 if feedback_motor_id != expected_motor_id:
+                    if feedback_motor_id not in self.last_mismatch_ids:
+                        self.last_mismatch_ids.append(feedback_motor_id)
                     continue
 
                 # 保存最近一次有效反馈，供状态查询接口直接读取
@@ -740,11 +1011,12 @@ class GripperCAN:
         return (not self.busy) and bool(self.closed) and bool(self.last_ok)
 
     # ------------------------------------------------------------------ link
-    def connect(self) -> bool:
+    def connect(self, *, announce_fault: bool = True) -> bool:
+        """连接 CAN 夹爪。announce_fault=False 时失败只记日志，不弹 GRIP_LINK。"""
         with self._lock:
-            return self._connect_unlocked()
+            return self._connect_unlocked(announce_fault=announce_fault)
 
-    def _connect_unlocked(self) -> bool:
+    def _connect_unlocked(self, *, announce_fault: bool = True) -> bool:
         self._stop_ctrl_unlocked()
         if self.use_mock:
             self.connected = True
@@ -786,9 +1058,10 @@ class GripperCAN:
                     self.close_speed,
                 )
             else:
-                self.last_error = "CAN 夹爪使能/反馈失败"
+                self.last_error = format_connect_fail(self._ctrl, iface, self.can_id)
                 log.error("[%s] %s", self.name, self.last_error)
-                self._emit_fault("GRIP_LINK", self.last_error)
+                if announce_fault:
+                    self._emit_fault("GRIP_LINK", self.last_error)
             return self.connected
         except Exception as e:
             log.error("[%s] CAN 夹爪初始化失败: %s", self.name, e)
@@ -796,7 +1069,8 @@ class GripperCAN:
             self._ctrl = None
             self.last_ok = False
             self.last_error = str(e)
-            self._emit_fault("GRIP_LINK", str(e))
+            if announce_fault:
+                self._emit_fault("GRIP_LINK", str(e))
             return False
 
     def _stop_ctrl_unlocked(self) -> None:
@@ -823,7 +1097,8 @@ class GripperCAN:
             return self.connected
 
     def reconnect(self) -> bool:
-        return self.connect()
+        """周期重连：失败不再弹窗（首次连失败已由 connect() 报过）。"""
+        return self.connect(announce_fault=False)
 
     def disconnect(self) -> None:
         with self._lock:
@@ -1160,7 +1435,20 @@ if __name__ == "__main__":
         choices=["1", "2"],
         help="1=上料 can0/0x103, 2=下料 can1/0x101",
     )
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="扫描本机 SocketCAN 上的达妙电机并打印 interface/can_id",
+    )
     args = parser.parse_args()
+    if args.scan:
+        report = scan_damiao_motors(
+            progress=lambda d, t, s: print(f"[{d}/{t}] {s}", flush=True),
+        )
+        print("接口:", report.get("ifaces"))
+        print("电机:", report.get("motors"))
+        print(report.get("hint", ""))
+        raise SystemExit(0)
 
     presets = {
         "1": dict(name="gripper1", interface="can0", can_id=0x103),

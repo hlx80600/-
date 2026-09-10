@@ -21,7 +21,10 @@
 | `monitor_frames.py` | 监控帧发布 |
 | `template_match.py` / `shape_match.py` | 模板 / 形状匹配 |
 | `belt_toe.py` / `cls_crop.py` | 皮带鞋头、分类裁切 |
-| `model_store.py` | 模型路径解析 |
+| `model_store.py` | 模型槽位、采图、train_cmd、导入旧权重 |
+| `ultralytics_runner.py` | Ultralytics 训练/验证/导出统一入口 |
+| `ultralytics_hparams.py` | 训练超参 yaml |
+| `label_io.py` | 检测 / OBB / 分割标签读写 |
 
 ---
 
@@ -34,7 +37,8 @@
 | `config/roi/camN.json` | 各相机 ROI |
 | `config/calib/` | 内参、手眼采样备份 |
 | `shoe_vision_config.json` | 生产用 cam1 皮带配置 |
-| `models/` | YOLO 权重（见 [models/readme.md](../models/readme.md)） |
+| `config/vision_schemes/` | 视觉方案流程图 yaml（调试预览，Station 不读） |
+| `datasets/<slot>/` | 训练数据与 `hparams.yaml` |
 
 ---
 
@@ -54,5 +58,5 @@ HMI：`hmi/pages/vision_snap_page.py` 挂在 **报警记录** 第四个页签「
 
 1. [algorithm_module/readme.md](../algorithm_module/readme.md) — API 与调用图  
 2. `vision_service.py`  
-3. HMI 视觉工作区：`hmi/pages/vision_workspace.py`  
+3. HMI 视觉工作区：`hmi/pages/vision_workspace.py`；采图训练五步台 `hmi/pages/dl_workbench.py`  
 4. 现场操作：[docs/界面操作手册.md](../docs/界面操作手册.md) § 视觉 / 手眼

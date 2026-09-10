@@ -8,7 +8,8 @@ yaml 结构：
     load_index: 1           # 上料工位绑定的电机序号 → ctx.gripper1
     unload_index: 2         # 下料工位绑定的电机序号 → ctx.gripper2
     motors:
-      "1": { interface, can_id, gripper_type, open_speed, close_speed, use_mock, label }
+      "1": { interface, can_id, gripper_type, open_speed, close_speed, use_mock, label, link_role }
+      # link_role: none | load | unload  （额外电机跟随上料或下料同时开合）
       "2": ...
     gripper1 / gripper2:    # 与 load/unload 同步的别名（兼容旧代码）
 
@@ -24,6 +25,9 @@ MAX_MOTORS = 99
 DEFAULT_GRIPPER_TYPE = 2
 DEFAULT_OPEN_SPEED = 50.0
 DEFAULT_CLOSE_SPEED = 50.0
+LINK_NONE = "none"
+LINK_LOAD = "load"
+LINK_UNLOAD = "unload"
 
 
 def _default_motor(index: int) -> Dict[str, Any]:
@@ -38,6 +42,7 @@ def _default_motor(index: int) -> Dict[str, Any]:
             "open_speed": DEFAULT_OPEN_SPEED,
             "close_speed": DEFAULT_CLOSE_SPEED,
             "use_mock": True,
+            "link_role": LINK_NONE,
         }
     if index == 2:
         return {
@@ -48,6 +53,7 @@ def _default_motor(index: int) -> Dict[str, Any]:
             "open_speed": 100.0,
             "close_speed": DEFAULT_CLOSE_SPEED,
             "use_mock": True,
+            "link_role": LINK_NONE,
         }
     return {
         "label": f"电机{index}",
@@ -57,6 +63,7 @@ def _default_motor(index: int) -> Dict[str, Any]:
         "open_speed": DEFAULT_OPEN_SPEED,
         "close_speed": DEFAULT_CLOSE_SPEED,
         "use_mock": True,
+        "link_role": LINK_NONE,
     }
 
 
@@ -78,6 +85,7 @@ def motor_cfg(grippers: Mapping[str, Any], index: int) -> Dict[str, Any]:
     if isinstance(raw, dict):
         out = _default_motor(index)
         out.update(raw)
+        out["link_role"] = normalize_link_role(out.get("link_role"))
         return out
     return _default_motor(index)
 
@@ -165,8 +173,35 @@ def write_motor(grippers: MutableMapping[str, Any], index: int, data: Mapping[st
     motors = grippers.setdefault("motors", {})
     cur = motor_cfg(grippers, i)
     cur.update(dict(data))
+    cur["link_role"] = normalize_link_role(cur.get("link_role"))
     motors[_motor_key(i)] = cur
     sync_role_aliases(grippers)
+
+
+def normalize_link_role(value: Any) -> str:
+    """额外电机联动：none / load（随上料） / unload（随下料/放料）。"""
+    text = str(value or LINK_NONE).strip().lower()
+    if text in ("load", "pick", "上料", "取料"):
+        return LINK_LOAD
+    if text in ("unload", "place", "下料", "放料"):
+        return LINK_UNLOAD
+    return LINK_NONE
+
+
+def role_motor_indices(grippers: Mapping[str, Any], role: str) -> list[int]:
+    """某角色要同时动的电机序号：主爪 + 选了跟随的额外电机。"""
+    count = max(1, min(MAX_MOTORS, _as_int(grippers.get("motor_count", 2), 2)))
+    load_i = max(1, min(count, _as_int(grippers.get("load_index", 1), 1)))
+    unload_i = max(1, min(count, _as_int(grippers.get("unload_index", 2), 2)))
+    want = LINK_UNLOAD if role == "unload" else LINK_LOAD
+    primary = unload_i if want == LINK_UNLOAD else load_i
+    out: list[int] = [primary]
+    for i in range(1, count + 1):
+        if i in (load_i, unload_i):
+            continue
+        if normalize_link_role(motor_cfg(grippers, i).get("link_role")) == want:
+            out.append(i)
+    return out
 
 
 def role_motor_index(grippers: Mapping[str, Any], role: str) -> int:

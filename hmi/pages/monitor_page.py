@@ -524,48 +524,73 @@ class MonitorPage(QWidget):
                 (self.btn_g2_close, "warn"),
             ]
         )
-        self.btn_g1_open.clicked.connect(lambda: self._grip_cmd(1, open_=True))
-        self.btn_g1_close.clicked.connect(lambda: self._grip_cmd(1, open_=False))
-        self.btn_g2_open.clicked.connect(lambda: self._grip_cmd(2, open_=True))
-        self.btn_g2_close.clicked.connect(lambda: self._grip_cmd(2, open_=False))
+        self.btn_g1_open.clicked.connect(lambda: self._grip_cmd(1, open_=True, together=False))
+        self.btn_g1_close.clicked.connect(lambda: self._grip_cmd(1, open_=False, together=False))
+        self.btn_g2_open.clicked.connect(lambda: self._grip_cmd(2, open_=True, together=False))
+        self.btn_g2_close.clicked.connect(lambda: self._grip_cmd(2, open_=False, together=False))
         gl.addWidget(self.btn_g1_open, 2, 0)
         gl.addWidget(self.btn_g1_close, 2, 1)
         gl.addWidget(self.btn_g2_open, 2, 4)
         gl.addWidget(self.btn_g2_close, 2, 5)
 
+        self.btn_g1_all_open = QPushButton("上料同时张开")
+        self.btn_g1_all_close = QPushButton("上料同时夹紧")
+        self.btn_g2_all_open = QPushButton("下料同时张开")
+        self.btn_g2_all_close = QPushButton("下料同时夹紧")
+        style_many(
+            [
+                (self.btn_g1_all_open, "success"),
+                (self.btn_g1_all_close, "warn"),
+                (self.btn_g2_all_open, "success"),
+                (self.btn_g2_all_close, "warn"),
+            ]
+        )
+        self.btn_g1_all_open.setToolTip("主爪 + 通信配置里选「随上料」的电机一起动")
+        self.btn_g1_all_close.setToolTip("主爪 + 通信配置里选「随上料」的电机一起动")
+        self.btn_g2_all_open.setToolTip("主爪 + 通信配置里选「随下料」的电机一起动")
+        self.btn_g2_all_close.setToolTip("主爪 + 通信配置里选「随下料」的电机一起动")
+        self.btn_g1_all_open.clicked.connect(lambda: self._grip_cmd(1, open_=True, together=True))
+        self.btn_g1_all_close.clicked.connect(lambda: self._grip_cmd(1, open_=False, together=True))
+        self.btn_g2_all_open.clicked.connect(lambda: self._grip_cmd(2, open_=True, together=True))
+        self.btn_g2_all_close.clicked.connect(lambda: self._grip_cmd(2, open_=False, together=True))
+        gl.addWidget(self.btn_g1_all_open, 3, 0)
+        gl.addWidget(self.btn_g1_all_close, 3, 1)
+        gl.addWidget(self.btn_g2_all_open, 3, 4)
+        gl.addWidget(self.btn_g2_all_close, 3, 5)
+
         self.lbl_grip_spd1_open = QLabel()
-        gl.addWidget(self.lbl_grip_spd1_open, 3, 0)
+        gl.addWidget(self.lbl_grip_spd1_open, 4, 0)
         self.sp_g1_open_spd = QDoubleSpinBox()
         self.sp_g1_open_spd.setRange(1.0, 200.0)
         self.sp_g1_open_spd.setDecimals(1)
         self.sp_g1_open_spd.setSingleStep(5.0)
         self.sp_g1_open_spd.setValue(float(self.ctx.gripper1.open_speed))
-        gl.addWidget(self.sp_g1_open_spd, 3, 1)
+        gl.addWidget(self.sp_g1_open_spd, 4, 1)
         self.lbl_grip_spd1_close = QLabel()
-        gl.addWidget(self.lbl_grip_spd1_close, 3, 2)
+        gl.addWidget(self.lbl_grip_spd1_close, 4, 2)
         self.sp_g1_close_spd = QDoubleSpinBox()
         self.sp_g1_close_spd.setRange(1.0, 200.0)
         self.sp_g1_close_spd.setDecimals(1)
         self.sp_g1_close_spd.setSingleStep(5.0)
         self.sp_g1_close_spd.setValue(float(self.ctx.gripper1.close_speed))
-        gl.addWidget(self.sp_g1_close_spd, 3, 3)
+        gl.addWidget(self.sp_g1_close_spd, 4, 3)
 
         self.lbl_grip_spd2_open = QLabel()
-        gl.addWidget(self.lbl_grip_spd2_open, 4, 0)
+        gl.addWidget(self.lbl_grip_spd2_open, 5, 0)
         self.sp_g2_open_spd = QDoubleSpinBox()
         self.sp_g2_open_spd.setRange(1.0, 200.0)
         self.sp_g2_open_spd.setDecimals(1)
         self.sp_g2_open_spd.setSingleStep(5.0)
         self.sp_g2_open_spd.setValue(float(self.ctx.gripper2.open_speed))
-        gl.addWidget(self.sp_g2_open_spd, 4, 1)
+        gl.addWidget(self.sp_g2_open_spd, 5, 1)
         self.lbl_grip_spd2_close = QLabel()
-        gl.addWidget(self.lbl_grip_spd2_close, 4, 2)
+        gl.addWidget(self.lbl_grip_spd2_close, 5, 2)
         self.sp_g2_close_spd = QDoubleSpinBox()
         self.sp_g2_close_spd.setRange(1.0, 200.0)
         self.sp_g2_close_spd.setDecimals(1)
         self.sp_g2_close_spd.setSingleStep(5.0)
         self.sp_g2_close_spd.setValue(float(self.ctx.gripper2.close_speed))
-        gl.addWidget(self.sp_g2_close_spd, 4, 3)
+        gl.addWidget(self.sp_g2_close_spd, 5, 3)
 
         for sp in (
             self.sp_g1_open_spd,
@@ -579,7 +604,7 @@ class MonitorPage(QWidget):
         self.btn_grip_spd_save = QPushButton("保存夹爪速度到 yaml")
         style_button(self.btn_grip_spd_save, "primary")
         self.btn_grip_spd_save.clicked.connect(self._save_grip_speeds)
-        gl.addWidget(self.btn_grip_spd_save, 5, 0, 1, 4)
+        gl.addWidget(self.btn_grip_spd_save, 6, 0, 1, 4)
 
         # 压鞋机 / 转盘手动（现场点检；自动跑 Station6 时勿同时猛点）
         press_box = QGroupBox(
@@ -1163,8 +1188,8 @@ class MonitorPage(QWidget):
             "点位页可为单点覆盖 T/R；取放终点仍强制到位。",
         )
 
-    def _grip_cmd(self, which: int, *, open_: bool) -> None:
-        """监视页夹爪手动：阻塞等张开/夹紧完成。"""
+    def _grip_cmd(self, which: int, *, open_: bool, together: bool = True) -> None:
+        """监视页夹爪手动。together=True 时主爪与跟随电机同时动。"""
         if self._grip_auto_locked():
             QMessageBox.information(
                 self,
@@ -1172,9 +1197,13 @@ class MonitorPage(QWidget):
                 "自动连续运行中请先暂停/停止，再手动开合夹爪。",
             )
             return
-        g = self.ctx.gripper1 if which == 1 else self.ctx.gripper2
+        if together:
+            g = self.ctx.gripper1 if which == 1 else self.ctx.gripper2
+        else:
+            g = self.ctx.gripper_primary(which)
         rk = "robot1" if which == 1 else "robot2"
         name = "上料" if which == 1 else "下料"
+        tag = "同时" if together else ""
         try:
             # 发令前同步当前速度旋钮
             self._apply_grip_speeds_from_ui()
@@ -1185,7 +1214,7 @@ class MonitorPage(QWidget):
                 QMessageBox.warning(
                     self,
                     "夹爪",
-                    f"{name}夹爪{'张开' if open_ else '夹紧'}失败: {g.last_error or '无反馈确认'}",
+                    f"{name}夹爪{tag}{'张开' if open_ else '夹紧'}失败: {g.last_error or '无反馈确认'}",
                 )
             self._refresh_grip_labels()
         except Exception as e:
@@ -1284,6 +1313,11 @@ class MonitorPage(QWidget):
         self.btn_g1_close.setEnabled(not locked and not g1.busy)
         self.btn_g2_open.setEnabled(not locked and not g2.busy)
         self.btn_g2_close.setEnabled(not locked and not g2.busy)
+        if hasattr(self, "btn_g1_all_open"):
+            self.btn_g1_all_open.setEnabled(not locked and not g1.busy)
+            self.btn_g1_all_close.setEnabled(not locked and not g1.busy)
+            self.btn_g2_all_open.setEnabled(not locked and not g2.busy)
+            self.btn_g2_all_close.setEnabled(not locked and not g2.busy)
 
     def _slot_ui_editable(self) -> bool:
         """非自动运行：槽号、顺序可改。"""

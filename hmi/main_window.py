@@ -391,6 +391,7 @@ class MainWindow(QMainWindow):
         self.retranslate_ui()
 
         self._last_popup_code = None
+        self._alarm_dlg_open = False
         self._fitted = False
         self._scale_timer = QTimer(self)
         self._scale_timer.setSingleShot(True)
@@ -664,20 +665,27 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # exec() 会进嵌套事件循环，定时器仍会再进本函数；不加锁会叠一堆同内容弹窗。
+        if getattr(self, "_alarm_dlg_open", False):
+            return
         popup = self.ctx.alarms.pop_popup()
         if popup and popup.code != "LINK":
-            show_copyable_alarm(
-                self,
-                code=popup.code,
-                station=popup.station,
-                step=popup.step,
-                message=popup.message,
-                time=popup.time,
-                extra=(
-                    "若含「路径：从…→…」请到「点位偏移」检查这两点或增加过渡点后用路径试跑。\n"
-                    "复位后从失败步重试。"
-                ),
-            )
+            self._alarm_dlg_open = True
+            try:
+                show_copyable_alarm(
+                    self,
+                    code=popup.code,
+                    station=popup.station,
+                    step=popup.step,
+                    message=popup.message,
+                    time=popup.time,
+                    extra=(
+                        "若含「路径：从…→…」请到「点位偏移」检查这两点或增加过渡点后用路径试跑。\n"
+                        "复位后从失败步重试。"
+                    ),
+                )
+            finally:
+                self._alarm_dlg_open = False
 
     def _refresh(self) -> None:
         """兼容旧调用：等同慢刷。"""

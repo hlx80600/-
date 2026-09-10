@@ -53,9 +53,22 @@ class AlarmManager:
     ) -> None:
         item = AlarmItem(code=code, message=message, station=station, step=step)
         with self._lock:
+            same_active = (
+                self.active is not None
+                and self.active.code == item.code
+                and self.active.station == item.station
+                and self.active.message == item.message
+            )
+            already_queued = any(
+                q.code == item.code
+                and q.station == item.station
+                and q.message == item.message
+                for q in self._popup_queue
+            )
             self.active = item
             self.history.appendleft(item)
-            if popup:
+            # 同一条报警只入队一次。夹爪 CAN 重连失败会每几秒再 raise，否则弹窗关不掉。
+            if popup and not same_active and not already_queued:
                 self._popup_queue.append(item)
         try:
             from core.blackbox import record_alarm
@@ -65,7 +78,8 @@ class AlarmManager:
             )
         except Exception:
             pass
-        log.error("报警 [%s] %s@%s %s", code, station, step, message)
+        if not same_active:
+            log.error("报警 [%s] %s@%s %s", code, station, step, message)
         self._notify()
 
     def note_event(
@@ -94,13 +108,25 @@ class AlarmManager:
             if item:
                 item.active = False
             self.active = None
+            self._popup_queue.clear()
         self._notify()
         return item
 
     def pop_popup(self) -> Optional[AlarmItem]:
         with self._lock:
             if self._popup_queue:
-                return self._popup_queue.popleft()
+                item = self._popup_queue.popleft()
+                # 丢掉队列里同一条（重连期间可能已堆了多条）
+                rest = deque()
+                for q in self._popup_queue:
+                    if not (
+                        q.code == item.code
+                        and q.station == item.station
+                        and q.message == item.message
+                    ):
+                        rest.append(q)
+                self._popup_queue = rest
+                return item
             return None
 
     @property

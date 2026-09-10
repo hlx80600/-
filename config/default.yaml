@@ -121,36 +121,49 @@ grippers:
   motors:
     '1':
       label: 上料
+      interface: /dev/ttyACM0
+      can_id: 257
+      gripper_type: 2
+      open_speed: 50.0
+      close_speed: 50.0
+      use_mock: true
+      link_role: none
+    '2':
+      label: 下料
+      interface: /dev/ttyACM0
+      can_id: 257
+      gripper_type: 2
+      open_speed: 100.0
+      close_speed: 50.0
+      use_mock: true
+      link_role: none
+    '3':
+      label: 电机3
       interface: can0
       can_id: 259
       gripper_type: 2
       open_speed: 50.0
       close_speed: 50.0
       use_mock: true
-    '2':
-      label: 下料
-      interface: can1
-      can_id: 257
-      gripper_type: 2
-      open_speed: 100.0
-      close_speed: 50.0
-      use_mock: true
+      link_role: load
   gripper1:
     label: 上料
-    interface: can0
-    can_id: 259
+    interface: /dev/ttyACM0
+    can_id: 257
     gripper_type: 2
     open_speed: 50.0
     close_speed: 50.0
     use_mock: true
+    link_role: none
   gripper2:
     label: 下料
-    interface: can1
+    interface: /dev/ttyACM0
     can_id: 257
     gripper_type: 2
     open_speed: 100.0
     close_speed: 50.0
     use_mock: true
+    link_role: none
 press:
   ip: 192.168.52.2
   port: 502

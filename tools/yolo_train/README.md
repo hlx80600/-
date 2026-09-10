@@ -15,7 +15,33 @@
 
 建议**先用旧模型跑通**，再按相机场景自训/微调。分类（槽、对位、左右脚）最好训；OBB 标注量大，可先旧模型，再采本机图微调。
 
-现场不必用命令行：HMI「视觉采图」点「左右脚采图/训练」可重采左右脚（自动抠鞋、鞋头朝上）并训练；也可挂旧模型、训其它分类、写 json 手眼、测皮带。本 README 仍是命令行备查。
+现场用 HMI「视觉 → 采图训练 → 模型」导入旧资产：
+
+- **挂接旧模型**：软链 `压鞋机_旧/.../models`（可选手选目录）。只补缺失项，不覆盖已有文件和 `custom_*.pt`。
+- **一键从旧工程**：默认工程根；若有 `datasets/`、`runs/` 会询问是否按槽位名一并拷入。不改产线配置。
+- **导入权重**：`.pt` 或含 `best.pt`/`last.pt` 的 runs 目录；可选立即启用到产线。
+- **导入数据集**：分类 `train/<类名>/` 或 `images/`+`labels/`；类名对不上会提示，不自动改名。
+- **导入 runs**：曲线 + last.pt，便于续训。
+- **选用已有.pt / 拷到 models/**：直接写当前槽配置（6 个产线槽）。
+- **启用到产线**：自定义工程必须映射到 6 槽之一。先「验证」再启用。
+
+命令行挂接：
+
+```bash
+bash tools/yolo_train/link_legacy_models.sh
+# bash tools/yolo_train/link_legacy_models.sh /path/to/Casbot_Press_Shoes-main/models
+```
+
+```bash
+# 训练（超参在 datasets/<slot>/hparams.yaml）
+python3 vision/ultralytics_runner.py train --slot slot_check
+python3 vision/ultralytics_runner.py val --slot slot_check
+python3 vision/ultralytics_runner.py export --weights models/slot_check/custom_slot_check.pt --format onnx
+```
+
+旧脚本 `train_classify.py` / `train_obb.py` 已改为调用同一入口。
+
+HMI「视觉方案」是精简流程图（图像源/ROI/深度学习/手眼/输出），只预览，不改产线 GVL。
 
 ## 0. 环境
 
@@ -92,7 +118,7 @@ python3 tools/yolo_train/train_classify.py --task slot_check --epochs 80
 ### 2.4 OBB 标注与训练
 
 1. 采集：`capture_dataset.py --task shoe_obb`  
-2. 用 [Roboflow](https://roboflow.com)、CVAT 或支持 YOLO-OBB 的标注工具标旋转框  
+HMI 标注画布支持检测矩形、旋转框、分割多边形（多类）。命令行仍可用 Roboflow/CVAT 导出 YOLO 格式后拷进 `datasets/<slot>/`。
 3. 导出到：
 
 ```text

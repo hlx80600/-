@@ -1,0 +1,32 @@
+name: belt_preset
+readonly_hint: 产线默认链路只读预设。Station 暂不读本文件；HMI「运行一次」只预览。
+nodes:
+  - id: src
+    type: image_source
+    cam: cam1
+    x: 40
+    y: 80
+  - id: roi
+    type: roi
+    cam: cam1
+    x: 220
+    y: 80
+  - id: dl
+    type: deep_learn
+    slot: shoe_obb
+    x: 400
+    y: 80
+  - id: he
+    type: handeye
+    cam: cam1
+    x: 580
+    y: 80
+  - id: out
+    type: pose_out
+    x: 760
+    y: 80
+edges:
+  - [src, roi]
+  - [roi, dl]
+  - [dl, he]
+  - [he, out]

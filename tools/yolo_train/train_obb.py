@@ -72,7 +72,7 @@ def _ensure_data_yaml(data_dir: Path, names: dict) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--task", choices=sorted(TASK_CFG.keys()), required=True)
-    ap.add_argument("--data", type=Path, default=None, help="data.yaml 路径")
+    ap.add_argument("--data", type=Path, default=None, help="data.yaml 路径（默认用槽位 datasets/）")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--imgsz", type=int, default=640)
     ap.add_argument("--batch", type=int, default=8)
@@ -81,52 +81,27 @@ def main() -> None:
     ap.add_argument("--no-install", action="store_true")
     args = ap.parse_args()
 
-    try:
-        from ultralytics import YOLO
-    except ImportError as e:
-        raise SystemExit(
-            "未安装 ultralytics。先执行：\n"
-            "  python3 -m pip install --user ultralytics torch torchvision\n"
-            f"详情: {e}"
-        ) from e
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from vision import ultralytics_hparams as uhp
+    from vision.ultralytics_runner import cmd_train, ensure_data_yaml
 
-    cfg = TASK_CFG[args.task]
-    if args.data:
-        data_yaml = args.data.resolve()
+    if args.data is None:
+        ensure_data_yaml(args.task)
     else:
-        data_yaml = _ensure_data_yaml(cfg["data_dir"], cfg["names"])
-    if not data_yaml.exists():
-        raise SystemExit(f"找不到 {data_yaml}")
+        print(f"提示：统一入口使用 datasets/{args.task}/data.yaml；传入的 {args.data} 仅作提示")
+        _ensure_data_yaml(TASK_CFG[args.task]["data_dir"], TASK_CFG[args.task]["names"])
 
-    base = args.base or cfg["base"]
-    device = args.device or None
-    print(f"任务={args.task}  data={data_yaml}  基座={base}")
-    print(
-        "注意：皮带 ShoeVision 生产栈若用 casbot ultralytics_obb360，"
-        "标准 yolov8-obb 权重需在该环境验证；槽分类/鞋头对位无此限制。"
-    )
-    model = YOLO(base)
-    results = model.train(
-        data=str(data_yaml),
-        epochs=int(args.epochs),
-        imgsz=int(args.imgsz),
-        batch=int(args.batch),
-        project=str(ROOT / "runs" / "obb"),
-        name=args.task,
-        exist_ok=True,
-        device=device,
-    )
-    save_dir = Path(getattr(results, "save_dir", ROOT / "runs" / "obb" / args.task))
-    best = save_dir / "weights" / "best.pt"
-    if not best.exists():
-        cands = list((ROOT / "runs" / "obb" / args.task).rglob("best.pt"))
-        best = cands[0] if cands else best
-    print(f"训练完成: {best}")
-    if not args.no_install and best.exists():
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from install_model import install_pt
-
-        install_pt(best, cfg["install"], task=args.task)
+    hp = uhp.load_hparams(args.task, task="obb")
+    hp["epochs"] = int(args.epochs)
+    hp["imgsz"] = int(args.imgsz)
+    hp["batch"] = int(args.batch)
+    if args.device:
+        hp["device"] = args.device
+    if args.base:
+        hp["model"] = args.base
+    path = uhp.save_hparams(args.task, hp)
+    raise SystemExit(cmd_train(args.task, path, no_install=bool(args.no_install)))
 
 
 if __name__ == "__main__":

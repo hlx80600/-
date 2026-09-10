@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QTableWidget,
@@ -26,8 +28,18 @@ from core.app_context import device_use_mock
 from core.camera_config import resolve_enable_depth
 from core.config_loader import save_config
 from core.coordinator import Coordinator
-from devices.gripper_bank import MAX_MOTORS, motor_cfg, normalize_grippers_cfg, write_motor
+from devices.gripper_bank import (
+    LINK_LOAD,
+    LINK_NONE,
+    LINK_UNLOAD,
+    MAX_MOTORS,
+    motor_cfg,
+    normalize_grippers_cfg,
+    normalize_link_role,
+    write_motor,
+)
 from hmi import i18n
+from hmi.pages.can_motor_scan import run_can_motor_scan
 from hmi.scroll_util import disable_tab_bar_wheel
 from hmi.style import apply_page_chrome, hbox_pair, style_button
 
@@ -132,22 +144,38 @@ class ConfigPage(QWidget):
         row_cnt.addWidget(self.sp_motor_count)
         row_cnt.addWidget(QLabel("上料绑定序号"))
         self.sp_load_idx = _spin_int(1, MAX_MOTORS, int(gcfg.get("load_index", 1)))
+        self.sp_load_idx.valueChanged.connect(self._rebuild_motor_table)
         row_cnt.addWidget(self.sp_load_idx)
         row_cnt.addWidget(QLabel("下料绑定序号"))
         self.sp_unload_idx = _spin_int(1, MAX_MOTORS, int(gcfg.get("unload_index", 2)))
+        self.sp_unload_idx.valueChanged.connect(self._rebuild_motor_table)
         row_cnt.addWidget(self.sp_unload_idx)
+        self.btn_scan_motors = QPushButton("扫描电机")
+        style_button(self.btn_scan_motors, "primary")
+        self.btn_scan_motors.setToolTip(
+            "探测本机 can0/can1 上的达妙电机，把接口和 can_id 填入下表（需再保存）"
+        )
+        self.btn_scan_motors.clicked.connect(self._scan_can_motors)
+        row_cnt.addWidget(self.btn_scan_motors)
         row_cnt.addStretch(1)
         vg.addLayout(row_cnt)
         vg.addWidget(
             QLabel(
-                "工位仍用夹爪1=上料绑定、夹爪2=下料绑定；其余启用电机可后续扩展流程调用。"
+                "CAN接口：SocketCAN 填 can0；达妙官方 USB 转 CAN 填 /dev/ttyACM0。"
+                "额外电机在「联动」选随上料或随下料，会与对应主爪同时张开/夹紧。"
             )
         )
-        self.tbl_motors = QTableWidget(0, 7)
+        self.tbl_motors = QTableWidget(0, 8)
         self.tbl_motors.setHorizontalHeaderLabels(
-            ["序号", "名称", "CAN接口", "can_id(hex)", "type", "开/合速度", "模拟"]
+            ["序号", "名称", "CAN接口", "can_id(hex)", "type", "开/合速度", "联动", "模拟"]
         )
-        self.tbl_motors.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        hdr = self.tbl_motors.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.Stretch)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        self.tbl_motors.verticalHeader().setDefaultSectionSize(40)
+        self.tbl_motors.verticalHeader().setVisible(False)
         self.tbl_motors.setMinimumHeight(140)
         vg.addWidget(self.tbl_motors)
         self._rebuild_motor_table()
@@ -375,22 +403,126 @@ class ConfigPage(QWidget):
         normalize_grippers_cfg(cfg)
         self.tbl_motors.setRowCount(count)
         sys_def = bool((cfg.get("system") or {}).get("use_mock", True))
+        load_i = int(self.sp_load_idx.value())
+        unload_i = int(self.sp_unload_idx.value())
         for r in range(count):
             i = r + 1
             m = motor_cfg(gcfg, i)
-            it_idx = QTableWidgetItem(str(i))
-            it_idx.setFlags(it_idx.flags() & ~Qt.ItemIsEditable)
-            self.tbl_motors.setItem(r, 0, it_idx)
-            self.tbl_motors.setItem(r, 1, QTableWidgetItem(str(m.get("label", f"电机{i}"))))
-            self.tbl_motors.setItem(r, 2, QTableWidgetItem(str(m.get("interface", "can0"))))
-            self.tbl_motors.setItem(r, 3, QTableWidgetItem(f"0x{int(m.get('can_id', 0)):X}"))
-            self.tbl_motors.setItem(r, 4, QTableWidgetItem(str(int(m.get("gripper_type", 2)))))
             op = float(m.get("open_speed", 50))
             cl = float(m.get("close_speed", 50))
-            self.tbl_motors.setItem(r, 5, QTableWidgetItem(f"{op:g}/{cl:g}"))
+            it_idx = QTableWidgetItem(str(i))
+            it_idx.setFlags(it_idx.flags() & ~Qt.ItemIsEditable)
+            it_idx.setTextAlignment(Qt.AlignCenter)
+            self.tbl_motors.setItem(r, 0, it_idx)
+            for col, text in (
+                (1, str(m.get("label", f"电机{i}"))),
+                (2, str(m.get("interface", "can0"))),
+                (3, f"0x{int(m.get('can_id', 0)):X}"),
+                (4, str(int(m.get("gripper_type", 2)))),
+                (5, f"{op:g}/{cl:g}"),
+            ):
+                cell = QTableWidgetItem(text)
+                cell.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+                self.tbl_motors.setItem(r, col, cell)
+            cmb = self._make_link_combo(
+                is_load_master=(i == load_i),
+                is_unload_master=(i == unload_i and i != load_i),
+                role=m.get("link_role"),
+            )
+            self.tbl_motors.setCellWidget(r, 6, self._fill_cell(cmb))
             chk = QCheckBox("模拟")
             chk.setChecked(device_use_mock(m, sys_def))
-            self.tbl_motors.setCellWidget(r, 6, chk)
+            self.tbl_motors.setCellWidget(r, 7, self._fill_cell(chk, center=True))
+            self.tbl_motors.setRowHeight(r, 40)
+
+    def _fill_cell(self, inner: QWidget, *, center: bool = False) -> QWidget:
+        """让下拉框/勾选框铺满单元格，避免浮在格子中间对不齐。"""
+        wrap = QWidget()
+        lay = QHBoxLayout(wrap)
+        lay.setContentsMargins(4, 4, 4, 4)
+        lay.setSpacing(0)
+        if center:
+            lay.addStretch(1)
+            inner.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            lay.addWidget(inner, 0, Qt.AlignVCenter)
+            lay.addStretch(1)
+        else:
+            inner.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            lay.addWidget(inner)
+        return wrap
+
+    def _cell_combo(self, row: int) -> QComboBox | None:
+        w = self.tbl_motors.cellWidget(row, 6)
+        if isinstance(w, QComboBox):
+            return w
+        if w is not None:
+            return w.findChild(QComboBox)
+        return None
+
+    def _cell_mock(self, row: int) -> QCheckBox | None:
+        w = self.tbl_motors.cellWidget(row, 7)
+        if isinstance(w, QCheckBox):
+            return w
+        if w is not None:
+            return w.findChild(QCheckBox)
+        return None
+
+    def _make_link_combo(
+        self,
+        *,
+        is_load_master: bool,
+        is_unload_master: bool,
+        role: object,
+    ) -> QComboBox:
+        cmb = QComboBox()
+        cmb.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        cmb.setMinimumWidth(0)
+        if is_load_master:
+            cmb.addItem("上料主爪", LINK_NONE)
+            cmb.setEnabled(False)
+            return cmb
+        if is_unload_master:
+            cmb.addItem("下料主爪", LINK_NONE)
+            cmb.setEnabled(False)
+            return cmb
+        cmb.addItem("单独", LINK_NONE)
+        cmb.addItem("随上料同时动", LINK_LOAD)
+        cmb.addItem("随下料同时动", LINK_UNLOAD)
+        want = normalize_link_role(role)
+        for i in range(cmb.count()):
+            if cmb.itemData(i) == want:
+                cmb.setCurrentIndex(i)
+                break
+        return cmb
+
+    def _scan_can_motors(self) -> None:
+        """扫描 SocketCAN 达妙电机，写入当前表格（不自动保存）。"""
+        hits = run_can_motor_scan(self)
+        if hits is None:
+            return
+        if not hits:
+            return
+        need = min(len(hits), MAX_MOTORS)
+        if need > int(self.sp_motor_count.value()):
+            self.sp_motor_count.setValue(need)
+        for r, m in enumerate(hits):
+            if r >= self.tbl_motors.rowCount():
+                break
+            self.tbl_motors.setItem(
+                r, 2, QTableWidgetItem(str(m.get("interface") or "can0"))
+            )
+            self.tbl_motors.setItem(
+                r, 3, QTableWidgetItem(f"0x{int(m.get('can_id', 0)):X}")
+            )
+            chk = self._cell_mock(r)
+            if chk is not None:
+                chk.setChecked(False)
+        QMessageBox.information(
+            self,
+            "扫描电机",
+            f"已写入前 {min(len(hits), self.tbl_motors.rowCount())} 行（已取消模拟）。\n"
+            "请核对 CAN 口与 ID 后点保存。同一块 USB 转 CAN 上的多台电机应共用 can0。",
+        )
 
     def _parse_can_id(self, text: str) -> int:
         s = (text or "").strip().lower()
@@ -416,8 +548,12 @@ class ConfigPage(QWidget):
                 gtype = int(_cell(4) or "2")
             except ValueError:
                 gtype = 2
-            chk = self.tbl_motors.cellWidget(r, 6)
-            use_mock = bool(chk.isChecked()) if isinstance(chk, QCheckBox) else True
+            chk = self._cell_mock(r)
+            use_mock = bool(chk.isChecked()) if chk is not None else True
+            cmb = self._cell_combo(r)
+            link_role = LINK_NONE
+            if cmb is not None and cmb.isEnabled():
+                link_role = normalize_link_role(cmb.currentData())
             write_motor(
                 gcfg,
                 i,
@@ -429,6 +565,7 @@ class ConfigPage(QWidget):
                     "open_speed": open_spd,
                     "close_speed": close_spd,
                     "use_mock": use_mock,
+                    "link_role": link_role,
                 },
             )
 
@@ -490,8 +627,6 @@ class ConfigPage(QWidget):
         gcfg["unload_index"] = int(self.sp_unload_idx.value())
         self._collect_motor_table_into(gcfg)
         normalize_grippers_cfg(cfg)
-        g1 = gcfg["gripper1"]
-        g2 = gcfg["gripper2"]
 
         # 压机
         press = cfg.setdefault("press", {})
@@ -549,19 +684,22 @@ class ConfigPage(QWidget):
             int(r1["di_belt_sensor"]), bool(r1.get("di_belt_use_mock", True))
         )
 
-        # 夹爪：按绑定序号刷新 gripper1/2；数量变更建议重启
-        self.ctx.gripper1.use_mock = bool(g1["use_mock"])
-        self.ctx.gripper2.use_mock = bool(g2["use_mock"])
-        self.ctx.gripper1.interface = str(g1["interface"])
-        self.ctx.gripper2.interface = str(g2["interface"])
-        self.ctx.gripper1.can_id = int(g1["can_id"])
-        self.ctx.gripper2.can_id = int(g2["can_id"])
-        self.ctx.gripper1.gripper_type = int(g1["gripper_type"])
-        self.ctx.gripper2.gripper_type = int(g2["gripper_type"])
-        self.ctx.gripper1.set_speeds(float(g1["open_speed"]), float(g1["close_speed"]))
-        self.ctx.gripper2.set_speeds(float(g2["open_speed"]), float(g2["close_speed"]))
-        self.ctx.gripper1.connect()
-        self.ctx.gripper2.connect()
+        # 夹爪：刷新各路实例并按「联动」绑组（改数量后仍建议重启）
+        bank = getattr(self.ctx, "grippers", {}) or {}
+        motors = gcfg.get("motors") or {}
+        count = int(gcfg.get("motor_count", 2))
+        for i in range(1, count + 1):
+            inst = bank.get(i)
+            m = motors.get(str(i)) or motors.get(i) or {}
+            if inst is None or not isinstance(m, dict):
+                continue
+            inst.use_mock = bool(m.get("use_mock", True))
+            inst.interface = str(m.get("interface") or "can0")
+            inst.can_id = int(m.get("can_id") or 0)
+            inst.gripper_type = int(m.get("gripper_type") or 2)
+            inst.set_speeds(float(m.get("open_speed", 50)), float(m.get("close_speed", 50)))
+            inst.connect()
+        self.ctx.bind_gripper_groups()
 
         self.ctx.press.cfg = press
         self.ctx.press.use_mock = bool(press["use_mock"])

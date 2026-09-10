@@ -32,6 +32,8 @@
 |------|------|
 | `pages/monitor_page.py` | 运行监控 |
 | `pages/vision_hub_page.py` / `vision_workspace.py` | 视觉中心 |
+| `pages/dl_workbench.py` | 采图训练五步工作台（Ultralytics） |
+| `pages/vision_scheme_page.py` | 视觉方案流程图（调试预览） |
 | `pages/vision_snap_page.py` | 运行快照历史（图 + 运送结果；嵌在报警记录页） |
 | `pages/points_page.py` | 示教点位 |
 | `pages/jog_pendant.py` | 独立示教器窗口（点动封装） |
