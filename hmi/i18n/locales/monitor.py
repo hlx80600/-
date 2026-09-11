@@ -34,6 +34,11 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.light.red": "红",
         "monitor.light.yellow": "黄",
         "monitor.light.green": "绿",
+        "tower.title": "三色灯",
+        "tower.tip": (
+            "绿常亮＝自动运行；黄+绿＝初始化完成可启动；黄常亮＝停止/未初始化；"
+            "黄闪＝初始化中/暂停/单步；红常亮＝报警；红闪＝急停。"
+        ),
         "monitor.state.label": "状态: {state}  |  {init}  |  {msg}",
         "monitor.state.init_ok": "已初始化",
         "monitor.state.init_no": "未初始化",
@@ -262,6 +267,11 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.light.red": "Red",
         "monitor.light.yellow": "Yellow",
         "monitor.light.green": "Green",
+        "tower.title": "Stack lights",
+        "tower.tip": (
+            "Green steady = auto running; yellow+green = READY to start; yellow steady = stopped/idle; "
+            "yellow blink = initializing/paused/step; red steady = alarm; red blink = E-stop."
+        ),
         "monitor.state.label": "State: {state}  |  {init}  |  {msg}",
         "monitor.state.init_ok": "Initialized",
         "monitor.state.init_no": "Not initialized",

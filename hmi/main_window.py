@@ -32,6 +32,7 @@ from hmi.clock_label import ClockLabel
 from hmi.logo_label import NAV_PX, LogoLabel, apply_window_icon
 from hmi.style import apply_page_chrome, chrome_qss, restyle_role_buttons, style_button
 from hmi.tab_titles import T, nav_title
+from hmi.tower_light_bar import TowerLightBar
 
 
 def _build_app_qss(font_family: str) -> str:
@@ -120,6 +121,13 @@ QWidget#pageHeader {{
     background: #e8eef3;
     border: 1px solid #c5d0dc;
     border-radius: {px(6)}px;
+    min-height: {px(96, min_v=84)}px;
+}}
+QWidget#towerLightBar {{
+    background: #ffffff;
+    border: 2px solid #1a5276;
+    border-radius: {px(10)}px;
+    padding: {px(4)}px {px(12)}px;
 }}
 QLabel#pageTitle {{
     font-size: {fpx(17, min_v=14)}px;
@@ -304,7 +312,7 @@ class MainWindow(QMainWindow):
         header.setObjectName("pageHeader")
         cam_bar = QHBoxLayout(header)
         cam_bar.setContentsMargins(
-            ui_scale.px(10), ui_scale.px(6), ui_scale.px(12), ui_scale.px(6)
+            ui_scale.px(10), ui_scale.px(8), ui_scale.px(12), ui_scale.px(8)
         )
         cam_bar.setSpacing(ui_scale.px(10))
         self.btn_cam_win = QPushButton()
@@ -320,6 +328,9 @@ class MainWindow(QMainWindow):
         self.lbl_page = QLabel()
         self.lbl_page.setObjectName("pageTitle")
         cam_bar.addWidget(self.lbl_page, 0)
+        cam_bar.addStretch(1)
+        self.tower_lights = TowerLightBar()
+        cam_bar.addWidget(self.tower_lights, 0)
         cam_bar.addStretch(1)
         self.lbl_clock = ClockLabel()
         cam_bar.addWidget(self.lbl_clock, 0)
@@ -423,9 +434,10 @@ class MainWindow(QMainWindow):
         )
         self._right_lay.setSpacing(ui_scale.px(8))
         self._header_lay.setContentsMargins(
-            ui_scale.px(10), ui_scale.px(6), ui_scale.px(12), ui_scale.px(6)
+            ui_scale.px(10), ui_scale.px(8), ui_scale.px(12), ui_scale.px(8)
         )
         self._header_lay.setSpacing(ui_scale.px(10))
+        self.tower_lights.apply_ui_scale()
         restyle_role_buttons(self)
         for w in self.findChildren(QWidget):
             ss = w.styleSheet() or ""
@@ -583,6 +595,7 @@ class MainWindow(QMainWindow):
         self.btn_cam_win.setToolTip(i18n.tr("nav.cam_monitor_tip"))
         self.btn_jog_win.setText(i18n.tr("nav.jog_btn"))
         self.btn_jog_win.setToolTip(i18n.tr("nav.jog_tip"))
+        self.tower_lights.retranslate_ui()
         row = int(self.nav.currentRow())
         for i, nav_id in enumerate(self._nav_ids):
             item = self.nav.item(i)
@@ -642,6 +655,10 @@ class MainWindow(QMainWindow):
             pass
 
     def _fast_refresh(self) -> None:
+        try:
+            self.tower_lights.apply_snapshot(self.ctx.lights.snapshot())
+        except Exception:
+            pass
         nav_id = self._current_nav_id()
         fn = self._page_fast_refreshers.get(nav_id)
         if fn is not None:

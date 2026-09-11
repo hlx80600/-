@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.press_modbus import WORK_STATUS_NAMES
+from hmi.pages.cas_plc_points_page import CasPlcPointsWidget
+from hmi.scroll_util import wrap_in_scroll
 from hmi.style import apply_page_chrome, hbox_pair, style_button
 
 SLOT_ADDR_ROWS = [
@@ -63,7 +65,17 @@ class PressIoPage(QWidget):
         self.slot_spins: dict[int, dict[str, QSpinBox]] = {}
         self.lbl_slot_live: dict[int, QLabel] = {}
 
-        root = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.tabs = QTabWidget()
+        outer.addWidget(self.tabs)
+
+        self.cas_page = CasPlcPointsWidget(coord)
+        self.tabs.addTab(wrap_in_scroll(self.cas_page), "中科院点表")
+
+        legacy = QWidget()
+        self.tabs.addTab(wrap_in_scroll(legacy), "槽号与旧地址")
+        root = QVBoxLayout(legacy)
 
         box_live = QGroupBox("接收信号 RX（实时）")
         vl = QVBoxLayout(box_live)
@@ -389,6 +401,10 @@ class PressIoPage(QWidget):
     def refresh(self) -> None:
         if not self.isVisible():
             return
+        try:
+            self.cas_page.refresh()
+        except Exception:
+            pass
         p = self.ctx.press
         try:
             p.refresh_inputs()

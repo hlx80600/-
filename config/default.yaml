@@ -180,6 +180,8 @@ press:
   addr_cmd_rotate: 10
   addr_cmd_start_press: 11
   addr_host_control: 2577
+  # 中科院点表：仅覆盖需要改的 id → Excel Dec；缺省用 devices/plc_cas_points.py
+  cas_points: {}
   four_slot:
     enabled: true
     slot_count: 4

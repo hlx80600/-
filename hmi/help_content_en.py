@@ -83,6 +83,7 @@ def build_sections_en() -> List[Section]:
                 ]
             )
             + _h("Stack lights")
+            + _p("Large red/yellow/green lamps sit in the top bar on every page.")
             + _ul(
                 [
                     "Green steady = auto running",
@@ -111,7 +112,8 @@ def build_sections_en() -> List[Section]:
             _L(T.MONITOR),
             _io_block(
                 purpose=(
-                    "Main operator desk: init, auto/step mode, start/pause/stop/E-stop; stack lights & station busy; "
+                    "Main operator desk: init, auto/step mode, start/pause/stop/E-stop; station busy; "
+                    "stack lights are in the top bar (all pages); "
                     "edit memory & slots; global speed & path blend; manual gripper/press; dry-run shortcuts."
                 ),
                 impl=[
@@ -492,9 +494,19 @@ def build_sections_en() -> List[Section]:
             "press",
             _L(T.PRESS_IO),
             _io_block(
-                purpose="Four-slot press: place/pick ports, sequence, auto slot compute, Modbus addresses.",
-                impl=[f"{_code('hmi/pages/press_io_page.py')}"],
-                refs=[f"{_code('devices/press_modbus.py')}"],
+                purpose=(
+                    "Four-slot press: place/pick ports, sequence, auto slot compute, Modbus addresses. "
+                    "The CAS point-table tab follows the four-station protocol "
+                    "(M coils / D holdings / X inputs / T timers); the screen shows Chinese labels and values only, not PLC symbols."
+                ),
+                impl=[
+                    f"{_code('hmi/pages/press_io_page.py')}",
+                    f"{_code('hmi/pages/cas_plc_points_page.py')}",
+                ],
+                refs=[
+                    f"{_code('devices/press_modbus.py')}",
+                    f"{_code('devices/plc_cas_points.py')}",
+                ],
                 used_by=["Station6; slot widgets shared with Monitor"],
             ),
         ),

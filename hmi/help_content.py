@@ -160,6 +160,7 @@ def _sections_zh_cn() -> List[Section]:
                 ]
             )
             + _h("灯语")
+            + _p("三色灯在窗口顶栏正中，切换任何功能页都看得见。")
             + _ul(
                 [
                     "绿常亮 = 自动运行",
@@ -188,12 +189,14 @@ def _sections_zh_cn() -> List[Section]:
             _L(T.MONITOR),
             _io_block(
                 purpose=(
-                    "产线主操作台：初始化、自动/单步、启动暂停停止急停；看三色灯与工位忙闲；"
+                    "产线主操作台：初始化、自动/单步、启动暂停停止急停；看工位忙闲；"
+                    "三色灯在窗口顶栏正中（各页共用）；"
                     "改记忆与槽号；调全局速度与路径平滑总开关；手动夹爪/压机；空跑与单步快捷入口。"
                 ),
                 impl=[
                     f"{_code('hmi/pages/monitor_page.py')} — UI",
-                    f"{_code('hmi/main_window.py')} — 挂标签、100ms refresh",
+                    f"{_code('hmi/main_window.py')} — 挂导航、刷新；顶栏三色灯",
+                    f"{_code('hmi/tower_light_bar.py')} — 全局大圆灯",
                 ],
                 refs=[
                     f"{_code('core/coordinator.py')} — 初始化/运行模式/启停",
@@ -682,12 +685,18 @@ def _sections_zh_cn() -> List[Section]:
                 purpose=(
                     "四槽压机：放料口/取料口约定、正序/反序、槽号自算、各槽 Modbus 地址、"
                     "手动压杆/压合/模拟完成。"
+                    "「中科院点表」页签来自中科院四工位协议，按 M 线圈 / D 寄存器 / X 输入 / T 计时读写；"
+                    "画面只显示中文含义与当前值，不展示 PLC 符号。"
                 ),
-                impl=[f"{_code('hmi/pages/press_io_page.py')}"],
+                impl=[
+                    f"{_code('hmi/pages/press_io_page.py')}",
+                    f"{_code('hmi/pages/cas_plc_points_page.py')}",
+                ],
                 refs=[
                     f"{_code('devices/press_modbus.py')} — 槽号推进、发令、完成位",
+                    f"{_code('devices/plc_cas_points.py')} — 中科院点表与 PDU 换算",
                     f"{_code('press_shoes/press_machine_modbusTCP.py')} — 底层寄存器（可选）",
-                    f"{_code('config/default.yaml')} → press / four_slot / slots",
+                    f"{_code('config/default.yaml')} → press / four_slot / slots / cas_points",
                 ],
                 used_by=[
                     "Station6 压合+旋转；Station2/5 看槽号与完成条件",

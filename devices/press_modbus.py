@@ -20,6 +20,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+from devices.plc_cas_points import CasPoint, apply_cas_overrides, default_cas_points, pdu_addr
+
 log = logging.getLogger(__name__)
 
 WORK_STATUS_NAMES = {
@@ -139,6 +141,10 @@ class PressMachine:
             i: _empty_slot_state() for i in range(1, 5)
         }
         self.last_tx: Dict[str, Any] = {}
+        # 中科院点表 Mock 内存（与 Station6 旧线圈互不共用）
+        self._cas_coils: Dict[int, bool] = {}
+        self._cas_holdings: Dict[int, int] = {}
+        self._cas_discretes: Dict[int, bool] = {}
 
     def _unit(self) -> int:
         return int(self.cfg.get("unit_id", 1))
@@ -274,6 +280,58 @@ class PressMachine:
         except Exception:
             pass
         return self._read_coil(addr, default)
+
+    def cas_point_list(self) -> list[CasPoint]:
+        """当前点表（yaml press.cas_points 可覆盖 Excel Dec）。"""
+        return apply_cas_overrides(default_cas_points(), self.cfg.get("cas_points"))
+
+    def cas_read(self, point: CasPoint, *, modbus_dec: int | None = None) -> int:
+        """读中科院点：M/X→0/1，D/T→保持寄存器。Mock 走独立内存。"""
+        addr = pdu_addr(point, modbus_dec=modbus_dec)
+        kind = str(point.plc_kind)
+        if self.use_mock:
+            if kind == "M":
+                return int(bool(self._cas_coils.get(addr, False)))
+            if kind == "X":
+                return int(bool(self._cas_discretes.get(addr, False)))
+            return int(self._cas_holdings.get(addr, 0)) & 0xFFFF
+        if not self.connected or self.client is None:
+            raise RuntimeError(self.last_error or "压机未连接")
+        if kind == "M":
+            return int(bool(self._read_coil(addr, False)))
+        if kind == "X":
+            return int(bool(self._read_discrete(addr, False)))
+        return int(self._read_holding(addr, 0))
+
+    def cas_write(
+        self, point: CasPoint, value: int | bool, *, modbus_dec: int | None = None
+    ) -> None:
+        """写中科院可写点（M 线圈 / D 保持）。不改 Station6 旧地址。"""
+        if point.rw != "rw":
+            raise RuntimeError("该点只读")
+        addr = pdu_addr(point, modbus_dec=modbus_dec)
+        kind = str(point.plc_kind)
+        tag = str(point.id or f"cas_{addr}")
+        if kind == "M":
+            bit = bool(value)
+            self.last_tx[tag] = bit
+            if self.use_mock:
+                self._cas_coils[addr] = bit
+                return
+            if addr <= 0 or not self.client:
+                raise RuntimeError("无法写线圈（未连接或地址无效）")
+            self._write_coil(addr, bit, tag=tag)
+            return
+        if kind != "D":
+            raise RuntimeError("该点不可写")
+        val = int(value) & 0xFFFF
+        self.last_tx[tag] = val
+        if self.use_mock:
+            self._cas_holdings[addr] = val
+            return
+        if addr < 0 or not self.client:
+            raise RuntimeError("无法写寄存器（未连接或地址无效）")
+        self._write_holding(addr, val, tag=tag)
 
     def _init_mock_slots(self) -> None:
         fs = self._four()

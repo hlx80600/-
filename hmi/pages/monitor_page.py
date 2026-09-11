@@ -153,16 +153,9 @@ class MonitorPage(QWidget):
         style_button(self.btn_dry_prog, "success")
         self.btn_dry_prog.clicked.connect(self._on_start_dry_program)
 
-        # 三色灯（大圆灯）+ 模式
+        # 三色灯在主窗口顶栏全局显示；本页只留模式文字
         self.lbl_mode = QLabel("模式: -")
         self.lbl_mode.setStyleSheet("font-size:15px;font-weight:bold;")
-        self.light_r = QLabel("红")
-        self.light_y = QLabel("黄")
-        self.light_g = QLabel("绿")
-        for w in (self.light_r, self.light_y, self.light_g):
-            w.setAlignment(Qt.AlignCenter)
-            w.setFixedSize(44, 44)
-            w.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.lbl_state = QLabel("状态: -")
         self.lbl_state.setWordWrap(True)
         self.lbl_state.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -185,15 +178,11 @@ class MonitorPage(QWidget):
         mode_row.addWidget(self.btn_step_next, 1)
         mode_row.addWidget(self.btn_dry_prog, 1)
         cmd_lay.addLayout(mode_row)
-        light_row = QHBoxLayout()
-        light_row.setSpacing(10)
-        light_row.addWidget(self.light_r)
-        light_row.addWidget(self.light_y)
-        light_row.addWidget(self.light_g)
-        light_row.addSpacing(12)
-        light_row.addWidget(self.lbl_mode)
-        light_row.addStretch(1)
-        cmd_lay.addLayout(light_row)
+        mode_status = QHBoxLayout()
+        mode_status.setSpacing(10)
+        mode_status.addWidget(self.lbl_mode)
+        mode_status.addStretch(1)
+        cmd_lay.addLayout(mode_status)
         cmd_lay.addWidget(self.lbl_init_flag)
         cmd_lay.addWidget(self._init_progress)
         near_mm0, near_deg0 = read_init_near_home_limits(self.ctx.cfg)
@@ -889,9 +878,6 @@ class MonitorPage(QWidget):
         self.btn_step_next.setToolTip(t("monitor.step.next_tip"))
         self.btn_dry_prog.setText(t("monitor.dry.start"))
         self.btn_dry_prog.setToolTip(t("monitor.dry.start_tip"))
-        self.light_r.setText(t("monitor.light.red"))
-        self.light_y.setText(t("monitor.light.yellow"))
-        self.light_g.setText(t("monitor.light.green"))
         self.lbl_slot_seq.setText(t("monitor.slot.seq_order"))
         self.lbl_slot_place.setText(t("monitor.slot.place"))
         self.lbl_slot_pick.setText(t("monitor.slot.pick"))
@@ -1619,19 +1605,6 @@ class MonitorPage(QWidget):
             return
         self.ctx.memory[idx] = bool(on)
 
-    def _set_light(self, label: QLabel, on: bool, color: str):
-        # 大圆灯：亮=高亮+描边；灭=深灰底仍可辨认颜色字
-        if on:
-            label.setStyleSheet(
-                f"background:{color};color:#111;font-size:18px;font-weight:bold;"
-                f"border:3px solid #111;border-radius:28px;"
-            )
-        else:
-            label.setStyleSheet(
-                "background:#2c3e50;color:#7f8c8d;font-size:16px;font-weight:bold;"
-                "border:3px solid #566573;border-radius:28px;"
-            )
-
     def _refresh_link_panel(self) -> None:
         rows = self.ctx.device_link_snapshot()
         missing = [r for r in rows if (not r["mock"]) and (not r["ok"])]
@@ -1692,10 +1665,6 @@ class MonitorPage(QWidget):
         """快刷：灯/记忆/工位/光电/压机到位（轻量，避免占满 UI 线程）。"""
         if not self.isVisible():
             return
-        lights = self.ctx.lights.snapshot()
-        self._set_light(self.light_r, lights["red"], "#ff2d2d")
-        self._set_light(self.light_y, lights["yellow"], "#ffd400")
-        self._set_light(self.light_g, lights["green"], "#19e05a")
         mem = self.ctx.memory.snapshot()
         for i, lamp in self.mem_lamps.items():
             want = bool(mem.get(i, False))
