@@ -708,7 +708,10 @@ def _sections_zh_cn() -> List[Section]:
             "config",
             _L(T.CONFIG),
             _io_block(
-                purpose="改机器人 IP、压机、夹爪 CAN、光电 DI、各设备 use_mock，保存回 default.yaml 并尽量重连。",
+                purpose=(
+                    "改机器人 IP、压机、夹爪 CAN、光电 DI、各设备 use_mock，保存回 default.yaml 并尽量重连。"
+                    "开机自启动在「设置 → 界面与刷新」勾选，写入当前用户 ~/.config/autostart。"
+                ),
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
                 refs=[
                     f"{_code('core/config_loader.py')} save_config",

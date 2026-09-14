@@ -514,7 +514,10 @@ def build_sections_en() -> List[Section]:
             "config",
             "Comm & devices (Settings tab)",
             _io_block(
-                purpose="Robot IP, press, gripper CAN, photo DI, use_mock; save default.yaml & reconnect.",
+                purpose=(
+                    "Robot IP, press, gripper CAN, photo DI, use_mock; save default.yaml & reconnect. "
+                    "Login autostart is on Settings → UI Refresh."
+                ),
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
                 refs=[f"{_code('core/config_loader.py')}"],
                 used_by=["First step for real hardware; restart after camera serial change"],

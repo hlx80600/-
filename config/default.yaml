@@ -23,6 +23,8 @@ system:
     preview_max_fps: 24
     preview_inactive_fps: 5
     vision_debug_max_fps: 10
+    # 登录后自动启动 HMI（实际开关在 ~/.config/autostart，本项由设置页同步）
+    autostart: false
 motion:
   blend_enable: true
   blend_t_ms: 100

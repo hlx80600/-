@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
 
 from core.config_loader import save_config
 from core.coordinator import Coordinator
+from core.desktop_autostart import disable as autostart_disable
+from core.desktop_autostart import enable as autostart_enable
+from core.desktop_autostart import is_enabled as autostart_is_enabled
 from hmi import i18n
 from hmi.style import apply_page_chrome, style_button
 from stations.init_sequence import read_init_near_home_limits
@@ -79,6 +82,14 @@ class SettingsInterfacePage(QWidget):
             self.lbl_hint.setWordWrap(True)
             self.lbl_hint.setStyleSheet("color:#566573;")
             form.addRow(self.lbl_hint)
+            hmi_auto = bool(hmi.get("autostart", False))
+            self.chk_autostart = QCheckBox()
+            self.chk_autostart.setChecked(autostart_is_enabled() or hmi_auto)
+            form.addRow(self.chk_autostart)
+            self.lbl_autostart_hint = QLabel()
+            self.lbl_autostart_hint.setWordWrap(True)
+            self.lbl_autostart_hint.setStyleSheet("color:#566573;")
+            form.addRow(self.lbl_autostart_hint)
             self.btn_save = QPushButton()
             style_button(self.btn_save, "primary")
             self.btn_save.clicked.connect(self._save_ui)
@@ -156,6 +167,8 @@ class SettingsInterfacePage(QWidget):
             for (lb, _), key in zip(self._rows, keys, strict=True):
                 lb.setText(i18n.tr(key))
             self.lbl_hint.setText(i18n.tr("settings.ui.restart_hint"))
+            self.chk_autostart.setText(i18n.tr("settings.ui.autostart"))
+            self.lbl_autostart_hint.setText(i18n.tr("settings.ui.autostart_hint"))
             self.btn_save.setText(i18n.tr("settings.ui.save"))
         elif self.section == "motion":
             self.grp.setTitle(i18n.tr("settings.motion.title"))
@@ -198,10 +211,24 @@ class SettingsInterfacePage(QWidget):
         hmi["refresh_inactive_ms"] = int(self.sp_inact.value())
         hmi["preview_max_fps"] = int(self.sp_prev.value())
         hmi["vision_debug_max_fps"] = int(self.sp_vis.value())
+        want_auto = bool(self.chk_autostart.isChecked())
+        hmi["autostart"] = want_auto
         try:
             save_config(self.ctx.cfg)
         except Exception as e:
             QMessageBox.warning(self, i18n.tr("settings.ui.title"), str(e))
+            return
+        try:
+            if want_auto:
+                autostart_enable()
+            else:
+                autostart_disable()
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                i18n.tr("settings.ui.title"),
+                i18n.tr("settings.ui.autostart_fail").format(err=e),
+            )
             return
         w = self.window()
         fn = getattr(w, "apply_hmi_refresh_settings", None)
@@ -213,6 +240,11 @@ class SettingsInterfacePage(QWidget):
         super().showEvent(event)
         if self.section == "motion":
             self._reload_motion_from_cfg()
+        elif self.section == "interface":
+            hmi = (self.ctx.cfg.get("system") or {}).get("hmi") or {}
+            self.chk_autostart.setChecked(
+                autostart_is_enabled() or bool(hmi.get("autostart", False))
+            )
 
     def _reload_motion_from_cfg(self) -> None:
         """打开页时从 yaml 刷新，避免运行监控改过范围后本页仍是旧值。"""
