@@ -64,17 +64,21 @@ class AlgorithmModule:
         cameras: Any,
         vis_cfg: Optional[dict] = None,
         image_bgr: Any = None,
+        slot_id: int = 0,
     ) -> "RodOffsetResult":
         prod = self._production or self.activate_production()
-        return prod.measure_rod_offset_mm(cameras, vis_cfg, image_bgr=image_bgr)
+        return prod.measure_rod_offset_mm(
+            cameras, vis_cfg, image_bgr=image_bgr, slot_id=slot_id
+        )
 
     def measure_rod_offset_tuple(
         self,
         cameras: Any,
         vis_cfg: Optional[dict] = None,
+        slot_id: int = 0,
     ):
         prod = self._production or self.activate_production()
-        return prod.measure_rod_offset_tuple(cameras, vis_cfg)
+        return prod.measure_rod_offset_tuple(cameras, vis_cfg, slot_id=slot_id)
 
     def detect_belt_shoes_mock(self, vis_cfg: Optional[dict] = None) -> list:
         prod = self._production or self.activate_production()

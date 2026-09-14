@@ -1,10 +1,10 @@
-"""视觉业务：皮带取鞋、放料槽、取料槽、鞋头对位。
+"""视觉业务：皮带取鞋、放料开口、取料开口、鞋头对位。
 
-★ 四台相机可各自 Mock：看 cameras.camN.use_mock（或运行中 cam.use_mock）
-  cam1 皮带 YOLO / cam2 鞋头对位 / cam3 放料槽有无鞋 / cam4 取料槽+压杆
-  该相机 use_mock=true → 用模拟检测结果；false → 抓图+YOLO
+★ 四路相机可各自 Mock：看 cameras.camN.use_mock（或运行中 cam.use_mock）
+  cam1 皮带 / cam2 眼在手上鞋头对位 / cam3 放料开口有无鞋 / cam4 取料开口+压杆
+  该相机 use_mock=true → 用模拟结果；false → 抓图+算法
 
-检测一律旧压鞋机 YOLO（OBB / 分类 / 深度 / 手眼）。没有形状模板备用。
+槽占用默认检测（有框=有鞋）；鞋头优先 ImgAct 双头，缺权重退回 YOLO 分类。
 """
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ class SlotPhotoResult:
     ok: bool
     has_material: bool = False
     is_left_slot: Optional[bool] = None
+    slot_id: int = 0
     message: str = ""
     snap_id: str = ""
 
@@ -69,6 +70,9 @@ class VisionService:
         self.last_belt_debug: Optional[Dict[str, Any]] = None
         # 取料槽压杆视觉 XY 微调（毫米），Station5 叠加到示教取料点
         self.last_pick_xy_offset_mm: Optional[list] = None
+        # 当前开口下的 PLC 槽号（1–4）；Station 不传时由 set_opening_slots / yaml 补
+        self._place_slot_id: int = 0
+        self._pick_slot_id: int = 0
         # 相机监控页：每路最近原图 / 计算结果
         self.last_raw: Dict[str, Any] = {}
         self.last_vis: Dict[str, Any] = {}
@@ -108,6 +112,29 @@ class VisionService:
                 cam.opened,
                 cam.has_hardware,
             )
+
+    def set_opening_slots(self, place_slot: int = 0, pick_slot: int = 0) -> None:
+        """记下当前开口下的 PLC 槽号。不改 Station；控制以后要传也可以直接调 photo_*(slot_id=)。
+
+        place_slot: int: 放料口 1–4，0 表示未知
+        pick_slot: int: 取料口 1–4，0 表示未知
+        """
+        from vision.opening import parse_slot_id
+
+        self._place_slot_id = parse_slot_id(place_slot)
+        self._pick_slot_id = parse_slot_id(pick_slot)
+
+    def _opening_slot_id(self, kind: str, explicit: Any = None) -> int:
+        """解析放料/取料开口当前槽号（入参 / set_opening_slots / vision.opening）。"""
+        from vision.opening import resolve_slot_id
+
+        cached = self._place_slot_id if kind == "place" else self._pick_slot_id
+        return resolve_slot_id(
+            kind="place" if kind == "place" else "pick",
+            explicit=explicit,
+            cached=cached,
+            vis_cfg=self.cfg if isinstance(self.cfg, dict) else None,
+        )
 
     def method(self) -> str:
         from vision.legacy_pipeline import vision_method
@@ -237,6 +264,7 @@ class VisionService:
         payload = {
             "has_material": r.has_material,
             "is_left_slot": r.is_left_slot,
+            "slot_id": int(r.slot_id or 0),
         }
         if extra:
             payload.update(extra)
@@ -479,7 +507,7 @@ class VisionService:
                 return occ_r.message
             vis = annotate_bgr(
                 img,
-                ["SLOT", "HAS" if occ_r.has_material else "EMPTY"],
+                ["SLOT", "HAS" if occ_r.has_material else "EMPTY", f"SLOT={self._opening_slot_id('place') or '-'}"],
                 ok=True,
                 cam_id="cam3",
                 kind="VIS",
@@ -512,7 +540,12 @@ class VisionService:
             extra = ""
             shown = img
             if occ_r.has_material:
-                rod = algo.measure_rod_offset_mm(self.cameras, self.cfg, image_bgr=img)
+                rod = algo.measure_rod_offset_mm(
+                    self.cameras,
+                    self.cfg,
+                    image_bgr=img,
+                    slot_id=self._opening_slot_id("pick"),
+                )
                 if rod.ok:
                     if rod.vis_bgr is not None:
                         shown = rod.vis_bgr
@@ -797,25 +830,28 @@ class VisionService:
             f"| 上次[{last}] | 下次→{nxt_side} Y={cur.y:.1f}"
         )
 
-    def photo_place_slot(self, *, persist: bool = True) -> SlotPhotoResult:
+    def photo_place_slot(self, *, persist: bool = True, slot_id: int | None = None) -> SlotPhotoResult:
         """
-        放料槽拍照：
-        - cam3 Mock：结果完全由 HMI「Mock放料槽有料 / Mock放料槽=左鞋槽」决定
-        - cam3 真机：目前只判有无料；左右槽算法未接，暂默认左鞋槽（改 Mock 勾选无效）
+        放料开口拍照（固定 cam3）：
+        - cam3 Mock：结果由 HMI Mock 勾选决定
+        - cam3 真机：检测有框=有鞋；``is_left_slot`` 仍给现有 Station 用
+        slot_id: 当前开口下 PLC 槽号；不传则从 set_opening_slots / yaml 解析
         """
+        resolved = self._opening_slot_id("place", slot_id)
         cam = self.cameras.get("cam3")
         if self.cam_is_mock("cam3"):
             left = bool(self.mock_place_is_left)
             has = bool(self.mock_place_has_material)
+            slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
             msg = (
-                f"cam3【模拟】采用监视页Mock："
+                f"cam3【模拟】{slot_txt}："
                 f"{'有料' if has else '空槽'} / "
                 f"{'左鞋槽' if left else '右鞋槽'}"
             )
             raw = self.grab_raw("cam3")
             vis = annotate_bgr(
                 raw,
-                ["MOCK", "HAS" if has else "EMPTY", "LEFT" if left else "RIGHT"],
+                ["MOCK", "HAS" if has else "EMPTY", f"SLOT={resolved or '-'}"],
                 ok=True,
                 cam_id="cam3",
                 kind="VIS",
@@ -828,6 +864,7 @@ class VisionService:
                     ok=True,
                     has_material=has,
                     is_left_slot=left,
+                    slot_id=resolved,
                     message=msg,
                 ),
                 persist=persist,
@@ -838,25 +875,26 @@ class VisionService:
             return self._finish_slot(
                 "cam3",
                 "place_slot",
-                SlotPhotoResult(ok=False, message="相机3无图（且非Mock）"),
+                SlotPhotoResult(ok=False, slot_id=resolved, message="相机3无图（且非Mock）"),
                 persist=persist,
             )
         occ_r = algo.classify_slot_occupied(img, self.cfg)
         if not occ_r.ok:
             vis = annotate_bgr(img, ["SLOT", "FAIL"], ok=False, cam_id="cam3", kind="VIS")
-            self.publish_vis("cam3", vis, f"YOLO槽分类失败: {occ_r.message}", False, raw=img)
+            self.publish_vis("cam3", vis, f"槽检测失败: {occ_r.message}", False, raw=img)
             return self._finish_slot(
                 "cam3",
                 "place_slot",
-                SlotPhotoResult(ok=False, message=f"YOLO槽分类失败: {occ_r.message}"),
+                SlotPhotoResult(ok=False, slot_id=resolved, message=f"槽检测失败: {occ_r.message}"),
                 persist=persist,
             )
         occ = occ_r.has_material
         msg = occ_r.message
-        out_msg = f"cam3【真机/YOLO】{msg}；左右槽仍按流程记忆，不看监视页Mock"
+        slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
+        out_msg = f"cam3【真机/检测】{slot_txt} {msg}；is_left_slot 仍按流程记忆"
         vis = annotate_bgr(
             img,
-            ["SLOT YOLO", "HAS" if occ else "EMPTY"],
+            ["SLOT DET", "HAS" if occ else "EMPTY", f"SLOT={resolved or '-'}"],
             ok=True,
             cam_id="cam3",
             kind="VIS",
@@ -869,20 +907,24 @@ class VisionService:
                 ok=True,
                 has_material=bool(occ),
                 is_left_slot=True,
+                slot_id=resolved,
                 message=out_msg,
             ),
             persist=persist,
         )
 
-    def photo_pick_slot(self, *, persist: bool = True) -> SlotPhotoResult:
+    def photo_pick_slot(self, *, persist: bool = True, slot_id: int | None = None) -> SlotPhotoResult:
+        """取料开口拍照（固定 cam4）：检测有无鞋；有鞋再测压杆偏移。"""
+        resolved = self._opening_slot_id("pick", slot_id)
         cam = self.cameras.get("cam4")
         if self.cam_is_mock("cam4"):
             has = bool(self.mock_pick_has_material)
-            msg = "cam4模拟 pick slot"
+            slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
+            msg = f"cam4模拟 pick {slot_txt}"
             raw = self.grab_raw("cam4")
             vis = annotate_bgr(
                 raw,
-                ["MOCK", "HAS" if has else "EMPTY"],
+                ["MOCK", "HAS" if has else "EMPTY", f"SLOT={resolved or '-'}"],
                 ok=True,
                 cam_id="cam4",
                 kind="VIS",
@@ -891,7 +933,7 @@ class VisionService:
             return self._finish_slot(
                 "cam4",
                 "pick_slot",
-                SlotPhotoResult(ok=True, has_material=has, message=msg),
+                SlotPhotoResult(ok=True, has_material=has, slot_id=resolved, message=msg),
                 persist=persist,
             )
         img = cam.grab() if cam else None
@@ -900,18 +942,18 @@ class VisionService:
             return self._finish_slot(
                 "cam4",
                 "pick_slot",
-                SlotPhotoResult(ok=False, message="相机4无图"),
+                SlotPhotoResult(ok=False, slot_id=resolved, message="相机4无图"),
                 persist=persist,
             )
         occ_r = algo.classify_slot_occupied(img, self.cfg)
         if not occ_r.ok:
             self.last_pick_xy_offset_mm = None
             vis = annotate_bgr(img, ["PICK", "FAIL"], ok=False, cam_id="cam4", kind="VIS")
-            self.publish_vis("cam4", vis, f"YOLO取槽分类失败: {occ_r.message}", False, raw=img)
+            self.publish_vis("cam4", vis, f"取槽检测失败: {occ_r.message}", False, raw=img)
             return self._finish_slot(
                 "cam4",
                 "pick_slot",
-                SlotPhotoResult(ok=False, message=f"YOLO取槽分类失败: {occ_r.message}"),
+                SlotPhotoResult(ok=False, slot_id=resolved, message=f"取槽检测失败: {occ_r.message}"),
                 persist=persist,
             )
         occ = occ_r.has_material
@@ -920,18 +962,19 @@ class VisionService:
         rod_vis = None
         self.last_pick_xy_offset_mm = None
         if occ:
-            rod = algo.measure_rod_offset_mm(self.cameras, self.cfg)
+            rod = algo.measure_rod_offset_mm(self.cameras, self.cfg, slot_id=resolved)
             if rod.ok:
                 self.last_pick_xy_offset_mm = [rod.dx, rod.dy, rod.dz]
                 rod_vis = rod.vis_bgr
                 extra = f" | {rod.message}"
             else:
                 extra = f" | 压杆未测到({rod.message})，取料用示教点"
-        out_msg = f"cam4【真机/YOLO】{msg}{extra}"
+        slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
+        out_msg = f"cam4【真机/检测】{slot_txt} {msg}{extra}"
         shown = rod_vis if rod_vis is not None else img
         vis = annotate_bgr(
             shown,
-            ["PICK YOLO", "HAS" if occ else "EMPTY"],
+            ["PICK DET", "HAS" if occ else "EMPTY", f"SLOT={resolved or '-'}"],
             ok=True,
             cam_id="cam4",
             kind="VIS",
@@ -941,9 +984,9 @@ class VisionService:
         return self._finish_slot(
             "cam4",
             "pick_slot",
-            SlotPhotoResult(ok=True, has_material=bool(occ), message=out_msg),
+            SlotPhotoResult(ok=True, has_material=bool(occ), slot_id=resolved, message=out_msg),
             persist=persist,
-            extra={"rod_xy_offset_mm": list(off) if off else None},
+            extra={"rod_xy_offset_mm": list(off) if off else None, "slot_id": resolved},
         )
 
     def guide_place_edge(self) -> GuideResult:
@@ -979,18 +1022,33 @@ class VisionService:
         label, msg = toe.label, toe.message
         aligned = toe.aligned
         adv = self.cfg.get("toe_align_advance_mm") or [0.0, 8.0, 0.0]
+        step = float(adv[1]) if len(adv) > 1 else 8.0
         dx = dy = 0.0
         lab = str(label).strip().lower()
+        x_lab = str(getattr(toe, "x_label", "") or "").strip()
+        y_lab = str(getattr(toe, "y_label", "") or "").strip()
         if label and not aligned:
-            dx = float(adv[0]) if len(adv) > 0 else 0.0
-            dy = float(adv[1]) if len(adv) > 1 else 8.0
-            if lab in ("2", "right", "右"):
-                dx, dy = -abs(dy), 0.0
-            elif lab in ("left", "左"):
-                dx, dy = abs(dy), 0.0
+            if x_lab or y_lab:
+                # ImgAct：X 0停/1前/2后；Y 0停/1左/2右。只填 HMI GuideResult，不写臂。
+                if x_lab == "1":
+                    dy = abs(step)
+                elif x_lab == "2":
+                    dy = -abs(step)
+                if y_lab == "1":
+                    dx = abs(step)
+                elif y_lab == "2":
+                    dx = -abs(step)
+            else:
+                dx = float(adv[0]) if len(adv) > 0 else 0.0
+                dy = step
+                if lab in ("2", "right", "右"):
+                    dx, dy = -abs(step), 0.0
+                elif lab in ("left", "左"):
+                    dx, dy = abs(step), 0.0
         vis = annotate_bgr(
             img,
-            ["TOE", f"L={label or '-'}", "ALIGNED" if aligned else "MOVE"],
+            ["TOE", f"L={label or '-'}", f"X={x_lab or '-'}", f"Y={y_lab or '-'}",
+             "ALIGNED" if aligned else "MOVE"],
             ok=bool(label),
             cam_id="cam2",
             kind="VIS",
@@ -1019,4 +1077,6 @@ class VisionService:
         return r.label, r.message
 
     def test_rod_offset(self):
-        return algo.measure_rod_offset_tuple(self.cameras, self.cfg)
+        return algo.measure_rod_offset_tuple(
+            self.cameras, self.cfg, slot_id=self._opening_slot_id("pick")
+        )

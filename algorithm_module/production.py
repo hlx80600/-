@@ -46,17 +46,18 @@ def classify_slot_occupied(
     image_bgr: Any,
     vis_cfg: Optional[dict] = None,
 ) -> SlotResult:
-    """槽有无鞋二分类（cam3 放料 / cam4 取料共用）。"""
+    """槽有无鞋：默认检测有框=有鞋（cam3 放料口 / cam4 取料口共用）。"""
     from vision.legacy_pipeline import classify_slot_occupied as _cls
 
-    occupied, msg, conf = _cls(image_bgr, vis_cfg)
+    occupied, msg, conf, extra = _cls(image_bgr, vis_cfg)
     if occupied is None:
-        return SlotResult(ok=False, message=str(msg or "分类失败"), confidence=float(conf or 0.0))
+        return SlotResult(ok=False, message=str(msg or "槽检测失败"), confidence=float(conf or 0.0))
     return SlotResult(
         ok=True,
         has_material=bool(occupied),
         message=str(msg or ""),
         confidence=float(conf or 0.0),
+        num_boxes=int((extra or {}).get("num_boxes") or 0),
     )
 
 
@@ -64,19 +65,35 @@ def classify_toe_align(
     image_bgr: Any,
     vis_cfg: Optional[dict] = None,
 ) -> ToeAlignResult:
-    """cam2 鞋头对位分类：到位 / 需向前。"""
+    """cam2 鞋头对位：优先 ImgAct 双头；缺权重时退回 YOLO 二分类。
+
+    Station 仍读 ``aligned`` / ``label``（兼容旧 ``toe_place_assist``）。
+    ImgAct 额外填 ``x_label``（0停/1前/2后）和 ``y_label``（0停/1左/2右）。
+    """
     from vision.legacy_pipeline import classify_toe_align as _cls
 
-    label, msg = _cls(image_bgr, vis_cfg)
+    pack = _cls(image_bgr, vis_cfg)
+    label = pack[0]
+    msg = pack[1]
+    extra = pack[2] if len(pack) > 2 and isinstance(pack[2], dict) else {}
     if not label:
         return ToeAlignResult(ok=False, message=str(msg or "对位分类失败"))
+    x_label = str(extra.get("x_label") or "")
+    y_label = str(extra.get("y_label") or "")
+    source = str(extra.get("source") or "")
     lab = str(label).strip().lower()
-    aligned = lab in ("0", "aligned", "ok", "到位", "贴紧", "stop", "done")
+    if x_label and y_label:
+        aligned = x_label == "0" and y_label == "0"
+    else:
+        aligned = lab in ("0", "aligned", "ok", "到位", "贴紧", "stop", "done")
     return ToeAlignResult(
         ok=True,
         aligned=aligned,
         label=str(label),
         message=str(msg or ""),
+        x_label=x_label,
+        y_label=y_label,
+        source=source,
     )
 
 
@@ -84,16 +101,23 @@ def measure_rod_offset_mm(
     cameras: Any,
     vis_cfg: Optional[dict] = None,
     image_bgr: Any = None,
+    slot_id: int = 0,
 ) -> RodOffsetResult:
-    """cam4 压杆/夹爪 XY 偏移（毫米）；image_bgr 传入则不 grab。"""
+    """cam4 压杆/夹爪 XY 偏移（毫米）；image_bgr 传入则不 grab。
+
+    slot_id: int: 当前取料开口下的物理槽 1–4；0 表示只用开口默认 preset
+    """
     from vision.legacy_pipeline import measure_rod_offset_mm as _meas
 
-    ok, dx, dy, dz, vis, msg = _meas(cameras, vis_cfg, image_bgr=image_bgr)
+    ok, dx, dy, dz, vis, msg = _meas(
+        cameras, vis_cfg, image_bgr=image_bgr, slot_id=int(slot_id or 0)
+    )
     return RodOffsetResult(
         ok=bool(ok),
         dx=float(dx or 0.0),
         dy=float(dy or 0.0),
         dz=float(dz or 0.0),
+        slot_id=int(slot_id or 0),
         message=str(msg or ""),
         vis_bgr=vis,
     )
@@ -102,9 +126,10 @@ def measure_rod_offset_mm(
 def measure_rod_offset_tuple(
     cameras: Any,
     vis_cfg: Optional[dict] = None,
+    slot_id: int = 0,
 ) -> Tuple[bool, float, float, float, Any, str]:
     """与 legacy_pipeline.measure_rod_offset_mm 相同元组返回，便于旧调用。"""
-    r = measure_rod_offset_mm(cameras, vis_cfg)
+    r = measure_rod_offset_mm(cameras, vis_cfg, slot_id=slot_id)
     return r.ok, r.dx, r.dy, r.dz, r.vis_bgr, r.message
 
 

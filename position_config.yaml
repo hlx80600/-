@@ -1,4 +1,12 @@
 # ===== 运行前必须按现场配置的参数 =====
+#
+# 四槽只有放料口 / 取料口两台顶视（cam3 / cam4），不是每槽一台。
+# 下列 cam_left / cam_right 是从双槽迁来的数值别名：
+#   cam_left  ≈ 放料开口（opening_place）
+#   cam_right ≈ 取料开口（opening_pick）
+# 当前四槽 yaml 的 vision.position.camera_id=1，压杆仍走 cam_left 这套数，避免装机前改偏。
+# 装机后若要按开口显式覆盖，增加 opening_place / opening_pick（键：K, gripper_preset_xyz,
+# robot_base_rotation_degrees, rod_roi）；按物理槽微调写 vision.slots.<1-4>。
 
 # 相机序列号配置
 cam_left_sn: CPC4B41000G0

@@ -127,7 +127,7 @@ def stack_status() -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "shoe_vision": (ROOT / "shoe_vision_seg.py").is_file(),
         "ultralytics": _ultralytics_present(),
-        "slot_check": (ROOT / "slot_check.py").is_file(),
+        "slot_check": (ROOT / "slot_check_dect.py").is_file() or (ROOT / "slot_check.py").is_file(),
         "position": (ROOT / "position.py").is_file() or (ROOT / "position_obb.py").is_file(),
         "message": "",
     }
@@ -137,7 +137,7 @@ def stack_status() -> Dict[str, Any]:
     if not out["ultralytics"]:
         errs.append("ultralytics: 未安装")
     if not out["slot_check"]:
-        errs.append("slot_check: 未找到")
+        errs.append("slot_check_dect: 未找到")
     if not out["position"]:
         errs.append("position: 未找到")
     out["message"] = " | ".join(errs) if errs else "依赖已找到（检测时再加载）"
@@ -182,8 +182,11 @@ def listed_model_paths(vis_cfg: Optional[dict] = None) -> list[tuple[str, Path]]
         ("皮带-鞋OBB", _p(shoe.get("shoe_model_path"), shoe_obb)),
         ("皮带-左右脚", _p(shoe.get("cls_model_path"), last_cls)),
         ("皮带-鞋楦OBB", _p(shoe.get("tree_model_path"), last_obb)),
-        ("鞋头对位", _p(toe.get("model_path"), "models/toe_align/0722best.pt")),
-        ("槽有无鞋", _p(slot.get("model_path"), "models/slot_check/7.10slot_check.pt")),
+        ("鞋头对位-ImgAct", _p(toe.get("model_path"), "models/toe_align/0907best.pt")),
+        ("鞋头对位-侧向", _p(toe.get("later_model_path"), "models/toe_align/0907best_later.pt")),
+        ("鞋头对位-分类兜底", _p(toe.get("classify_model_path"), "models/toe_align/0722best.pt")),
+        ("槽有无鞋-检测", _p(slot.get("model_path"), "models/slot_check/7.13_dect_1.pt")),
+        ("槽有无鞋-分类兜底", _p(slot.get("classify_model_path"), "models/slot_check/7.10slot_check.pt")),
         ("取槽压杆", _p(pos.get("rod_model_path"), "models/position/rod/obb.pt")),
         ("ShoeVision配置", cfg_json),
     ]
@@ -206,6 +209,12 @@ def reset_shoe_vision() -> None:
     global _sv, _sv_err
     _sv = None
     _sv_err = ""
+    try:
+        from vision.toe_imgact import reset_toe_imgact
+
+        reset_toe_imgact()
+    except Exception:
+        pass
 
 
 def _shoe_cfg_path(vis_cfg: Dict[str, Any]) -> Path:
@@ -328,22 +337,37 @@ def detect_belt_legacy(cameras, vis_cfg, default_z, default_rx, default_ry):
     }, vis
 
 
-def classify_slot_occupied(image_bgr, vis_cfg: Optional[dict] = None) -> Tuple[Optional[bool], str, float]:
-    """有鞋=True 没鞋=False；失败 (None, msg, 0)。"""
+def _slot_check_extra(num_boxes: int = 0, source: str = "") -> dict[str, Any]:
+    return {"num_boxes": int(num_boxes), "source": str(source or "")}
+
+
+def _slot_classify_fallback_blk(blk: dict) -> dict:
+    """检测失败时改用分类权重，避免把 detect 的 .pt 丢给分类器。"""
+    cls_blk = dict(blk)
+    fallback = blk.get("classify_model_path")
+    if fallback:
+        cls_blk["model_path"] = fallback
+    # 检测门槛不要套到分类 top1
+    cls_blk["conf"] = 0.0
+    return cls_blk
+
+
+def _classify_slot_occupied_cls(
+    image_bgr,
+    blk: dict,
+) -> Tuple[Optional[bool], str, float, dict[str, Any]]:
+    """旧二分类兜底：0=空槽，1=有鞋。"""
     try:
         from slot_check import SlotChecker
     except Exception as e:
-        return None, f"slot_check 不可用: {e}", 0.0
-    blk = (vis_cfg or {}).get("slot_check") if isinstance(vis_cfg, dict) else {}
-    path = None
-    if isinstance(blk, dict):
-        path = blk.get("model_path")
+        return None, f"slot_check 分类不可用: {e}", 0.0, _slot_check_extra(source="classify")
+    path = blk.get("classify_model_path") or blk.get("model_path")
     try:
-        kw = {}
+        kw: dict[str, Any] = {}
         resolved = _resolve_model_path(path) if path else None
         if resolved is not None:
             kw["model_path"] = resolved
-        if isinstance(blk, dict) and blk.get("imgsz") is not None:
+        if blk.get("imgsz") is not None:
             try:
                 kw["imgsz"] = int(blk.get("imgsz") or 640)
             except (TypeError, ValueError):
@@ -353,46 +377,159 @@ def classify_slot_occupied(image_bgr, vis_cfg: Optional[dict] = None) -> Tuple[O
         cid = int(getattr(r, "class_id", -1))
         conf = float(getattr(r, "confidence", 0.0) or 0.0)
         min_conf = 0.0
-        if isinstance(blk, dict):
-            try:
-                min_conf = float(blk.get("conf", 0.0) or 0.0)
-            except (TypeError, ValueError):
-                min_conf = 0.0
+        try:
+            min_conf = float(blk.get("conf", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            min_conf = 0.0
+        extra = _slot_check_extra(source="classify")
         if min_conf > 0 and conf < min_conf:
-            return None, f"置信度不足 {conf:.2f}<{min_conf:.2f}", conf
+            return None, f"置信度不足 {conf:.2f}<{min_conf:.2f}", conf, extra
         if cid == 1:
-            return True, f"有鞋 conf={conf:.2f}", conf
+            return True, f"分类有鞋 conf={conf:.2f}", conf, extra
         if cid == 0:
-            return False, f"空槽 conf={conf:.2f}", conf
-        return None, f"未知类别 id={cid}", conf
+            return False, f"分类空槽 conf={conf:.2f}", conf, extra
+        return None, f"未知类别 id={cid}", conf, extra
     except Exception as e:
-        return None, str(e), 0.0
+        return None, str(e), 0.0, _slot_check_extra(source="classify")
 
 
-def classify_toe_align(image_bgr, vis_cfg: Optional[dict] = None) -> Tuple[str, str]:
-    """鞋头对位分类（旧 YOLO classify）。返回 (label, message)。"""
+def classify_slot_occupied(
+    image_bgr, vis_cfg: Optional[dict] = None
+) -> Tuple[Optional[bool], str, float, dict[str, Any]]:
+    """有鞋=True 没鞋=False；失败 (None, msg, 0, extra)。
+
+    默认对标双槽：检测有框=有鞋。``vision.slot_check.mode=classify`` 才走旧二分类。
+    """
+    blk = (vis_cfg or {}).get("slot_check") if isinstance(vis_cfg, dict) else {}
+    if not isinstance(blk, dict):
+        blk = {}
+    mode = str(blk.get("mode") or "detect").strip().lower()
+    if mode == "classify":
+        return _classify_slot_occupied_cls(image_bgr, blk)
+
+    try:
+        from slot_check_dect import SlotChecker as DetectChecker
+    except Exception as e:
+        log.warning("slot_check_dect 不可用，退回分类: %s", e)
+        return _classify_slot_occupied_cls(image_bgr, _slot_classify_fallback_blk(blk))
+
+    path = blk.get("model_path") or "models/slot_check/7.13_dect_1.pt"
+    resolved = _resolve_model_path(path)
+    if resolved is None or not resolved.exists():
+        fallback = _resolve_model_path(blk.get("classify_model_path") or "models/slot_check/7.10slot_check.pt")
+        if fallback is not None and fallback.exists():
+            log.warning("槽检测权重不存在 %s，退回分类 %s", resolved, fallback)
+            return _classify_slot_occupied_cls(image_bgr, _slot_classify_fallback_blk(blk))
+        return None, (
+            f"槽检测模型不存在: {resolved}；分类兜底也不存在: {fallback}"
+        ), 0.0, _slot_check_extra(source="detect")
+
+    try:
+        imgsz = int(blk.get("imgsz") or 640)
+    except (TypeError, ValueError):
+        imgsz = 640
+    try:
+        conf = float(blk.get("conf") or 0.0)
+    except (TypeError, ValueError):
+        conf = 0.0
+    if conf <= 0:
+        conf = 0.25
+    try:
+        checker = DetectChecker(model_path=str(resolved), imgsz=imgsz, conf=conf)
+        r = checker.classify(image_bgr)
+        has = int(getattr(r, "has_shoe", 0)) == 1
+        nbox = int(getattr(r, "num_boxes", 0) or 0)
+        score = float(getattr(r, "confidence", 0.0) or 0.0)
+        extra = _slot_check_extra(num_boxes=nbox, source="detect")
+        msg = f"检测{'有鞋' if has else '空槽'} boxes={nbox} conf={score:.2f}"
+        return has, msg, score, extra
+    except Exception as e:
+        log.warning("槽检测失败，退回分类: %s", e)
+        return _classify_slot_occupied_cls(image_bgr, _slot_classify_fallback_blk(blk))
+
+
+def _toe_compat_label(x_label: str, y_label: str) -> str:
+    """把 ImgAct 双头收成旧 Station 能读的单个 label。
+
+    Y 优先（左右），再 X 前进；后退暂标 ``back``（旧 Station 会当成默认前进，已知限制）。
+    """
+    y_lab = str(y_label).strip()
+    x_lab = str(x_label).strip()
+    if y_lab == "1":
+        return "left"
+    if y_lab == "2":
+        return "right"
+    if x_lab == "0" and y_lab == "0":
+        return "0"
+    if x_lab == "1":
+        return "1"
+    if x_lab == "2":
+        return "back"
+    return x_lab or "0"
+
+
+def classify_toe_align(
+    image_bgr, vis_cfg: Optional[dict] = None
+) -> Tuple[str, str, dict[str, Any]]:
+    """鞋头对位。优先 ImgAct 双头；否则 YOLO classify。
+
+    返回 (label, message, extra)，extra 含 x_label/y_label/source。
+    """
+    empty_extra: dict[str, Any] = {"x_label": "", "y_label": "", "source": ""}
     blk = (vis_cfg or {}).get("toe_align") if isinstance(vis_cfg, dict) else {}
-    raw = (blk or {}).get("model_path") if isinstance(blk, dict) else None
-    model = _resolve_model_path(raw)
+    if not isinstance(blk, dict):
+        blk = {}
+    backend = str(blk.get("backend") or "imgact").strip().lower()
+    imgsz = int(blk.get("imgsz", 256) or 256)
+
+    if backend != "classify":
+        raw = blk.get("model_path")
+        model = _resolve_model_path(raw) if raw else _resolve_model_path("models/toe_align/0907best.pt")
+        later_raw = blk.get("later_model_path")
+        later = _resolve_model_path(later_raw) if later_raw else (
+            model.with_name(f"{model.stem}_later{model.suffix}") if model is not None else None
+        )
+        if model is not None and model.exists() and later is not None and later.exists():
+            try:
+                from vision.toe_imgact import get_toe_imgact
+
+                infer = get_toe_imgact(model, later, imgsz=imgsz)
+                x_label, x_conf, y_label, y_conf = infer.predict(image_bgr)
+                label = _toe_compat_label(x_label, y_label)
+                extra = {
+                    "x_label": x_label,
+                    "y_label": y_label,
+                    "source": "imgact",
+                }
+                msg = (
+                    f"ImgAct 鞋头 X={x_label}({x_conf:.2f}) "
+                    f"Y={y_label}({y_conf:.2f}) compat={label}"
+                )
+                return label, msg, extra
+            except Exception as e:
+                log.warning("ImgAct 鞋头对位失败，退回分类: %s", e)
+
+    cls_raw = blk.get("classify_model_path") or blk.get("model_path")
+    model = _resolve_model_path(cls_raw)
     if model is None:
-        return "", "未配置 vision.toe_align.model_path"
+        return "", "未配置 vision.toe_align 模型", empty_extra
     if not model.exists():
-        return "", f"鞋头对位模型不存在: {model}"
+        return "", f"鞋头对位模型不存在: {model}", empty_extra
     try:
         from ultralytics import YOLO
 
         m = YOLO(str(model))
-        imgsz = int((blk or {}).get("imgsz", 256) or 256)
         res = m.predict(source=image_bgr, imgsz=imgsz, verbose=False)[0]
         names = getattr(res, "names", None) or getattr(m, "names", {}) or {}
         if hasattr(res, "probs") and res.probs is not None:
             idx = int(res.probs.top1)
             conf = float(res.probs.top1conf)
             label = str(names.get(idx, idx))
-            return label, f"鞋头对位 {label}  conf={conf:.2f}"
-        return "", "模型无分类输出"
+            extra = {"x_label": "", "y_label": "", "source": "classify"}
+            return label, f"鞋头对位 {label}  conf={conf:.2f}", extra
+        return "", "模型无分类输出", empty_extra
     except Exception as e:
-        return "", f"鞋头对位失败: {e}"
+        return "", f"鞋头对位失败: {e}", empty_extra
 
 
 def _resolve_model_path(raw) -> Optional[Path]:
@@ -439,21 +576,92 @@ def _cov_from_rotation_deg(degrees) -> list:
     return [float(out[0] / n), float(out[1] / n), float(out[2] / n)]
 
 
+def _rod_side_from_opening(opening: str, camera_id: int) -> int:
+    """build_robot_xyz_offset 仍要 1/2；放料口当 1，取料口当 2。未声明开口则沿用 yaml camera_id。"""
+    if opening == "place":
+        return 1
+    if opening == "pick":
+        return 2
+    return 1 if int(camera_id) != 2 else 2
+
+
+def _rod_profile(
+    pos_cfg: dict,
+    blk: dict,
+    vis_cfg: Optional[dict],
+    *,
+    cam_key: str,
+    slot_id: int,
+) -> tuple[int, list, list, list, Any, str]:
+    """选 K / gripper preset / 旋转 / ROI。优先 opening_* 与 slots[n]，否则保持原 left/right。"""
+    from vision.opening import slot_cfg_block
+
+    opening = str(blk.get("opening") or "").strip().lower()
+    camera_id = int(blk.get("camera_id") or 1)
+    if opening not in ("place", "pick"):
+        # 未声明开口时保持旧行为：只看 camera_id 1=left / 2=right
+        opening = ""
+        side_id = 1 if camera_id != 2 else 2
+    else:
+        side_id = _rod_side_from_opening(opening, camera_id)
+
+    named = pos_cfg.get(f"opening_{opening}") if opening else None
+    if not isinstance(named, dict):
+        named = {}
+
+    if named:
+        k = named.get("K") or (pos_cfg.get("cam_left_K") if side_id == 1 else pos_cfg.get("cam_right_K"))
+        preset = named.get("gripper_preset_xyz") or (
+            pos_cfg.get("cam_left_gripper_preset_xyz") if side_id == 1 else pos_cfg.get("cam_right_gripper_preset_xyz")
+        )
+        rot = named.get("robot_base_rotation_degrees") or (
+            pos_cfg.get("cam_left_robot_base_rotation_degrees")
+            if side_id == 1
+            else pos_cfg.get("cam_right_robot_base_rotation_degrees")
+        )
+        roi_lt = named.get("rod_roi")
+    elif side_id == 2:
+        k = pos_cfg.get("cam_right_K") or [600, 600, 640, 360]
+        preset = pos_cfg.get("cam_right_gripper_preset_xyz") or [-0.08, 0.05, 0.37]
+        rot = pos_cfg.get("cam_right_robot_base_rotation_degrees") or [0, 0, -43]
+        roi_lt = pos_cfg.get("cam_right_rod_roi")
+    else:
+        k = pos_cfg.get("cam_left_K") or [600, 600, 640, 360]
+        preset = pos_cfg.get("cam_left_gripper_preset_xyz") or [0.079, 0.037, 0.38]
+        rot = pos_cfg.get("cam_left_robot_base_rotation_degrees") or [0, 0, 137]
+        roi_lt = pos_cfg.get("cam_left_rod_roi")
+        side_id = 1
+
+    overlay = slot_cfg_block(vis_cfg, slot_id)
+    if overlay.get("gripper_preset_xyz"):
+        preset = overlay.get("gripper_preset_xyz")
+    if overlay.get("rod_roi"):
+        roi_lt = overlay.get("rod_roi")
+    if overlay.get("K"):
+        k = overlay.get("K")
+    tag = opening or cam_key or f"cam_id{side_id}"
+    if slot_id:
+        tag = f"{tag}/slot{slot_id}"
+    return side_id, list(k), list(preset), list(rot), roi_lt, tag
+
+
 def measure_rod_offset_mm(
     cameras: Optional[dict],
     vis_cfg: Optional[dict],
     image_bgr: Any = None,
+    slot_id: int = 0,
 ) -> Tuple[bool, float, float, float, Any, str]:
     """
-    取料槽压杆/夹爪 X 距 → 机器人基座 XY 毫米（旧 Position 算法）。
-    用本程序 cam4（可在 yaml 改），不另开 RSDT 相机。
-    image_bgr 若传入则不再 grab（监控实时推演用）。
+    取料开口压杆/夹爪 X 距 → 机器人基座 XY 毫米（旧 Position 公式）。
+    默认 cam4；image_bgr 传入则不再 grab。
+    slot_id: 当前开口下物理槽 1–4，用于可选 preset 覆盖。
     返回 (ok, dx_mm, dy_mm, dz_mm, vis_bgr, message)
     """
     vis = vis_cfg if isinstance(vis_cfg, dict) else {}
     blk = vis.get("position") if isinstance(vis.get("position"), dict) else {}
-    cam_key = str((blk or {}).get("camera") or "cam4")
-    camera_id = int((blk or {}).get("camera_id") or 1)
+    if not isinstance(blk, dict):
+        blk = {}
+    cam_key = str(blk.get("camera") or "cam4")
     cam = (cameras or {}).get(cam_key) if cameras else None
     if image_bgr is not None:
         img = image_bgr
@@ -469,10 +677,10 @@ def measure_rod_offset_mm(
     depth = getattr(cam, "last_depth", None) if cam is not None else None
     if depth is None:
         h, w = img.shape[:2]
-        z = float((blk or {}).get("fallback_z_mm") or 400.0)
+        z = float(blk.get("fallback_z_mm") or 400.0)
         depth = np.full((h, w), z, dtype=np.float32)
 
-    cfg_path = (blk or {}).get("config") or "position_config.yaml"
+    cfg_path = blk.get("config") or "position_config.yaml"
     p = _resolve_model_path(cfg_path) or (ROOT / "position_config.yaml")
     try:
         import yaml
@@ -481,7 +689,7 @@ def measure_rod_offset_mm(
     except Exception as e:
         return False, 0.0, 0.0, 0.0, img, f"读 position_config 失败: {e}"
 
-    model = (blk or {}).get("rod_model_path") or pos_cfg.get("rod_obb_model_path")
+    model = blk.get("rod_model_path") or pos_cfg.get("rod_obb_model_path")
     model_p = _resolve_model_path(model)
     if model_p is None or not model_p.exists():
         return False, 0.0, 0.0, 0.0, img, f"压杆模型不存在: {model_p}"
@@ -493,17 +701,9 @@ def measure_rod_offset_mm(
     except Exception as e:
         return False, 0.0, 0.0, 0.0, img, f"Position 栈不可用: {e}"
 
-    if camera_id == 2:
-        k = pos_cfg.get("cam_right_K") or [600, 600, 640, 360]
-        preset = pos_cfg.get("cam_right_gripper_preset_xyz") or [-0.08, 0.05, 0.37]
-        rot = pos_cfg.get("cam_right_robot_base_rotation_degrees") or [0, 0, -43]
-        roi_lt = pos_cfg.get("cam_right_rod_roi")
-    else:
-        k = pos_cfg.get("cam_left_K") or [600, 600, 640, 360]
-        preset = pos_cfg.get("cam_left_gripper_preset_xyz") or [0.079, 0.037, 0.38]
-        rot = pos_cfg.get("cam_left_robot_base_rotation_degrees") or [0, 0, 137]
-        roi_lt = pos_cfg.get("cam_left_rod_roi")
-        camera_id = 1
+    camera_id, k, preset, rot, roi_lt, tag = _rod_profile(
+        pos_cfg, blk, vis, cam_key=cam_key, slot_id=int(slot_id or 0)
+    )
 
     cov = _cov_from_rotation_deg(rot)
     det = OBBOnlyDetector(str(model_p))
@@ -546,5 +746,7 @@ def measure_rod_offset_mm(
     distance = xie_x - float(preset[0])
     xyz_m = build_robot_xyz_offset(camera_id, distance, cov, cov)
     dx, dy, dz = float(xyz_m[0]) * 1000.0, float(xyz_m[1]) * 1000.0, float(xyz_m[2]) * 1000.0
-    msg = f"压杆偏移 cam{camera_id} dx={dx:.1f} dy={dy:.1f} mm（示教器） dist={distance:.4f}m"
+    msg = (
+        f"压杆偏移 {tag} dx={dx:.1f} dy={dy:.1f} mm（示教器） dist={distance:.4f}m"
+    )
     return True, dx, dy, dz, vis if vis is not None else img, msg

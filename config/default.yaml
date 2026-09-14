@@ -294,14 +294,14 @@ cameras:
     use_mock: true
     enable_depth: true
   cam3:
-    name: 放料鞋槽
+    name: 放料开口（上料槽顶视，槽转相机不转）
     serial: CPCAC53000R8
     index: 4
     role: place_slot
     use_mock: true
     enable_depth: true
   cam4:
-    name: 取料鞋槽
+    name: 取料开口（下料槽顶视，槽转相机不转）
     serial: ''
     index: 5
     role: pick_slot
@@ -314,13 +314,26 @@ vision:
     config: shoe_vision_config.json
   toe_align:
     camera: cam2
-    model_path: models/toe_align/0722best.pt
+    backend: imgact
+    model_path: models/toe_align/0907best.pt
+    later_model_path: models/toe_align/0907best_later.pt
+    classify_model_path: models/toe_align/0722best.pt
     imgsz: 256
     enable_motion: true
   slot_check:
-    model_path: models/slot_check/7.10slot_check.pt
+    mode: detect
+    model_path: models/slot_check/7.13_dect_1.pt
+    classify_model_path: models/slot_check/7.10slot_check.pt
     imgsz: 640
-    conf: 0.0
+    conf: 0.25
+  opening:
+    place_slot: 0
+    pick_slot: 0
+  slots:
+    1: {}
+    2: {}
+    3: {}
+    4: {}
   position:
     camera: cam4
     camera_id: 1

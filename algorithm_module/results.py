@@ -28,8 +28,10 @@ class SlotResult:
     ok: bool
     has_material: bool = False
     is_left_slot: Optional[bool] = None
+    slot_id: int = 0
     message: str = ""
     confidence: float = 0.0
+    num_boxes: int = 0
     vis_bgr: Any = None
 
 
@@ -39,6 +41,9 @@ class ToeAlignResult:
     aligned: bool = False
     label: str = ""
     message: str = ""
+    x_label: str = ""
+    y_label: str = ""
+    source: str = ""
     vis_bgr: Any = None
 
 
@@ -48,5 +53,6 @@ class RodOffsetResult:
     dx: float = 0.0
     dy: float = 0.0
     dz: float = 0.0
+    slot_id: int = 0
     message: str = ""
     vis_bgr: Any = None

@@ -64,8 +64,8 @@ from algorithm_module import algo
 |------|----------|------|
 | cam1 皮带 | `detect_belt_pick` / Mock `detect_belt_shoes_mock` | Station1 |
 | cam2 鞋头 | `classify_toe_align` | Station2（`toe_place_assist`） |
-| cam3 放料槽 | `classify_slot_occupied` | Station3 |
-| cam4 取料槽 | `classify_slot_occupied` + `measure_rod_offset_mm` | Station4→5 |
+| cam3 放料开口 | `classify_slot_occupied`（检测有框=有鞋） | Station3 |
+| cam4 取料开口 | `classify_slot_occupied` + `measure_rod_offset_mm(slot_id)` | Station4→5 |
 
 ---
 
@@ -189,21 +189,21 @@ cmd = algo.train_cmd("shoe_lr", epochs=40, device="cpu")  # 或 device="0" 用 G
 ### `algo.classify_slot_occupied(image_bgr, vis_cfg=None) -> SlotResult`
 
 - **输入**：`image_bgr: np.ndarray` shape `(H,W,3)` BGR；`vis_cfg` 含 slot 模型路径。  
-- **输出**：有无鞋。  
+- **输出**：有无鞋（默认 **检测** 有框=有鞋；`mode=classify` 才走旧二分类）。  
 - **谁调用**：`photo_place_slot`（cam3）/ `photo_pick_slot`（cam4）→ Station3/4；监控推演。
 
 ### `algo.classify_toe_align(image_bgr, vis_cfg=None) -> ToeAlignResult`
 
 - **输入**：cam2 BGR 图。  
-- **输出**：`aligned` / `label`。  
-- **谁调用**：`VisionService.guide_place_edge`；**`stations/toe_place_assist.py`**（Station2 放料对位）。
+- **输出**：`aligned` / `label`（Station 兼容）；ImgAct 时另有 `x_label`/`y_label`。  
+- **谁调用**：`VisionService.guide_place_edge`；**`stations/toe_place_assist.py`**（Station2 放料对位，本仓库不改该文件）。
 
-### `algo.measure_rod_offset_mm(cameras, vis_cfg=None, image_bgr=None) -> RodOffsetResult`
+### `algo.measure_rod_offset_mm(cameras, vis_cfg=None, image_bgr=None, slot_id=0) -> RodOffsetResult`
 
-- **输入**：默认从 cam4 `grab`；若传 `image_bgr` 则用该帧（监控缓存推演）。  
+- **输入**：默认从 cam4 `grab`；若传 `image_bgr` 则用该帧（监控缓存推演）。`slot_id` 为当前开口下 1–4。  
 - **输出**：`dx,dy,dz` mm。  
 - **谁调用**：`photo_pick_slot` 有鞋时；Station5 叠加取料点。  
-- **配置**：`position_config.yaml` + `vision.position`。
+- **配置**：`position_config.yaml` + `vision.position` + 可选 `vision.slots.<n>`。
 
 ### `algo.measure_rod_offset_tuple(...) -> (ok, dx, dy, dz, vis, msg)`
 
@@ -261,8 +261,8 @@ cmd = algo.train_cmd("shoe_lr", epochs=40, device="cpu")  # 或 device="0" 用 G
 | `last_obb` / 楦相关 | OBB | 楦心 |
 | `rod` / position | OBB | 压杆 |
 | `shoe_lr` | 分类 | 左右脚（鞋头朝上） |
-| `toe_align` | 分类 | 鞋头对位 |
-| `slot_check` | 分类 | 槽有无鞋 |
+| `toe_align` | 分类 / ImgAct | 鞋头对位 |
+| `slot_check` | 检测（有框=有鞋） | 槽有无鞋 |
 
 训练脚本：`tools/yolo_train/train_obb.py`、`train_classify.py`。  
 HMI：「视觉采图」页选 **训练设备** CPU/GPU，再「开始训练」。
