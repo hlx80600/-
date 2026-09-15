@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStackedWidget,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -130,11 +131,14 @@ class VisionParamsPage(QWidget):
         root.addWidget(self.lbl_banner)
 
         self.stack = QStackedWidget()
+        self.stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum
+        )
         self.stack.addWidget(self._build_cam1())
         self.stack.addWidget(self._build_cam2())
         self.stack.addWidget(self._build_cam3())
         self.stack.addWidget(self._build_cam4())
-        root.addWidget(self.stack)
+        root.addWidget(self.stack, 0)
 
         common, cf = _form_group("四路共用")
         vis = self.ctx.cfg.get("vision") or {}
@@ -186,7 +190,6 @@ class VisionParamsPage(QWidget):
         note.setStyleSheet("color:#7f8c8d;")
         form.addRow(note)
         lay.addWidget(box)
-        lay.addStretch(1)
         return w
 
     def _build_cam2(self) -> QWidget:
@@ -223,7 +226,6 @@ class VisionParamsPage(QWidget):
         note.setStyleSheet("color:#7f8c8d;")
         form.addRow(note)
         lay.addWidget(box)
-        lay.addStretch(1)
         return w
 
     def _build_cam3(self) -> QWidget:
@@ -243,7 +245,6 @@ class VisionParamsPage(QWidget):
         note.setStyleSheet("color:#7f8c8d;")
         form.addRow(note)
         lay.addWidget(box)
-        lay.addStretch(1)
         return w
 
     def _build_cam4(self) -> QWidget:
@@ -312,7 +313,6 @@ class VisionParamsPage(QWidget):
         note.setStyleSheet("color:#7f8c8d;")
         form.addRow(note)
         lay.addWidget(box)
-        lay.addStretch(1)
         return w
 
     def show_cam(self, cam_id: str) -> None:

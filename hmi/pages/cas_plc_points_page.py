@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSpinBox,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -28,6 +29,7 @@ from devices.plc_cas_points import (
 )
 from devices.press_modbus import PressMachine
 from hmi import ui_scale
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import apply_page_chrome, style_button
 
 _HOLD_ROWS: tuple[tuple[str, tuple[str, str, str, str]], ...] = (
@@ -96,8 +98,19 @@ class CasPlcPointsWidget(QWidget):
             by_group.setdefault(pt.group, []).append(pt)
         by_id = {p.id: p for p in points}
 
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        disable_tab_bar_wheel(tabs)
+
+        online_page = QWidget()
+        online_lay = QVBoxLayout(online_page)
+        online_lay.setContentsMargins(4, 4, 4, 4)
         if "联机" in by_group:
-            root.addWidget(self._build_online(by_group["联机"]))
+            online_lay.addWidget(self._build_online(by_group["联机"]))
+        if "公共参数" in by_group:
+            online_lay.addWidget(self._build_station_box("公共参数", by_group["公共参数"]))
+        online_lay.addStretch(1)
+        tabs.addTab(wrap_in_scroll(online_page), "联机/公共")
 
         man_boxes = [
             self._build_station_box(title, pts)
@@ -105,8 +118,12 @@ class CasPlcPointsWidget(QWidget):
             if title.startswith("压机手动")
         ]
         if man_boxes:
-            root.addWidget(self._section_label("压机手动（四工位）"))
-            root.addWidget(self._grid_cards(man_boxes, columns=2))
+            man_page = QWidget()
+            man_lay = QVBoxLayout(man_page)
+            man_lay.setContentsMargins(4, 4, 4, 4)
+            man_lay.addWidget(self._grid_cards(man_boxes, columns=2))
+            man_lay.addStretch(1)
+            tabs.addTab(wrap_in_scroll(man_page), "压机手动")
 
         rod_boxes = [
             self._build_station_box(title, pts)
@@ -114,33 +131,31 @@ class CasPlcPointsWidget(QWidget):
             if title.startswith("压杆操作")
         ]
         if rod_boxes:
-            root.addWidget(self._section_label("压杆（四工位）"))
-            root.addWidget(self._grid_cards(rod_boxes, columns=2))
+            rod_page = QWidget()
+            rod_lay = QVBoxLayout(rod_page)
+            rod_lay.setContentsMargins(4, 4, 4, 4)
+            rod_lay.addWidget(self._grid_cards(rod_boxes, columns=2))
+            rod_lay.addStretch(1)
+            tabs.addTab(wrap_in_scroll(rod_page), "压杆")
 
-        if "公共参数" in by_group:
-            root.addWidget(self._build_station_box("公共参数", by_group["公共参数"]))
-
+        hold_page = QWidget()
+        hold_lay = QVBoxLayout(hold_page)
+        hold_lay.setContentsMargins(4, 4, 4, 4)
         hold_pts = [by_id[i] for _, ids in _HOLD_ROWS for i in ids if i in by_id]
         if hold_pts:
-            root.addWidget(self._build_hold_table(by_id))
-
+            hold_lay.addWidget(self._build_hold_table(by_id))
         placed = {"联机", "公共参数", "压着时间与计数"}
         for title, pts in by_group.items():
             if title in placed or title.startswith("压机手动") or title.startswith("压杆操作"):
                 continue
             leftover = [p for p in pts if p.id not in _HOLD_IDS]
             if leftover:
-                root.addWidget(self._build_station_box(title, leftover))
+                hold_lay.addWidget(self._build_station_box(title, leftover))
+        hold_lay.addStretch(1)
+        tabs.addTab(wrap_in_scroll(hold_page), "压着时间")
 
-        root.addStretch(1)
+        root.addWidget(tabs, 1)
         apply_page_chrome(self)
-
-    def _section_label(self, text: str) -> QLabel:
-        lb = QLabel(text)
-        lb.setStyleSheet(
-            f"color:#1a5276;font-weight:bold;font-size:{_fpx(16)}px;padding-top:{_px(4)}px;"
-        )
-        return lb
 
     def _build_header(self) -> QFrame:
         bar = QFrame()
@@ -238,6 +253,7 @@ class CasPlcPointsWidget(QWidget):
         grid.setVerticalSpacing(_px(8))
         for r, pt in enumerate(points):
             self._place_row(grid, r, pt, show_name=True)
+            grid.setRowMinimumHeight(r, _px(36))
         return box
 
     def _build_hold_table(self, by_id: dict[str, CasPoint]) -> QGroupBox:
@@ -285,7 +301,7 @@ class CasPlcPointsWidget(QWidget):
         title.setStyleSheet(
             f"font-weight:bold;color:#1c2833;font-size:{_fpx(14)}px;"
         )
-        title.setWordWrap(True)
+        title.setWordWrap(False)
         v.addWidget(title)
         if pt.hint:
             hint = QLabel(pt.hint)
@@ -327,8 +343,8 @@ class CasPlcPointsWidget(QWidget):
 
     def _action_widget(self, pt: CasPoint, ui: _RowUi) -> QWidget | None:
         if pt.rw == "rw" and pt.plc_kind == "M":
-            btn_on = style_button(QPushButton("开"), "success")
-            btn_off = style_button(QPushButton("关"), "neutral")
+            btn_on = style_button(QPushButton("开"), "success", tall=False)
+            btn_off = style_button(QPushButton("关"), "neutral", tall=False)
             btn_on.clicked.connect(lambda _=False, p=pt: self._write_m(p, True))
             btn_off.clicked.connect(lambda _=False, p=pt: self._write_m(p, False))
             cell = QWidget()
@@ -344,7 +360,7 @@ class CasPlcPointsWidget(QWidget):
             sp.setMinimumWidth(_px(96))
             sp.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
             ui.spin = sp
-            btn_w = style_button(QPushButton("写入"), "motion")
+            btn_w = style_button(QPushButton("写入"), "motion", tall=False)
             btn_w.clicked.connect(lambda _=False, p=pt, s=sp: self._write_d(p, s))
             cell = QWidget()
             wr = QHBoxLayout(cell)

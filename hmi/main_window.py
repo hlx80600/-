@@ -210,22 +210,22 @@ def _create_page(title: str, coord: Coordinator) -> QWidget:
 
 
 # (标题, 是否包滚动层, 滚轮倍率或 None)
-# 总览内部分页；仍包轻量滚动，避免矮屏把控件压扁叠字
+# 已分页或能一屏放下的页不包外层滚动，避免双滚轮和挡字；长文/列表在控件内部滚。
 _NAV_SPEC: list[tuple[str, bool, float | None]] = [
-    (T.MONITOR, True, MONITOR_WHEEL_SCALE),
-    (T.PRODUCTION, True, None),
-    (T.STEP_DEBUG, True, None),
-    (T.MOTION, True, None),
+    (T.MONITOR, False, None),
+    (T.PRODUCTION, False, None),
+    (T.STEP_DEBUG, False, None),
+    (T.MOTION, False, None),
     (T.VISION, False, None),
-    (T.POINTS, True, None),
-    (T.SHIELD_PICK, True, None),
-    (T.DRY_RUN, True, None),
-    (T.PAYLOAD, True, None),
-    (T.PRESS_IO, True, None),
-    (T.GRIPPER, True, None),
-    (T.SETTINGS, True, None),
-    (T.HOST_DEVICES, True, None),
-    (T.ALARM, True, None),
+    (T.POINTS, False, None),
+    (T.SHIELD_PICK, False, None),
+    (T.DRY_RUN, False, None),
+    (T.PAYLOAD, False, None),
+    (T.PRESS_IO, False, None),
+    (T.GRIPPER, False, None),
+    (T.SETTINGS, False, None),
+    (T.HOST_DEVICES, False, None),
+    (T.ALARM, False, None),
     (T.HELP, False, None),
 ]
 

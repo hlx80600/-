@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -22,7 +24,8 @@ from PySide6.QtWidgets import (
 from core.coordinator import Coordinator
 from core.host_inventory import collect, format_report, summary_line
 from hmi import i18n
-from hmi.style import apply_page_chrome, hbox_pair, style_button
+from hmi.scroll_util import disable_tab_bar_wheel
+from hmi.style import apply_page_chrome, style_button
 
 
 def _table() -> QTableWidget:
@@ -36,7 +39,7 @@ def _table() -> QTableWidget:
     hdr = tbl.horizontalHeader()
     hdr.setStretchLastSection(True)
     hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-    tbl.setMinimumHeight(160)
+    tbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
     return tbl
 
 
@@ -92,14 +95,21 @@ class HostDevicesPage(QWidget):
         self.tbl_usb = _table()
         self.tbl_usb.setColumnCount(5)
         usb_lay.addWidget(self.tbl_usb)
-        root.addLayout(hbox_pair(self.grp_net, self.grp_usb), 3)
 
         self.grp_nodes = QGroupBox()
         node_lay = QVBoxLayout(self.grp_nodes)
         self.tbl_nodes = _table()
         self.tbl_nodes.setColumnCount(3)
         node_lay.addWidget(self.tbl_nodes)
-        root.addWidget(self.grp_nodes, 2)
+
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        disable_tab_bar_wheel(tabs)
+        tabs.addTab(self.grp_net, "")
+        tabs.addTab(self.grp_usb, "")
+        tabs.addTab(self.grp_nodes, "")
+        self._host_tabs = tabs
+        root.addWidget(tabs, 1)
 
         self.lbl_status = QLabel("")
         self.lbl_status.setStyleSheet("color:#1a7a37;")
@@ -118,6 +128,9 @@ class HostDevicesPage(QWidget):
         self.grp_net.setTitle(i18n.tr("host.net.title"))
         self.grp_usb.setTitle(i18n.tr("host.usb.title"))
         self.grp_nodes.setTitle(i18n.tr("host.nodes.title"))
+        self._host_tabs.setTabText(0, i18n.tr("host.net.title"))
+        self._host_tabs.setTabText(1, i18n.tr("host.usb.title"))
+        self._host_tabs.setTabText(2, i18n.tr("host.nodes.title"))
         self.tbl_net.setHorizontalHeaderLabels(
             [
                 i18n.tr("host.col.iface"),

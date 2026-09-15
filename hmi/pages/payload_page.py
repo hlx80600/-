@@ -11,12 +11,15 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from core.config_loader import save_config
 from core.coordinator import Coordinator
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import apply_page_chrome, groupbox_qss, style_button
 
 _MODE_CAPTION = {
@@ -42,13 +45,19 @@ QGroupBox::title {
 """
 
 
+def _lock_spin(sp: QDoubleSpinBox) -> QDoubleSpinBox:
+    sp.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    sp.setMaximumHeight(36)
+    return sp
+
+
 def _spin_mass() -> QDoubleSpinBox:
     sp = QDoubleSpinBox()
     sp.setRange(0.0, 50.0)
     sp.setDecimals(3)
     sp.setSingleStep(0.1)
     sp.setSuffix(" kg")
-    return sp
+    return _lock_spin(sp)
 
 
 def _spin_mm() -> QDoubleSpinBox:
@@ -57,7 +66,7 @@ def _spin_mm() -> QDoubleSpinBox:
     sp.setDecimals(2)
     sp.setSingleStep(1.0)
     sp.setSuffix(" mm")
-    return sp
+    return _lock_spin(sp)
 
 
 def _spin_deg() -> QDoubleSpinBox:
@@ -66,7 +75,7 @@ def _spin_deg() -> QDoubleSpinBox:
     sp.setDecimals(2)
     sp.setSingleStep(0.1)
     sp.setSuffix(" °")
-    return sp
+    return _lock_spin(sp)
 
 
 _TCP_KEYS = ("tx", "ty", "tz", "trx", "try_", "trz")
@@ -89,11 +98,12 @@ class PayloadPage(QWidget):
         self._chk_tcp: dict[str, QCheckBox] = {}
 
         root = QVBoxLayout(self)
-
-        row = QHBoxLayout()
-        row.addWidget(self._robot_box("robot1", "上料机器人 robot1（独立）"))
-        row.addWidget(self._robot_box("robot2", "下料机器人 robot2（独立）"))
-        root.addLayout(row)
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        disable_tab_bar_wheel(tabs)
+        tabs.addTab(wrap_in_scroll(self._robot_box("robot1", "上料机器人 robot1（独立）")), "上料 R1")
+        tabs.addTab(wrap_in_scroll(self._robot_box("robot2", "下料机器人 robot2（独立）")), "下料 R2")
+        root.addWidget(tabs, 1)
 
         apply_page_chrome(self)
         self._reload_from_cfg()

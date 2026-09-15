@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLayout,
     QPushButton,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -51,7 +52,8 @@ def button_qss(role: str = "neutral", *, bold: bool = True, tall: bool = True) -
         if tall
         else f"{_px(4)}px {_px(8)}px"
     )
-    minh = f"{_px(36, min_v=32)}px" if tall else f"{_px(28, min_v=26)}px"
+    minh_px = _px(40, min_v=36) if tall else _px(28, min_v=26)
+    minh = f"{minh_px}px"
     return f"""
     QPushButton {{
         background-color: {bg};
@@ -59,6 +61,7 @@ def button_qss(role: str = "neutral", *, bold: bool = True, tall: bool = True) -
         font-weight: {weight};
         padding: {pad};
         min-height: {minh};
+        max-height: {minh};
         border: none;
         border-radius: {_px(5)}px;
     }}
@@ -83,13 +86,42 @@ def style_button(btn: QPushButton, role: str = "neutral", **kwargs) -> QPushButt
     from PySide6.QtCore import Qt
 
     btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    tall = bool(kwargs.get("tall", True))
+    h = _px(40, min_v=36) if tall else _px(28, min_v=26)
+    # 必须用控件高度，不能只靠 QSS min-height：布局不算样式高度时会把下一行画到上一行上。
+    btn.setMinimumHeight(h)
+    btn.setMaximumHeight(h)
     btn.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
     return btn
 
 
-def style_many(pairs: list[tuple[QPushButton, str]]) -> None:
+def style_many(pairs: list[tuple[QPushButton, str]], *, tall: bool = True) -> None:
     for btn, role in pairs:
-        style_button(btn, role)
+        style_button(btn, role, tall=tall)
+
+
+def add_button_rows(
+    host: QVBoxLayout,
+    buttons: list[QPushButton],
+    *,
+    columns: int = 3,
+) -> None:
+    """一行一个 HBox 铺按钮。不用 QGrid：矮窗时网格行高会被压成 0，按钮互相覆盖。"""
+    cols = max(1, int(columns))
+    gap = _px(8)
+    row: QHBoxLayout | None = None
+    for i, btn in enumerate(buttons):
+        if i % cols == 0:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(gap)
+            host.addLayout(row)
+        assert row is not None
+        row.addWidget(btn, 1)
+    leftover = len(buttons) % cols
+    if leftover and row is not None:
+        for _ in range(cols - leftover):
+            row.addStretch(1)
 
 
 def restyle_role_buttons(root: QWidget) -> None:
@@ -187,11 +219,12 @@ def chrome_qss() -> str:
     }}
     QSpinBox, QDoubleSpinBox {{
         min-height: {_px(32, min_v=28)}px;
+        max-height: {_px(36, min_v=32)}px;
         min-width: {_px(72, min_v=64)}px;
         padding-top: {_px(2)}px;
         padding-bottom: {_px(2)}px;
         padding-left: {_px(8)}px;
-        padding-right: 2px;
+        padding-right: {_px(22, min_v=20)}px;
         border: 1px solid #b0bec5;
         border-radius: {_px(4)}px;
         background: #ffffff;
@@ -199,10 +232,17 @@ def chrome_qss() -> str:
         selection-color: #ffffff;
         font-size: {_fpx(13)}px;
     }}
-    QSpinBox::up-button, QDoubleSpinBox::up-button,
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+        width: {_px(20, min_v=16)}px;
+        height: {_px(16, min_v=14)}px;
+    }}
     QSpinBox::down-button, QDoubleSpinBox::down-button {{
         subcontrol-origin: border;
-        width: {_px(22, min_v=18)}px;
+        subcontrol-position: bottom right;
+        width: {_px(20, min_v=16)}px;
+        height: {_px(16, min_v=14)}px;
     }}
     QComboBox {{
         min-height: {_px(32, min_v=28)}px;

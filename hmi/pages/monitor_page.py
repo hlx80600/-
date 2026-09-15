@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -30,9 +31,9 @@ from PySide6.QtWidgets import (
 from core.config_loader import save_config
 from core.machine_state import RunMode
 from core.coordinator import Coordinator
-from hmi import i18n
+from hmi import i18n, ui_scale
 from hmi.alarm_dialog import format_alarm_text
-from hmi.scroll_util import disable_tab_bar_wheel
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import PAGE_SPACING, apply_page_chrome, hbox_pair, style_button, style_many
 from stations.init_sequence import read_init_near_home_limits
 
@@ -55,10 +56,15 @@ class MonitorPage(QWidget):
             "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:4px;font-size:13px;"
         )
 
-        # 按钮行（两排，避免窄窗把「急停复位」等字挤没）
-        btn_grid = QGridLayout()
-        btn_grid.setHorizontalSpacing(8)
-        btn_grid.setVerticalSpacing(6)
+        # 运行按钮两行各占固定高度，避免网格把两行画进同一格
+        def _cmd_btn_row(buttons: tuple[QPushButton, ...]) -> QHBoxLayout:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            row.setContentsMargins(0, 0, 0, 0)
+            for btn in buttons:
+                row.addWidget(btn, 1)
+            return row
+
         self.btn_init = QPushButton("初始化")
         self.btn_start = QPushButton("启动")
         self.btn_pause = QPushButton("暂停")
@@ -80,29 +86,17 @@ class MonitorPage(QWidget):
             ]
         )
         self.btn_estop.setStyleSheet(
-            self.btn_estop.styleSheet()
-            + "QPushButton{font-size:15px;min-height:40px;}"
+            self.btn_estop.styleSheet() + "QPushButton{font-size:15px;}"
         )
-        for i, b in enumerate(
-            (
-                self.btn_init,
-                self.btn_start,
-                self.btn_pause,
-                self.btn_stop,
-                self.btn_estop,
-                self.btn_reset_estop,
-                self.btn_alarm_reset,
-                self.btn_copy_alarm,
-            )
-        ):
-            btn_grid.addWidget(b, i // 4, i % 4)
 
         # 初始化完成标识（必须完成初始化后才能启动）
         self.lbl_init_flag = QTextEdit()
         self.lbl_init_flag.setReadOnly(True)
         self.lbl_init_flag.setFrameShape(QFrame.Shape.NoFrame)
-        self.lbl_init_flag.setMinimumHeight(56)
-        self.lbl_init_flag.setMaximumHeight(88)
+        self.lbl_init_flag.setFixedHeight(ui_scale.px(56, min_v=48))
+        self.lbl_init_flag.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.lbl_init_flag.setToolTip("报警全文可选中复制，或点「复制报警」（不弹窗）")
         self._init_flag_text = ""
         self._init_flag_css = ""
@@ -169,7 +163,22 @@ class MonitorPage(QWidget):
         cmd = QGroupBox("运行")
         cmd_lay = QVBoxLayout(cmd)
         cmd_lay.setSpacing(8)
-        cmd_lay.addLayout(btn_grid)
+        cmd_lay.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        cmd_lay.addLayout(
+            _cmd_btn_row(
+                (self.btn_init, self.btn_start, self.btn_pause, self.btn_stop)
+            )
+        )
+        cmd_lay.addLayout(
+            _cmd_btn_row(
+                (
+                    self.btn_estop,
+                    self.btn_reset_estop,
+                    self.btn_alarm_reset,
+                    self.btn_copy_alarm,
+                )
+            )
+        )
         mode_row = QHBoxLayout()
         mode_row.setSpacing(8)
         mode_row.addWidget(self.btn_mode_auto, 1)
@@ -218,12 +227,19 @@ class MonitorPage(QWidget):
         cmd_lay.addWidget(self.lbl_state)
         cmd_lay.addWidget(self.lbl_auto_clear)
         self.cmd_box = cmd
+        self.cmd_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
 
-        # —— 当前槽号 + 记忆：总览首屏 ——
-        hero = QGroupBox("当前槽号 / 记忆（自动运行中记忆锁定）")
-        self.mem_box = hero
+        # —— 当前槽号：总览首屏（记忆单独成块，避免被竖向拉伸压叠）——
+        hero = QGroupBox("当前槽号（自动运行中锁定）")
+        self.slot_box = hero
+        hero.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         hero_lay = QVBoxLayout(hero)
         hero_lay.setSpacing(8)
+        hero_lay.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         slot_row = QHBoxLayout()
         self.lbl_hero_place = QLabel("放料槽\n#—")
@@ -231,7 +247,8 @@ class MonitorPage(QWidget):
         for lb in (self.lbl_hero_place, self.lbl_hero_pick):
             lb.setAlignment(Qt.AlignCenter)
             lb.setWordWrap(True)
-            lb.setMinimumHeight(56)
+            lb.setFixedHeight(ui_scale.px(72, min_v=64))
+            lb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             lb.setStyleSheet(
                 "background:#1a5276;color:#ecf0f1;padding:8px;border-radius:6px;"
                 "font-size:20px;font-weight:bold;"
@@ -241,6 +258,10 @@ class MonitorPage(QWidget):
         self.lbl_hero_slot_meta = QLabel("顺序 —")
         self.lbl_hero_slot_meta.setAlignment(Qt.AlignCenter)
         self.lbl_hero_slot_meta.setWordWrap(True)
+        self.lbl_hero_slot_meta.setMinimumHeight(ui_scale.px(36, min_v=32))
+        self.lbl_hero_slot_meta.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         self.lbl_hero_slot_meta.setStyleSheet(
             "background:#273746;color:#f7dc6f;padding:6px;border-radius:4px;font-size:14px;font-weight:bold;"
         )
@@ -301,36 +322,57 @@ class MonitorPage(QWidget):
             "停止/暂停后可改：改放料槽则取料槽按顺序联动，改取料槽则放料槽联动。"
         )
         self.lbl_slot_edit_tip.setWordWrap(True)
+        self.lbl_slot_edit_tip.setMinimumHeight(ui_scale.px(28, min_v=24))
+        self.lbl_slot_edit_tip.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
         self.lbl_slot_edit_tip.setStyleSheet("color:#555;")
         hero_lay.addWidget(self.lbl_slot_edit_tip)
 
-        mem_grid = QGridLayout()
-        mem_grid.setHorizontalSpacing(12)
-        mem_grid.setVerticalSpacing(6)
+        mem_row_h = 36
+        mem_box = QGroupBox("记忆 Mem1～10（自动运行中锁定）")
+        self.mem_box = mem_box
+        mem_box.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        mem_grid = QGridLayout(mem_box)
+        mem_grid.setHorizontalSpacing(16)
+        mem_grid.setVerticalSpacing(4)
         self.mem_checks = {}
         self.mem_lamps = {}
         for i in range(1, 11):
+            cell = QWidget()
+            cell.setMinimumHeight(mem_row_h)
+            cell.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            cell_lay = QHBoxLayout(cell)
+            cell_lay.setContentsMargins(2, 2, 2, 2)
+            cell_lay.setSpacing(8)
             lamp = QLabel(f"M{i}")
             lamp.setAlignment(Qt.AlignCenter)
-            lamp.setFixedWidth(56)
-            lamp.setMinimumHeight(28)
+            lamp.setFixedSize(ui_scale.px(76, min_v=64), ui_scale.px(28, min_v=24))
             lamp.setStyleSheet(
-                "background:#555;color:#ccc;padding:2px;border-radius:3px;font-weight:bold;font-size:12px;"
+                "background:#555;color:#ccc;padding:2px;border-radius:3px;"
+                "font-weight:bold;font-size:12px;"
             )
             cb = QCheckBox()
             cb.setToolTip(f"Mem[{i}]")
-            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            cb.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            cb.setMinimumHeight(28)
             cb.toggled.connect(lambda on, idx=i: self._mem_toggled(idx, on))
+            cell_lay.addWidget(lamp, 0)
+            cell_lay.addWidget(cb, 1)
             self.mem_checks[i] = cb
             self.mem_lamps[i] = lamp
-            # 两列五行：避免五列挤扁导致中文叠字
-            col = 0 if i <= 5 else 2
             row = (i - 1) % 5
-            mem_grid.addWidget(lamp, row, col)
-            mem_grid.addWidget(cb, row, col + 1)
+            col = 0 if i <= 5 else 1
+            mem_grid.addWidget(cell, row, col)
+            mem_grid.setRowMinimumHeight(row, mem_row_h)
+        mem_grid.setColumnStretch(0, 1)
         mem_grid.setColumnStretch(1, 1)
-        mem_grid.setColumnStretch(3, 1)
-        hero_lay.addLayout(mem_grid)
 
         link_box = QGroupBox("设备连接（Mock=模拟就绪；真机断线将自动重连）")
         link_lay = QVBoxLayout(link_box)
@@ -779,11 +821,18 @@ class MonitorPage(QWidget):
         overview_lay.setContentsMargins(4, 4, 4, 4)
         overview_lay.setSpacing(PAGE_SPACING)
         overview_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
-        overview_lay.addWidget(self.lbl_mobile)
-        overview_lay.addWidget(cmd)
-        overview_lay.addLayout(hbox_pair(hero, side, stretch_l=3, stretch_r=2))
-        overview_lay.addWidget(st_box)
+        overview_lay.addWidget(self.lbl_mobile, 0)
+        overview_lay.addWidget(cmd, 0)
+        overview_lay.addWidget(hero, 0)
+        overview_lay.addWidget(mem_box, 0)
         overview_lay.addStretch(1)
+
+        links = QWidget()
+        links_lay = QVBoxLayout(links)
+        links_lay.setContentsMargins(4, 4, 4, 4)
+        links_lay.setSpacing(PAGE_SPACING)
+        links_lay.addLayout(hbox_pair(side, st_box, stretch_l=2, stretch_r=3))
+        links_lay.addStretch(1)
 
         speed = QWidget()
         speed_lay = QVBoxLayout(speed)
@@ -798,15 +847,23 @@ class MonitorPage(QWidget):
         manual_lay.setContentsMargins(4, 4, 4, 4)
         manual_lay.setSpacing(PAGE_SPACING)
         manual_lay.addLayout(grip_press)
-        manual_lay.addWidget(mock)
         manual_lay.addStretch(1)
+
+        dry = QWidget()
+        dry_lay = QVBoxLayout(dry)
+        dry_lay.setContentsMargins(4, 4, 4, 4)
+        dry_lay.setSpacing(PAGE_SPACING)
+        dry_lay.addWidget(mock)
+        dry_lay.addStretch(1)
 
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
-        self.tabs.addTab(overview, "")
-        self.tabs.addTab(speed, "")
-        self.tabs.addTab(manual, "")
-        self._tab_ids = ("overview", "speed", "manual")
+        self.tabs.addTab(wrap_in_scroll(overview), "")
+        self.tabs.addTab(wrap_in_scroll(links), "")
+        self.tabs.addTab(wrap_in_scroll(speed), "")
+        self.tabs.addTab(wrap_in_scroll(manual), "")
+        self.tabs.addTab(wrap_in_scroll(dry), "")
+        self._tab_ids = ("overview", "links", "speed", "manual", "dry")
         disable_tab_bar_wheel(self.tabs)
         root.addWidget(self.tabs, 1)
 
@@ -828,13 +885,19 @@ class MonitorPage(QWidget):
         aliases = {
             "overview": "overview",
             "总览": "overview",
+            "links": "links",
+            "连接": "links",
+            "连接工位": "links",
             "speed": "speed",
             "速度": "speed",
             "速度平滑": "speed",
             "manual": "manual",
             "手动": "manual",
             "手动IO": "manual",
-            "mock": "manual",
+            "mock": "dry",
+            "dry": "dry",
+            "空跑": "dry",
+            "空跑快控": "dry",
         }
         target = aliases.get(name, name)
         for i, tab_id in enumerate(self._tab_ids):
@@ -858,8 +921,10 @@ class MonitorPage(QWidget):
         t = i18n.tr
         tab_keys = {
             "overview": "monitor.tab.overview",
+            "links": "monitor.tab.links",
             "speed": "monitor.tab.speed",
             "manual": "monitor.tab.manual",
+            "dry": "monitor.tab.dry",
         }
         for i, tab_id in enumerate(self._tab_ids):
             self.tabs.setTabText(i, t(tab_keys[tab_id]))
@@ -1890,9 +1955,11 @@ class MonitorPage(QWidget):
 
         editable = self.ctx.machine.memory_editable
         if editable:
+            self.slot_box.setTitle(i18n.tr("monitor.slot.title_edit"))
             self.mem_box.setTitle(i18n.tr("monitor.mem.title_edit"))
             self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_edit"))
         else:
+            self.slot_box.setTitle(i18n.tr("monitor.slot.title_locked"))
             self.mem_box.setTitle(i18n.tr("monitor.mem.title_locked"))
             self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_locked"))
         for w in (

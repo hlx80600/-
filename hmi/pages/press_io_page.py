@@ -23,7 +23,7 @@ from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.press_modbus import WORK_STATUS_NAMES
 from hmi.pages.cas_plc_points_page import CasPlcPointsWidget
-from hmi.scroll_util import wrap_in_scroll
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import apply_page_chrome, hbox_pair, style_button
 
 SLOT_ADDR_ROWS = [
@@ -71,11 +71,10 @@ class PressIoPage(QWidget):
         outer.addWidget(self.tabs)
 
         self.cas_page = CasPlcPointsWidget(coord)
-        self.tabs.addTab(wrap_in_scroll(self.cas_page), "中科院点表")
+        self.tabs.addTab(self.cas_page, "中科院点表")
 
-        legacy = QWidget()
-        self.tabs.addTab(wrap_in_scroll(legacy), "槽号与旧地址")
-        root = QVBoxLayout(legacy)
+        live = QWidget()
+        root = QVBoxLayout(live)
 
         box_live = QGroupBox("接收信号 RX（实时）")
         vl = QVBoxLayout(box_live)
@@ -161,10 +160,15 @@ class PressIoPage(QWidget):
         txl = QVBoxLayout(box_tx)
         txl.addWidget(self.lbl_tx)
         root.addLayout(hbox_pair(box_live, box_tx, stretch_l=3, stretch_r=2))
+        root.addStretch(1)
+        self.tabs.addTab(wrap_in_scroll(live), "实时信号")
 
         press = self.ctx.cfg.get("press") or {}
         fs = press.get("four_slot") or {}
         op = press.get("opening") or {}
+
+        addr = QWidget()
+        addr_root = QVBoxLayout(addr)
 
         box_map = QGroupBox("开口约定与槽号")
         fm = QFormLayout(box_map)
@@ -211,9 +215,10 @@ class PressIoPage(QWidget):
         fg.addRow("旋转命令 / 完成", self._pair(self.sp_cmd_rot, self.sp_rot_done))
         fg.addRow("压合命令 / 完成", self._pair(self.sp_cmd_press, self.sp_press_done))
         fg.addRow("上电完成", self.sp_power)
-        root.addLayout(hbox_pair(box_map, box_g))
+        addr_root.addLayout(hbox_pair(box_map, box_g))
 
         tabs = QTabWidget()
+        disable_tab_bar_wheel(tabs)
         slots_cfg = press.get("slots") or {}
         for i in range(1, 5):
             sc = slots_cfg.get(i) or slots_cfg.get(str(i)) or {}
@@ -226,7 +231,23 @@ class PressIoPage(QWidget):
                 fl.addRow(lab, sp)
             self.slot_spins[i] = spins
             tabs.addTab(page, f"槽{i}")
-        root.addWidget(tabs)
+        addr_root.addWidget(tabs, 1)
+
+        row = QHBoxLayout()
+        btn_save = QPushButton("保存地址到 yaml 并应用")
+        style_button(btn_save, "success")
+        btn_save.clicked.connect(self._save)
+        btn_recon = QPushButton("重连压机")
+        style_button(btn_recon, "primary")
+        btn_recon.clicked.connect(self._reconnect)
+        row.addWidget(btn_save)
+        row.addWidget(btn_recon)
+        addr_root.addLayout(row)
+
+        self.tabs.addTab(wrap_in_scroll(addr), "槽号与地址")
+
+        man_page = QWidget()
+        man_root = QVBoxLayout(man_page)
 
         box_man = QGroupBox("手动（停止/暂停时操作）")
         mg = QGridLayout(box_man)
@@ -250,19 +271,11 @@ class PressIoPage(QWidget):
             style_button(b, "warn" if "模拟" in name else "motion")
             b.clicked.connect(fn)
             mg.addWidget(b, 1 + i // 3, i % 3)
-        root.addWidget(box_man)
+        man_root.addWidget(box_man)
+        man_root.addStretch(1)
+        self.tabs.addTab(wrap_in_scroll(man_page), "手动")
 
-        row = QHBoxLayout()
-        btn_save = QPushButton("保存地址到 yaml 并应用")
-        style_button(btn_save, "success")
-        btn_save.clicked.connect(self._save)
-        btn_recon = QPushButton("重连压机")
-        style_button(btn_recon, "primary")
-        btn_recon.clicked.connect(self._reconnect)
-        row.addWidget(btn_save)
-        row.addWidget(btn_recon)
-        root.addLayout(row)
-
+        disable_tab_bar_wheel(self.tabs)
         apply_page_chrome(self)
 
     @staticmethod

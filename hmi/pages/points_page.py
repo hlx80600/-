@@ -18,9 +18,9 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
-    QScrollArea,
     QSlider,
     QTabBar,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -39,6 +39,7 @@ from devices.pose_utils import (
     resolve_via_point_key,
     validate_via_name,
 )
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import apply_page_chrome, hbox_pair, style_button, style_many
 
 _POINT_HOLD_MS = 200
@@ -151,7 +152,7 @@ class PointsPage(QWidget):
 
         outer = QVBoxLayout(self)
 
-        # 只用标签条切换 R1/R2；内容共用下方滚动区（避免 QTabWidget 空页占一大片空白）
+        # 只用标签条切换 R1/R2；下方再分页编辑/调试/试跑，避免整页滚动挡字
         self.tabs = QTabBar()
         self.tabs.setExpanding(False)
         self.tabs.currentChanged.connect(self._on_tab_changed)
@@ -166,10 +167,25 @@ class PointsPage(QWidget):
         head.addWidget(self.btn_pendant)
         outer.addLayout(head)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        body = QWidget()
-        root = QVBoxLayout(body)
+        pick = QHBoxLayout()
+        pick.setSpacing(8)
+        self.lbl_point_pick = QLabel("当前点位")
+        self.lbl_point_pick.setStyleSheet("font-weight:bold;color:#1a5276;")
+        self.cmb_point = NoWheelComboBox()
+        self.cmb_point.setMinimumWidth(280)
+        self.cmb_point.setToolTip(
+            "编辑、按住到点、路径「到」共用这一项。单点调试不必再切回「编辑点位」。"
+        )
+        self.cmb_point.currentIndexChanged.connect(self._load_values)
+        pick.addWidget(self.lbl_point_pick)
+        pick.addWidget(self.cmb_point, 1)
+        outer.addLayout(pick)
+
+        content_tabs = QTabWidget()
+        content_tabs.setDocumentMode(True)
+        disable_tab_bar_wheel(content_tabs)
+        edit_page = QWidget()
+        root = QVBoxLayout(edit_page)
 
         self.lbl_scope = QLabel("")
         self.lbl_scope.setWordWrap(True)
@@ -177,13 +193,6 @@ class PointsPage(QWidget):
             "color:white;padding:8px;border-radius:4px;font-weight:bold;"
         )
         root.addWidget(self.lbl_scope)
-
-        row = QHBoxLayout()
-        self.cmb_point = NoWheelComboBox()
-        self.cmb_point.currentIndexChanged.connect(self._load_values)
-        row.addWidget(QLabel("本臂点位"))
-        row.addWidget(self.cmb_point, stretch=1)
-        root.addLayout(row)
 
         self.lbl_key = QLabel("配置键: -")
         self.lbl_key.setStyleSheet("color:#666;")
@@ -292,9 +301,25 @@ class PointsPage(QWidget):
         )
         bv.addWidget(self.lbl_undo)
         self._refresh_undo_label()
+        root.addWidget(box_via)
+        root.addStretch(1)
+        content_tabs.addTab(wrap_in_scroll(edit_page), "编辑点位")
 
+        debug_page = QWidget()
+        dbg = QVBoxLayout(debug_page)
         box1 = QGroupBox("单点调试（按住才动，松开即停；只动当前标签页那台臂）")
         b1 = QVBoxLayout(box1)
+        tgt = QHBoxLayout()
+        tgt.setSpacing(8)
+        self.lbl_dbg_point = QLabel("运动到")
+        self.lbl_dbg_point.setStyleSheet("font-weight:bold;color:#1a5276;")
+        self.cmb_dbg_point = NoWheelComboBox()
+        self.cmb_dbg_point.setMinimumWidth(240)
+        self.cmb_dbg_point.setToolTip("与顶栏「当前点位」同步；在本页即可换点，不必切到编辑。")
+        self.cmb_dbg_point.currentIndexChanged.connect(self._on_dbg_point_changed)
+        tgt.addWidget(self.lbl_dbg_point)
+        tgt.addWidget(self.cmb_dbg_point, 1)
+        b1.addLayout(tgt)
         self.lbl_pose = QLabel("当前TCP: -")
         self.lbl_pose.setWordWrap(True)
         self.lbl_pose.setMinimumHeight(40)
@@ -367,8 +392,12 @@ class PointsPage(QWidget):
         off_btns.addWidget(btn_oj)
         off_btns.addWidget(btn_ol)
         bo.addLayout(off_btns)
-        root.addLayout(hbox_pair(box_via, box1))
+        dbg.addLayout(hbox_pair(box1, box_off))
+        dbg.addStretch(1)
+        content_tabs.addTab(wrap_in_scroll(debug_page), "单点调试")
 
+        path_page = QWidget()
+        path_lay = QVBoxLayout(path_page)
         box2 = QGroupBox("路径试跑（仅本臂点位之间）")
         b2 = QVBoxLayout(box2)
         path_row = QHBoxLayout()
@@ -388,20 +417,17 @@ class PointsPage(QWidget):
         path_btns.addWidget(btn_pj)
         path_btns.addWidget(btn_pl)
         b2.addLayout(path_btns)
-        root.addLayout(hbox_pair(box_off, box2))
+        path_lay.addWidget(box2)
 
         self.lbl_dbg = QLabel("调试状态: 空闲")
         self.lbl_dbg.setWordWrap(True)
         self.lbl_dbg.setMinimumHeight(52)
         self.lbl_dbg.setStyleSheet("padding:6px;background:#f5f5f5;border-radius:4px;")
-        root.addWidget(self.lbl_dbg)
+        path_lay.addWidget(self.lbl_dbg)
+        path_lay.addStretch(1)
+        content_tabs.addTab(wrap_in_scroll(path_page), "路径试跑")
 
-        scroll.setWidget(body)
-        from hmi.scroll_util import attach_page_scroll, harden_wheel
-
-        attach_page_scroll(scroll)
-        harden_wheel(body)
-        outer.addWidget(scroll)
+        outer.addWidget(content_tabs, 1)
         apply_page_chrome(self, accent="#1a5276")
 
         self._apply_tab_style(0)
@@ -482,6 +508,8 @@ class PointsPage(QWidget):
     def _reload_points(self) -> None:
         cur = self._current_point_key() if self.cmb_point.count() else ""
         self._fill_point_combo(self.cmb_point, prefer=cur)
+        if hasattr(self, "cmb_dbg_point"):
+            self._fill_point_combo(self.cmb_dbg_point, prefer=cur)
         self._point_keys = [
             str(self.cmb_point.itemData(i)) for i in range(self.cmb_point.count())
         ]
@@ -620,6 +648,18 @@ class PointsPage(QWidget):
         self._dbg_linear = linear
         self.lbl_dbg.setText(f"偏移试跑[{arm}]: {robot.path_hint() or (how + ' → ' + label)}")
 
+    def _on_dbg_point_changed(self) -> None:
+        """单点调试页换点：同步顶栏下拉并加载该点。"""
+        key = str(self.cmb_dbg_point.currentData() or "")
+        if not key:
+            return
+        idx = self.cmb_point.findData(key)
+        if idx >= 0 and self.cmb_point.currentIndex() != idx:
+            self.cmb_point.blockSignals(True)
+            self.cmb_point.setCurrentIndex(idx)
+            self.cmb_point.blockSignals(False)
+        self._load_values()
+
     def _current_point_key(self) -> str:
         data = self.cmb_point.currentData()
         return str(data) if data else ""
@@ -640,6 +680,19 @@ class PointsPage(QWidget):
             self._sync_blend_param_enabled(False)
             return
         pose = self.ctx.cfg["points"][key][pname]
+        if hasattr(self, "cmb_dbg_point"):
+            dbg_idx = self.cmb_dbg_point.findData(pname)
+            if dbg_idx >= 0 and self.cmb_dbg_point.currentIndex() != dbg_idx:
+                self.cmb_dbg_point.blockSignals(True)
+                self.cmb_dbg_point.setCurrentIndex(dbg_idx)
+                self.cmb_dbg_point.blockSignals(False)
+        shown = self.cmb_point.currentText() or pname
+        if hasattr(self, "btn_move_j"):
+            tip = (
+                f"按住才发令，松开立刻停。点按不会动。到位会弹窗。\n目标: {shown}"
+            )
+            self.btn_move_j.setToolTip(tip)
+            self.btn_move_l.setToolTip(tip)
         self.lbl_key.setText(f"配置键: points.{key}.{pname}（只属于该臂）")
         self.ed_name.setText(point_display_name(pname, pose, robot_key=key))
         self.chk_blend.setChecked(bool(pose.get("blend", False)))

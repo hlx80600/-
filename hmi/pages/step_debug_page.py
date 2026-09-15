@@ -16,8 +16,10 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -36,7 +38,8 @@ from devices.pose_utils import (
     validate_via_name,
 )
 from hmi.pages.points_page import CORE_POINTS, NoWheelComboBox
-from hmi.style import apply_page_chrome, hbox_pair, style_many
+from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
+from hmi.style import add_button_rows, apply_page_chrome, hbox_pair, style_many
 from stations.step_catalog import (
     AUTO_TITLES,
     auto_title,
@@ -66,6 +69,12 @@ class StepDebugPage(QWidget):
         row.addWidget(self.cmb_station)
         row.addWidget(QLabel("Auto_A"))
         row.addWidget(self.cmb_auto, stretch=1)
+        self.cmb_point = NoWheelComboBox()
+        self.cmb_point.setMinimumWidth(220)
+        self.cmb_point.setToolTip("各页签共用：路点联调走点、步表选中步关联点。")
+        self.cmb_point.currentIndexChanged.connect(self._refresh_point_target_label)
+        row.addWidget(QLabel("目标点"))
+        row.addWidget(self.cmb_point, stretch=1)
         root.addLayout(row)
 
         self.chk_bypass = QCheckBox("调试旁路（忽略进入互锁，可单独武装 Auto）")
@@ -79,7 +88,13 @@ class StepDebugPage(QWidget):
         self.lbl_live.setStyleSheet("padding:6px;background:#f5f5f5;font-weight:bold;")
         root.addWidget(self.lbl_live)
 
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        disable_tab_bar_wheel(tabs)
+
         # —— 步表 ——
+        step_page = QWidget()
+        step_lay = QVBoxLayout(step_page)
         box_tbl = QGroupBox("Auto 步表（黄底=当前步；双击某行=跳到该步）")
         vt = QVBoxLayout(box_tbl)
         self.tbl = QTableWidget(0, 5)
@@ -92,15 +107,41 @@ class StepDebugPage(QWidget):
         self.tbl.doubleClicked.connect(self._on_row_double)
         self.tbl.itemSelectionChanged.connect(self._on_row_select)
         vt.addWidget(self.tbl)
-        root.addWidget(box_tbl, stretch=1)
+        step_lay.addWidget(box_tbl, stretch=1)
 
         self.lbl_sel = QLabel("选中步: -")
         self.lbl_sel.setWordWrap(True)
-        root.addWidget(self.lbl_sel)
+        step_lay.addWidget(self.lbl_sel)
+
+        go = QHBoxLayout()
+        go.setSpacing(8)
+        self.btn_step_goto_j = QPushButton("MoveJ→目标点")
+        self.btn_step_goto_l = QPushButton("MoveL→目标点")
+        self.btn_step_stop = QPushButton("停止运动")
+        self.btn_step_goto_j.setToolTip("走到页顶所选目标点，不必切到「路点联调」。")
+        self.btn_step_goto_l.setToolTip("走到页顶所选目标点，不必切到「路点联调」。")
+        self.btn_step_goto_j.clicked.connect(lambda: self._move_point(linear=False))
+        self.btn_step_goto_l.clicked.connect(lambda: self._move_point(linear=True))
+        self.btn_step_stop.clicked.connect(self._stop_move)
+        style_many(
+            [
+                (self.btn_step_goto_j, "motion"),
+                (self.btn_step_goto_l, "motion"),
+                (self.btn_step_stop, "danger"),
+            ]
+        )
+        go.addWidget(self.btn_step_goto_j, 1)
+        go.addWidget(self.btn_step_goto_l, 1)
+        go.addWidget(self.btn_step_stop, 1)
+        step_lay.addLayout(go)
 
         # —— 程序控制 ——
         box_ctrl = QGroupBox("程序控制")
+        box_ctrl.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         bc = QVBoxLayout(box_ctrl)
+        bc.setSpacing(8)
         self.btn_mode = QPushButton("切到单步模式")
         self.btn_arm = QPushButton("武装 Auto（从头步10）")
         self.btn_arm_sel = QPushButton("武装到选中步")
@@ -120,21 +161,12 @@ class StepDebugPage(QWidget):
                 (self.btn_abort, "danger"),
             ]
         )
-        r1 = QGridLayout()
-        r1.setHorizontalSpacing(8)
-        r1.setVerticalSpacing(6)
-        for i, b in enumerate(
-            (self.btn_mode, self.btn_arm, self.btn_arm_sel, self.btn_run, self.btn_abort)
-        ):
-            r1.addWidget(b, i // 3, i % 3)
-        r1.setColumnStretch(0, 1)
-        r1.setColumnStretch(1, 1)
-        r1.setColumnStretch(2, 1)
-        bc.addLayout(r1)
+        add_button_rows(
+            bc,
+            [self.btn_mode, self.btn_arm, self.btn_arm_sel, self.btn_run, self.btn_abort],
+            columns=3,
+        )
 
-        r2 = QGridLayout()
-        r2.setHorizontalSpacing(8)
-        r2.setVerticalSpacing(6)
         self.btn_jump = QPushButton("跳到选中步（清锁存）")
         self.btn_skip = QPushButton("强制跳过当前步")
         self.btn_refire = QPushButton("重发当前步（再Move）")
@@ -151,25 +183,23 @@ class StepDebugPage(QWidget):
                 (self.btn_init, "neutral"),
             ]
         )
-        for i, b in enumerate(
-            (self.btn_jump, self.btn_skip, self.btn_refire, self.btn_init)
-        ):
-            r2.addWidget(b, i // 2, i % 2)
-        r2.setColumnStretch(0, 1)
-        r2.setColumnStretch(1, 1)
-        bc.addLayout(r2)
+        add_button_rows(
+            bc,
+            [self.btn_jump, self.btn_skip, self.btn_refire, self.btn_init],
+            columns=2,
+        )
+        step_lay.addWidget(box_ctrl)
+        tabs.addTab(wrap_in_scroll(step_page), "步表与程序")
 
         # —— 路点 / 过渡点 ——
-        box_pt = QGroupBox("路点 / 过渡点联调（现场加中间点）")
+        pt_page = QWidget()
+        pt_lay = QVBoxLayout(pt_page)
+        box_pt = QGroupBox("路点 / 过渡点联调（现场加中间点；目标点用页顶下拉）")
         bp = QVBoxLayout(box_pt)
-        pr = QHBoxLayout()
-        self.cmb_point = NoWheelComboBox()
-        pr.addWidget(QLabel("关联/目标点"))
-        pr.addWidget(self.cmb_point, stretch=1)
-        bp.addLayout(pr)
-        pr2 = QGridLayout()
-        pr2.setHorizontalSpacing(8)
-        pr2.setVerticalSpacing(6)
+        self.lbl_pt_target = QLabel("目标点: —")
+        self.lbl_pt_target.setWordWrap(True)
+        self.lbl_pt_target.setStyleSheet("font-weight:bold;color:#1a5276;")
+        bp.addWidget(self.lbl_pt_target)
         self.btn_move_j = QPushButton("MoveJ→选中点")
         self.btn_move_l = QPushButton("MoveL→选中点")
         self.btn_move_off = QPushButton("MoveL→点+上方偏移")
@@ -195,8 +225,9 @@ class StepDebugPage(QWidget):
                 (self.btn_stop, "danger"),
             ]
         )
-        for i, b in enumerate(
-            (
+        add_button_rows(
+            bp,
+            [
                 self.btn_move_j,
                 self.btn_move_l,
                 self.btn_move_off,
@@ -204,14 +235,9 @@ class StepDebugPage(QWidget):
                 self.btn_del_via,
                 self.btn_point_undo,
                 self.btn_stop,
-            )
-        ):
-            pr2.addWidget(b, i // 4, i % 4)
-        pr2.setColumnStretch(0, 1)
-        pr2.setColumnStretch(1, 1)
-        pr2.setColumnStretch(2, 1)
-        pr2.setColumnStretch(3, 1)
-        bp.addLayout(pr2)
+            ],
+            columns=4,
+        )
         self.lbl_pt = QLabel("-")
         self.lbl_pt.setWordWrap(True)
         self.lbl_pt.setStyleSheet("color:#1a5276;font-weight:bold;")
@@ -222,7 +248,9 @@ class StepDebugPage(QWidget):
             "background:#eaf2f8;border-radius:4px;"
         )
         bp.addWidget(self.lbl_undo)
-        root.addLayout(hbox_pair(box_ctrl, box_pt))
+        pt_lay.addWidget(box_pt)
+        pt_lay.addStretch(1)
+        tabs.addTab(wrap_in_scroll(pt_page), "路点联调")
         self._refresh_undo_label()
 
         # —— 各站总览 ——
@@ -265,7 +293,12 @@ class StepDebugPage(QWidget):
         ml.addWidget(b2c, 0, 3)
         ml.addWidget(b3, 1, 0, 1, 2)
         ml.addWidget(b4, 1, 2, 1, 2)
-        root.addLayout(hbox_pair(box, man))
+        live_page = QWidget()
+        live_lay = QVBoxLayout(live_page)
+        live_lay.addLayout(hbox_pair(box, man))
+        live_lay.addStretch(1)
+        tabs.addTab(wrap_in_scroll(live_page), "站态/点动")
+        root.addWidget(tabs, 1)
 
         apply_page_chrome(self, accent="#1a5276")
         self._on_station_changed()
@@ -360,6 +393,12 @@ class StepDebugPage(QWidget):
                     self.cmb_point.setCurrentIndex(i)
                     break
         self.cmb_point.blockSignals(False)
+        self._refresh_point_target_label()
+
+    def _refresh_point_target_label(self) -> None:
+        text = self.cmb_point.currentText() or "—"
+        if hasattr(self, "lbl_pt_target"):
+            self.lbl_pt_target.setText(f"目标点: {text}")
 
     def _reload_point_combo_from_step(self) -> None:
         meta = find_step(self._station_no(), self._auto_key(), self._selected_step_no() or -1)
