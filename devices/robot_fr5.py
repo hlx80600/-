@@ -371,18 +371,33 @@ class RobotFR5:
         """抓鞋 True → 负载2+工具2；松开 False → 负载1+工具1。"""
         self.set_payload_mode("with_shoe" if holding else "empty", force=force)
 
-    def set_vel(self, vel: float) -> None:
-        """
-        设置速度百分比 [1~100]。
-        ★ 真机：调用控制器 SetSpeed（示教器「运行速度百分比」同步变化），
-          并尽量 SetSpeedInstant 低延迟生效。
-        ★ 本程序后续 MoveL 用 vel=100，实际速度 = 全局 SetSpeed%，避免再乘一次。
+    def set_vel(self, vel: float, *, push: bool = True) -> None:
+        """写运行速度百分比 [1~100]（yaml / HMI 运行条）。
+
+        Args:
+            vel: 运行速度 %。
+            push: True 同时下发控制器；False 只改内存（初始化期间改运行条用）。
         """
         self.vel = max(1.0, min(100.0, float(vel)))
-        log.info("[%s] 速度设为 %.0f%%", self.name, self.vel)
+        log.info(
+            "[%s] 运行速度设为 %.0f%%%s",
+            self.name,
+            self.vel,
+            "" if push else "（不下发）",
+        )
+        if push:
+            self.push_speed()
+
+    def push_speed(self, vel: float | None = None) -> None:
+        """只下发控制器 SetSpeed，不改 self.vel。
+
+        Args:
+            vel: 要下发的 %；空则用当前运行速度 self.vel。
+        """
+        pct = int(round(self.vel if vel is None else float(vel)))
+        pct = max(1, min(100, pct))
         if self.use_mock or self._robot is None or not self.connected:
             return
-        pct = int(round(self.vel))
         try:
             if hasattr(self._robot, "SetSpeed"):
                 err = self._robot.SetSpeed(pct)

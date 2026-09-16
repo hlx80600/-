@@ -457,10 +457,12 @@ class Coordinator:
                     )
         if m.state == MachineState.PAUSED:
             m.set_state(MachineState.RUNNING)
+            init_sequence.apply_run_controller_speed(self.ctx)
             return None
         if m.state in (MachineState.READY, MachineState.STOPPED):
             m.set_state(MachineState.RUNNING)
             gvl.Main.Stop = False
+            init_sequence.apply_run_controller_speed(self.ctx)
             return None
         return f"当前状态 {m.state.name} 不可启动"
 
@@ -488,6 +490,7 @@ class Coordinator:
             st.reset_all_auto()
         gvl.clear_cmd_state()
         self.ctx.machine.set_state(MachineState.STOPPED)
+        init_sequence.apply_run_controller_speed(self.ctx)
         # 停止后立刻消掉「故障信号」，下次启动可直接 Move（仅此路径允许 Reset，连拍中不预消警）
         for r in (self.ctx.robot1, self.ctx.robot2):
             try:
@@ -528,6 +531,7 @@ class Coordinator:
             st.reset_all_auto()
         self.ctx.gvl.clear_cmd_state()
         self.ctx.machine.set_state(MachineState.ESTOP)
+        init_sequence.apply_run_controller_speed(self.ctx)
         try:
             self.ctx.update_lights()
         except Exception:

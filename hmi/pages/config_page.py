@@ -676,8 +676,9 @@ class ConfigPage(QWidget):
         self.ctx.robot1.user = int(r1["user"])
         self.ctx.robot2.tool = int(r2["tool"])
         self.ctx.robot2.user = int(r2["user"])
-        self.ctx.robot1.set_vel(float(r1["vel"]))
-        self.ctx.robot2.set_vel(float(r2["vel"]))
+        push_run = not bool(self.ctx.gvl.Main.Initializing)
+        self.ctx.robot1.set_vel(float(r1["vel"]), push=push_run)
+        self.ctx.robot2.set_vel(float(r2["vel"]), push=push_run)
         self.ctx.robot1.set_use_mock(bool(r1["use_mock"]))
         self.ctx.robot2.set_use_mock(bool(r2["use_mock"]))
         self.ctx.robot1.set_di_force_mock(

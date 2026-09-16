@@ -22,10 +22,13 @@ log = logging.getLogger(__name__)
 # 初始化前「在 home 附近」的缺省允许范围（HMI / yaml 可改）
 DEFAULT_INIT_NEAR_HOME_MM = 80.0
 DEFAULT_INIT_NEAR_HOME_DEG = 15.0
+DEFAULT_INIT_VEL_PCT = 20.0
 _NEAR_HOME_MM_MIN = 1.0
 _NEAR_HOME_MM_MAX = 500.0
 _NEAR_HOME_DEG_MIN = 0.5
 _NEAR_HOME_DEG_MAX = 90.0
+_INIT_VEL_MIN = 1.0
+_INIT_VEL_MAX = 100.0
 
 _ROBOT_KEYS: tuple[str, ...] = ("robot1", "robot2")
 
@@ -45,6 +48,36 @@ def read_init_near_home_limits(cfg: dict[str, Any] | None) -> tuple[float, float
     mm = max(_NEAR_HOME_MM_MIN, min(_NEAR_HOME_MM_MAX, mm))
     deg = max(_NEAR_HOME_DEG_MIN, min(_NEAR_HOME_DEG_MAX, deg))
     return mm, deg
+
+
+def read_init_vel_pct(cfg: dict[str, Any] | None) -> float:
+    """读初始化回零速度 %。与 robots.*.vel 运行速度分开，越界则夹到 1~100。"""
+    raw = (cfg or {}).get("motion")
+    motion = raw if isinstance(raw, dict) else {}
+    try:
+        pct = float(motion.get("init_vel", DEFAULT_INIT_VEL_PCT))
+    except (TypeError, ValueError):
+        pct = DEFAULT_INIT_VEL_PCT
+    return max(_INIT_VEL_MIN, min(_INIT_VEL_MAX, pct))
+
+
+def apply_init_controller_speed(ctx: Any) -> None:
+    """初始化运动用：只 SetSpeed，不改 yaml 运行速度。"""
+    pct = read_init_vel_pct(getattr(ctx, "cfg", None))
+    log.info("初始化：控制器速度 %.0f%%（不改运行速度）", pct)
+    ctx.robot1.push_speed(pct)
+    ctx.robot2.push_speed(pct)
+
+
+def apply_run_controller_speed(ctx: Any) -> None:
+    """把控制器速度恢复为当前运行速度 robots.*.vel。"""
+    log.info(
+        "恢复运行速度：上料 %.0f%% 下料 %.0f%%",
+        float(ctx.robot1.vel),
+        float(ctx.robot2.vel),
+    )
+    ctx.robot1.push_speed()
+    ctx.robot2.push_speed()
 
 
 def check_robot_near_home(ctx: Any, robot_key: str) -> str | None:
@@ -127,6 +160,7 @@ def start_init(ctx) -> None:
     gvl.Main.InitStepPulse = False
     ctx.machine.set_state(MachineState.INITIALIZING)
     ctx.init_message = "初始化中..."
+    apply_init_controller_speed(ctx)
 
 
 def cycle(ctx) -> None:
@@ -139,6 +173,7 @@ def cycle(ctx) -> None:
     if gvl.Main.EStopped or gvl.Main.Stop:
         gvl.Main.Init_Auto = 0
         gvl.Main.Initializing = False
+        apply_run_controller_speed(ctx)
         return
 
     def can_advance() -> bool:
@@ -173,6 +208,7 @@ def cycle(ctx) -> None:
                     20,
                 )
                 ctx.machine.set_state(MachineState.IDLE)
+                apply_run_controller_speed(ctx)
                 return
             if pulse_cmd(gvl, "init_20"):
                 try:
@@ -183,6 +219,7 @@ def cycle(ctx) -> None:
                     gvl.Main.Init_Auto = 0
                     ctx.raise_alarm("INIT", f"上料回home失败: {e}", "Init", 20)
                     ctx.machine.set_state(MachineState.IDLE)
+                    apply_run_controller_speed(ctx)
                     return
             if ctx.robot1.poll_move_done() and can_advance():
                 cmd_reset(gvl, "init_20")
@@ -212,11 +249,13 @@ def cycle(ctx) -> None:
                 ctx.machine.set_state(MachineState.READY)
                 ctx.init_message = "初始化完成"
                 log.info("初始化完成")
+                apply_run_controller_speed(ctx)
             except Exception as e:
                 gvl.Main.Initializing = False
                 gvl.Main.Init_Auto = 0
                 ctx.raise_alarm("INIT", str(e), "Init", 40)
                 ctx.machine.set_state(MachineState.IDLE)
+                apply_run_controller_speed(ctx)
 
         case _:
             pass

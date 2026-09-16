@@ -88,11 +88,17 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.prod.uph_avg_empty": "UPH均: --",
         "monitor.prod.hour": "本小时: {n}",
         "monitor.prod.total": "总产量: {n}",
-        "monitor.vel.title": "机器人速度（%）",
+        "monitor.vel.title": "运行速度（%）",
         "monitor.vel.robot1": "上料机器人 {pct}%",
         "monitor.vel.robot2": "下料机器人 {pct}%",
         "monitor.vel.both": "两臂同步 {pct}%",
         "monitor.vel.saved": "{label}（已保存）",
+        "monitor.vel.init_title": "初始化速度（%）",
+        "monitor.vel.init": "回零/初始化 {pct}%",
+        "monitor.vel.init_tip": (
+            "只用于点「初始化」时双臂回 home，与自动运行速度分开。"
+            "初始化过程中拖动会立刻下发；结束后自动切回运行速度。"
+        ),
         "monitor.blend.title": "路径平滑（全局总开关 + 默认 blendT/blendR）",
         "monitor.blend.enable": "启用路径平滑",
         "monitor.blend.t": "MoveJ平滑时间 blendT(ms)",
@@ -329,11 +335,17 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.prod.uph_avg_empty": "UPH avg: --",
         "monitor.prod.hour": "This hour: {n}",
         "monitor.prod.total": "Total: {n}",
-        "monitor.vel.title": "Robot speed (%)",
+        "monitor.vel.title": "Run speed (%)",
         "monitor.vel.robot1": "Load robot {pct}%",
         "monitor.vel.robot2": "Unload robot {pct}%",
         "monitor.vel.both": "Both arms {pct}%",
         "monitor.vel.saved": "{label} (saved)",
+        "monitor.vel.init_title": "Init speed (%)",
+        "monitor.vel.init": "Home / init {pct}%",
+        "monitor.vel.init_tip": (
+            "Used only while Initialize sends both arms home; separate from auto run speed. "
+            "Dragging during init pushes immediately; run speed is restored when init ends."
+        ),
         "monitor.blend.title": "Path blend (global switch + default blendT/blendR)",
         "monitor.blend.enable": "Enable path blend",
         "monitor.blend.t": "MoveJ blend time blendT (ms)",

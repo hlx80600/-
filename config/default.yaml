@@ -23,7 +23,6 @@ system:
     preview_max_fps: 24
     preview_inactive_fps: 5
     vision_debug_max_fps: 10
-    # 登录后自动启动 HMI（实际开关在 ~/.config/autostart，本项由设置页同步）
     autostart: false
 motion:
   blend_enable: true
@@ -32,6 +31,7 @@ motion:
   blend_queue_delay_s: 0.08
   init_near_home_mm: 80
   init_near_home_deg: 15
+  init_vel: 20
 robots:
   robot1:
     name: 上料机器人
@@ -39,7 +39,7 @@ robots:
     use_mock: true
     tool: 1
     user: 0
-    vel: 30.0
+    vel: 24.0
     di_belt_sensor: 0
     di_belt_use_mock: true
     payloads:
@@ -81,7 +81,7 @@ robots:
     use_mock: true
     tool: 1
     user: 0
-    vel: 30.0
+    vel: 24.0
     payloads:
       empty:
         name: 手爪
@@ -192,7 +192,6 @@ press:
   addr_cmd_rotate: 10
   addr_cmd_start_press: 11
   addr_host_control: 2577
-  # 中科院点表：仅覆盖需要改的 id → Excel Dec；缺省用 devices/plc_cas_points.py
   cas_points: {}
   four_slot:
     enabled: true

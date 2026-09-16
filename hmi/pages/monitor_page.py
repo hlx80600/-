@@ -35,7 +35,11 @@ from hmi import i18n, ui_scale
 from hmi.alarm_dialog import format_alarm_text
 from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import PAGE_SPACING, apply_page_chrome, hbox_pair, style_button, style_many
-from stations.init_sequence import read_init_near_home_limits
+from stations.init_sequence import (
+    apply_init_controller_speed,
+    read_init_near_home_limits,
+    read_init_vel_pct,
+)
 
 
 class MonitorPage(QWidget):
@@ -426,18 +430,33 @@ class MonitorPage(QWidget):
         side_lay.addWidget(prod_box, 0)
         side_lay.addStretch(1)
 
-        # ---------- 机器人速度条（下发法奥 SetSpeed，示教器「运行速度%」同步）----------
-        vel_box = QGroupBox("机器人速度（%）")
+        # ---------- 运行速度 / 初始化速度（分条；初始化只 SetSpeed 不改 yaml 运行速度）----------
+        def _pct_slider(value: int) -> QSlider:
+            sld = QSlider(Qt.Horizontal)
+            sld.setRange(1, 100)
+            sld.setValue(int(value))
+            sld.setTickPosition(QSlider.TicksBelow)
+            sld.setTickInterval(10)
+            return sld
+
+        init_pct0 = int(round(read_init_vel_pct(self.ctx.cfg)))
+        init_vel_box = QGroupBox("初始化速度（%）")
+        init_lay = QVBoxLayout(init_vel_box)
+        row_init = QHBoxLayout()
+        self.lbl_init_vel = QLabel("回零/初始化 20%")
+        self.lbl_init_vel.setMinimumWidth(148)
+        self.sld_init_vel = _pct_slider(init_pct0)
+        row_init.addWidget(self.lbl_init_vel, 1)
+        row_init.addWidget(self.sld_init_vel, 4)
+        init_lay.addLayout(row_init)
+
+        vel_box = QGroupBox("运行速度（%）")
         vel_lay = QVBoxLayout(vel_box)
 
         row1 = QHBoxLayout()
         self.lbl_vel1 = QLabel("上料机器人 30%")
         self.lbl_vel1.setMinimumWidth(148)
-        self.sld_vel1 = QSlider(Qt.Horizontal)
-        self.sld_vel1.setRange(1, 100)
-        self.sld_vel1.setValue(int(round(float(self.ctx.robot1.vel))))
-        self.sld_vel1.setTickPosition(QSlider.TicksBelow)
-        self.sld_vel1.setTickInterval(10)
+        self.sld_vel1 = _pct_slider(int(round(float(self.ctx.robot1.vel))))
         row1.addWidget(self.lbl_vel1, 1)
         row1.addWidget(self.sld_vel1, 4)
         vel_lay.addLayout(row1)
@@ -445,11 +464,7 @@ class MonitorPage(QWidget):
         row2 = QHBoxLayout()
         self.lbl_vel2 = QLabel("下料机器人 30%")
         self.lbl_vel2.setMinimumWidth(148)
-        self.sld_vel2 = QSlider(Qt.Horizontal)
-        self.sld_vel2.setRange(1, 100)
-        self.sld_vel2.setValue(int(round(float(self.ctx.robot2.vel))))
-        self.sld_vel2.setTickPosition(QSlider.TicksBelow)
-        self.sld_vel2.setTickInterval(10)
+        self.sld_vel2 = _pct_slider(int(round(float(self.ctx.robot2.vel))))
         row2.addWidget(self.lbl_vel2, 1)
         row2.addWidget(self.sld_vel2, 4)
         vel_lay.addLayout(row2)
@@ -457,12 +472,8 @@ class MonitorPage(QWidget):
         row_both = QHBoxLayout()
         self.lbl_vel_both = QLabel("两臂同步 30%")
         self.lbl_vel_both.setMinimumWidth(148)
-        self.sld_vel_both = QSlider(Qt.Horizontal)
-        self.sld_vel_both.setRange(1, 100)
         both0 = int(round((float(self.ctx.robot1.vel) + float(self.ctx.robot2.vel)) / 2))
-        self.sld_vel_both.setValue(both0)
-        self.sld_vel_both.setTickPosition(QSlider.TicksBelow)
-        self.sld_vel_both.setTickInterval(10)
+        self.sld_vel_both = _pct_slider(both0)
         row_both.addWidget(self.lbl_vel_both, 1)
         row_both.addWidget(self.sld_vel_both, 4)
         vel_lay.addLayout(row_both)
@@ -473,7 +484,10 @@ class MonitorPage(QWidget):
         self.sld_vel1.sliderReleased.connect(lambda: self._save_vel("robot1"))
         self.sld_vel2.sliderReleased.connect(lambda: self._save_vel("robot2"))
         self.sld_vel_both.sliderReleased.connect(self._save_vel_both)
+        self.sld_init_vel.valueChanged.connect(self._on_init_vel_changed)
+        self.sld_init_vel.sliderReleased.connect(self._save_init_vel)
         self._update_vel_labels()
+        self._update_init_vel_labels()
 
         # 路径平滑（全局总开关 + 默认 T/R）
         blend_box = QGroupBox("路径平滑（全局总开关 + 默认 blendT/blendR）")
@@ -516,9 +530,13 @@ class MonitorPage(QWidget):
         bl.addLayout(brow2)
         for w in (self.sp_blend_t, self.sp_blend_r, self.sp_blend_delay):
             w.wheelEvent = lambda e: e.ignore()  # type: ignore
+        vel_col = QVBoxLayout()
+        vel_col.setSpacing(8)
+        vel_col.addWidget(init_vel_box)
+        vel_col.addWidget(vel_box)
         vel_blend = QHBoxLayout()
         vel_blend.setSpacing(10)
-        vel_blend.addWidget(vel_box, 1)
+        vel_blend.addLayout(vel_col, 1)
         vel_blend.addWidget(blend_box, 1)
 
         # 夹爪手动：速度 + 开合按键 + 完成状态灯（自动连续运行时锁定按键）
@@ -912,6 +930,7 @@ class MonitorPage(QWidget):
         self._syncing_press_chk = False
         self._syncing_belt_chk = False
         self.vel_box = vel_box
+        self.init_vel_box = init_vel_box
         self.blend_box = blend_box
         self.grip_box = grip_box
         self.press_box = press_box
@@ -952,6 +971,7 @@ class MonitorPage(QWidget):
         """语言切换后刷新静态文案并重刷动态状态。"""
         self._apply_static_i18n()
         self._update_vel_labels()
+        self._update_init_vel_labels()
         self._refresh_init_flag()
         self._refresh_hero_slots()
         self._refresh_grip_labels()
@@ -1009,6 +1029,10 @@ class MonitorPage(QWidget):
         self.prod_box.setTitle(t("monitor.prod.board"))
         self.link_box.setTitle(t("monitor.link.title"))
         self.vel_box.setTitle(t("monitor.vel.title"))
+        self.init_vel_box.setTitle(t("monitor.vel.init_title"))
+        init_tip = t("monitor.vel.init_tip")
+        self.init_vel_box.setToolTip(init_tip)
+        self.sld_init_vel.setToolTip(init_tip)
         self.blend_box.setTitle(t("monitor.blend.title"))
         self.chk_blend.setText(t("monitor.blend.enable"))
         self.lbl_blend_t.setText(t("monitor.blend.t"))
@@ -1069,6 +1093,13 @@ class MonitorPage(QWidget):
             cb.setText(label)
             cb.setToolTip(f"Mem[{i}] {label}")
 
+    def _is_initializing(self) -> bool:
+        """当前是否在初始化回零（此时运行条只改 yaml，不下发控制器）。"""
+        try:
+            return bool(self.ctx.gvl.Main.Initializing)
+        except Exception:
+            return False
+
     def _update_vel_labels(self) -> None:
         v1 = int(round(float(self.ctx.robot1.vel)))
         v2 = int(round(float(self.ctx.robot2.vel)))
@@ -1076,6 +1107,10 @@ class MonitorPage(QWidget):
         self.lbl_vel2.setText(i18n.tr("monitor.vel.robot2", pct=v2))
         both = int(round((v1 + v2) / 2))
         self.lbl_vel_both.setText(i18n.tr("monitor.vel.both", pct=both))
+
+    def _update_init_vel_labels(self) -> None:
+        pct = int(round(read_init_vel_pct(self.ctx.cfg)))
+        self.lbl_init_vel.setText(i18n.tr("monitor.vel.init", pct=pct))
 
     def _on_init(self) -> None:
         err = self.coord.cmd_init()
@@ -1624,11 +1659,12 @@ class MonitorPage(QWidget):
     def _on_vel_changed(self, which: str, value: int) -> None:
         if self._syncing_vel:
             return
+        push = not self._is_initializing()
         if which == "robot1":
-            self.ctx.robot1.set_vel(value)
+            self.ctx.robot1.set_vel(value, push=push)
             self.ctx.cfg["robots"]["robot1"]["vel"] = float(value)
         else:
-            self.ctx.robot2.set_vel(value)
+            self.ctx.robot2.set_vel(value, push=push)
             self.ctx.cfg["robots"]["robot2"]["vel"] = float(value)
         self._update_vel_labels()
 
@@ -1639,8 +1675,9 @@ class MonitorPage(QWidget):
         self.sld_vel1.setValue(value)
         self.sld_vel2.setValue(value)
         self._syncing_vel = False
-        self.ctx.robot1.set_vel(value)
-        self.ctx.robot2.set_vel(value)
+        push = not self._is_initializing()
+        self.ctx.robot1.set_vel(value, push=push)
+        self.ctx.robot2.set_vel(value, push=push)
         self.ctx.cfg["robots"]["robot1"]["vel"] = float(value)
         self.ctx.cfg["robots"]["robot2"]["vel"] = float(value)
         self._update_vel_labels()
@@ -1666,12 +1703,30 @@ class MonitorPage(QWidget):
 
     def _save_vel_both(self) -> None:
         save_config(self.ctx.cfg)
-        self.lbl_vel_both.setText(
-            i18n.tr(
-                "monitor.vel.saved",
-                label=i18n.tr("monitor.vel.both", pct=self.sld_vel_both.value()),
-            )
+        saved = i18n.tr(
+            "monitor.vel.saved",
+            label=i18n.tr("monitor.vel.both", pct=self.sld_vel_both.value()),
         )
+        self.lbl_vel_both.setText(saved)
+
+    def _on_init_vel_changed(self, value: int) -> None:
+        """改初始化速度：写入 motion.init_vel；仅初始化中才下发控制器。"""
+        motion = self.ctx.cfg.setdefault("motion", {})
+        if not isinstance(motion, dict):
+            motion = {}
+            self.ctx.cfg["motion"] = motion
+        motion["init_vel"] = float(value)
+        self._update_init_vel_labels()
+        if self._is_initializing():
+            apply_init_controller_speed(self.ctx)
+
+    def _save_init_vel(self) -> None:
+        save_config(self.ctx.cfg)
+        saved = i18n.tr(
+            "monitor.vel.saved",
+            label=i18n.tr("monitor.vel.init", pct=self.sld_init_vel.value()),
+        )
+        self.lbl_init_vel.setText(saved)
 
     def _on_step_next(self) -> None:
         """单步推进：忙站发 StepPulse；无忙站时仅推进初始化。"""
