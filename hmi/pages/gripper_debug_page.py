@@ -117,7 +117,22 @@ class GripperDebugPage(QWidget):
         style_button(self.btn_save_spd, "success")
         self.btn_save_spd.clicked.connect(self._save_speeds)
         ga.addWidget(self.btn_save_spd, 3, 0, 1, 4)
-        for sp in (self.sp_open, self.sp_close):
+        ga.addWidget(QLabel("张开角度"), 4, 0)
+        self.sp_open_ang = QDoubleSpinBox()
+        self.sp_open_ang.setRange(-12.5, 12.5)
+        self.sp_open_ang.setDecimals(3)
+        self.sp_open_ang.setSingleStep(0.1)
+        self.sp_open_ang.setSuffix(" rad")
+        ga.addWidget(self.sp_open_ang, 4, 1)
+        ga.addWidget(QLabel("夹紧角度"), 4, 2)
+        self.sp_close_ang = QDoubleSpinBox()
+        self.sp_close_ang.setRange(-12.5, 12.5)
+        self.sp_close_ang.setDecimals(3)
+        self.sp_close_ang.setSingleStep(0.1)
+        self.sp_close_ang.setSuffix(" rad")
+        ga.addWidget(self.sp_close_ang, 4, 3)
+        self.btn_save_spd.setText("保存速度/角度到 yaml")
+        for sp in (self.sp_open, self.sp_close, self.sp_open_ang, self.sp_close_ang):
             sp.wheelEvent = lambda e: e.ignore()  # type: ignore
         root.addLayout(hbox_pair(box_sel, box_act, stretch_l=1, stretch_r=2))
 
@@ -241,9 +256,13 @@ class GripperDebugPage(QWidget):
         if g is not None:
             self.sp_open.setValue(float(g.open_speed))
             self.sp_close.setValue(float(g.close_speed))
+            self.sp_open_ang.setValue(float(getattr(g, "open_angle_rad", 2.1)))
+            self.sp_close_ang.setValue(float(getattr(g, "close_angle_rad", -1.5)))
         else:
             self.sp_open.setValue(float(m.get("open_speed", 50)))
             self.sp_close.setValue(float(m.get("close_speed", 50)))
+            self.sp_open_ang.setValue(float(m.get("open_angle_rad", 2.1)))
+            self.sp_close_ang.setValue(float(m.get("close_angle_rad", -1.5)))
         self._refresh_status()
 
     def _on_table_click(self, row: int, _col: int) -> None:
@@ -282,6 +301,8 @@ class GripperDebugPage(QWidget):
         self._busy_cmd = True
         try:
             g.set_speeds(float(self.sp_open.value()), float(self.sp_close.value()))
+            if hasattr(g, "set_angles"):
+                g.set_angles(float(self.sp_open_ang.value()), float(self.sp_close_ang.value()))
             ok = g.open_claw() if open_ else g.close_claw()
             act = "张开" if open_ else "夹紧"
             if not ok:
@@ -331,6 +352,14 @@ class GripperDebugPage(QWidget):
             return
         self._busy_cmd = True
         try:
+            cur = self._gripper()
+            if cur is not None:
+                cur.set_speeds(float(self.sp_open.value()), float(self.sp_close.value()))
+                if hasattr(cur, "set_angles"):
+                    cur.set_angles(
+                        float(self.sp_open_ang.value()),
+                        float(self.sp_close_ang.value()),
+                    )
             ok = g.open_claw() if open_ else g.close_claw()
             act = "同时张开" if open_ else "同时夹紧"
             n = 1
@@ -449,12 +478,25 @@ class GripperDebugPage(QWidget):
         idx = self._current_index()
         op = float(self.sp_open.value())
         cl = float(self.sp_close.value())
+        oa = float(self.sp_open_ang.value())
+        ca = float(self.sp_close_ang.value())
         if g is not None:
             g.set_speeds(op, cl)
+            if hasattr(g, "set_angles"):
+                g.set_angles(oa, ca)
         gcfg = self._gcfg()
-        write_motor(gcfg, idx, {"open_speed": op, "close_speed": cl})
+        write_motor(
+            gcfg,
+            idx,
+            {
+                "open_speed": op,
+                "close_speed": cl,
+                "open_angle_rad": oa,
+                "close_angle_rad": ca,
+            },
+        )
         save_config(self.ctx.cfg)
-        QMessageBox.information(self, "已保存", f"电机{idx} 开合速度已写入 yaml")
+        QMessageBox.information(self, "已保存", f"电机{idx} 开合速度与角度已写入 yaml")
 
     def _set_lamp(self, label: QLabel, on: bool, color: str) -> None:
         if on:
@@ -489,7 +531,7 @@ class GripperDebugPage(QWidget):
         open_t = snap.get("open_target_rad")
         close_t = snap.get("close_target_rad")
         if open_t is None or close_t is None:
-            self.lbl_pos_target.setText("目标: 开 — / 关 —（Mock 无编码器）")
+            self.lbl_pos_target.setText("目标: 开 — / 关 —")
         else:
             self.lbl_pos_target.setText(
                 f"目标: 开 {float(open_t):.3f} rad  /  关 {float(close_t):.3f} rad"

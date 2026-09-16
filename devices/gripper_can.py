@@ -17,6 +17,7 @@ HMI / 脚本（阻塞到反馈）：
 连接与参数：
   g.connect() / g.reconnect() / g.disconnect()
   g.set_speeds(open_speed=..., close_speed=...)
+  g.set_angles(open_rad=..., close_rad=...)
 
 单独测试：
   python3 -m devices.gripper_can --side 1
@@ -48,6 +49,29 @@ from devices.usb2can import (
 log = logging.getLogger(__name__)
 
 DEFAULT_GRIP_SPEED = 50.0
+POSITION_MIN_RAD = -12.5
+POSITION_MAX_RAD = 12.5
+
+
+def default_open_close_rad(gripper_type: int) -> tuple[float, float]:
+    """各型号出厂开/合目标位置（rad），与历史 COMMANDS 前 4 字节一致。"""
+    kind = int(gripper_type)
+    if kind == 0:
+        open_b = bytes([0x00, 0x00, 0x20, 0x40])
+        close_b = bytes([0x00, 0x00, 0xC0, 0xBF])
+    elif kind == 1:
+        open_b = bytes([0x00, 0x00, 0x00, 0x40])
+        close_b = bytes([0xCD, 0xCC, 0x8C, 0xBF])
+    else:
+        open_b = bytes([0x66, 0x66, 0x06, 0x40])
+        close_b = bytes([0x00, 0x00, 0xC0, 0xBF])
+    return struct.unpack("<f", open_b)[0], struct.unpack("<f", close_b)[0]
+
+
+def clamp_gripper_angle_rad(value: float) -> float:
+    return max(POSITION_MIN_RAD, min(POSITION_MAX_RAD, float(value)))
+
+
 # 达妙 MIT/位置速度：全 0xFF + 0xFC = 使能
 ENABLE_FRAME = bytes([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC])
 _ARPHRD_CAN = 280
@@ -55,6 +79,10 @@ _SYS_NET = Path("/sys/class/net")
 
 __all__ = [
     "DEFAULT_GRIP_SPEED",
+    "POSITION_MIN_RAD",
+    "POSITION_MAX_RAD",
+    "default_open_close_rad",
+    "clamp_gripper_angle_rad",
     "CANGripperController",
     "GripperCAN",
     "GripperConfig",
@@ -412,8 +440,8 @@ class CANGripperController:
         self.torque_hold_threshold = 1.6  #是否夹取物体的扭矩判断值
         self.torque_drop_threshold = 1  #是否掉落的扭矩判断值，通常设置为小于持物判断值
         self.empty_close_position_threshold = 30500
-        self.position_min_rad = -12.5
-        self.position_max_rad = 12.5
+        self.position_min_rad = POSITION_MIN_RAD
+        self.position_max_rad = POSITION_MAX_RAD
         self.position_tolerance_rad_open = 0.30   #当前位置和目标距离的差值，判断是否到达open状态
         self.position_tolerance_rad_close = 0.15  #当前位置和目标距离的差值，判断是否到达close状态
         self.velocity_min_rad_s = -30.0
@@ -741,17 +769,32 @@ class CANGripperController:
         return struct.unpack('<f', payload[4:8])[0]
 
     def set_motion_speeds(self, open_speed: float | None = None, close_speed: float | None = None):
-        """按当前位置目标重建 open/close 命令帧中的速度字。"""
+        """按当前开合目标位置重建 open/close 命令帧中的速度字。"""
         if open_speed is not None:
             self.open_speed = float(open_speed)
         if close_speed is not None:
             self.close_speed = float(close_speed)
-        pos_open = struct.pack('<f', float(self.open_target_rad))
-        pos_close = struct.pack('<f', float(self.close_target_rad))
-        vel_open = struct.pack('<f', float(self.open_speed))
-        vel_close = struct.pack('<f', float(self.close_speed))
-        self.COMMANDS['open'] = pos_open + vel_open
-        self.COMMANDS['close'] = pos_close + vel_close
+        self._rebuild_motion_commands()
+
+    def set_target_angles(
+        self,
+        open_rad: float | None = None,
+        close_rad: float | None = None,
+    ) -> None:
+        """改张开/夹紧目标位置（rad），并重建命令帧。"""
+        if open_rad is not None:
+            self.open_target_rad = clamp_gripper_angle_rad(open_rad)
+        if close_rad is not None:
+            self.close_target_rad = clamp_gripper_angle_rad(close_rad)
+        self._rebuild_motion_commands()
+
+    def _rebuild_motion_commands(self) -> None:
+        pos_open = struct.pack("<f", float(self.open_target_rad))
+        pos_close = struct.pack("<f", float(self.close_target_rad))
+        vel_open = struct.pack("<f", float(self.open_speed))
+        vel_close = struct.pack("<f", float(self.close_speed))
+        self.COMMANDS["open"] = pos_open + vel_open
+        self.COMMANDS["close"] = pos_close + vel_close
 
     def _uint_to_float(self, x_int, x_min, x_max, bits):
         """将无符号整数按位宽映射到实际物理量范围。"""
@@ -970,6 +1013,8 @@ class GripperCAN:
         use_mock: bool = True,
         open_speed: float = DEFAULT_GRIP_SPEED,
         close_speed: float = DEFAULT_GRIP_SPEED,
+        open_angle_rad: float | None = None,
+        close_angle_rad: float | None = None,
     ):
         self.name = name
         self.interface = str(interface)
@@ -978,6 +1023,13 @@ class GripperCAN:
         self.use_mock = bool(use_mock)
         self.open_speed = float(open_speed)
         self.close_speed = float(close_speed)
+        d_open, d_close = default_open_close_rad(self.gripper_type)
+        self.open_angle_rad = clamp_gripper_angle_rad(
+            d_open if open_angle_rad is None else float(open_angle_rad)
+        )
+        self.close_angle_rad = clamp_gripper_angle_rad(
+            d_close if close_angle_rad is None else float(close_angle_rad)
+        )
         self.closed = True
         self.connected = False
         self.last_ok = True
@@ -1045,6 +1097,7 @@ class GripperCAN:
                 can_id=self.can_id,
                 gripper_type=self.gripper_type,
             )
+            self._ctrl.set_target_angles(self.open_angle_rad, self.close_angle_rad)
             self._ctrl.set_motion_speeds(self.open_speed, self.close_speed)
             self.connected = bool(self._ctrl.is_connected())
             if self.connected:
@@ -1112,12 +1165,29 @@ class GripperCAN:
             self.open_speed = max(1.0, float(open_speed))
         if close_speed is not None:
             self.close_speed = max(1.0, float(close_speed))
+        self._push_motion_to_ctrl()
+
+    def set_angles(
+        self,
+        open_rad: float | None = None,
+        close_rad: float | None = None,
+    ) -> None:
+        """设置张开/夹紧目标角度（rad），立刻写进开合命令帧。"""
+        if open_rad is not None:
+            self.open_angle_rad = clamp_gripper_angle_rad(open_rad)
+        if close_rad is not None:
+            self.close_angle_rad = clamp_gripper_angle_rad(close_rad)
+        self._push_motion_to_ctrl()
+
+    def _push_motion_to_ctrl(self) -> None:
         with self._lock:
-            if self._ctrl is not None:
-                try:
-                    self._ctrl.set_motion_speeds(self.open_speed, self.close_speed)
-                except Exception as e:
-                    log.warning("[%s] 更新开合速度失败: %s", self.name, e)
+            if self._ctrl is None:
+                return
+            try:
+                self._ctrl.set_target_angles(self.open_angle_rad, self.close_angle_rad)
+                self._ctrl.set_motion_speeds(self.open_speed, self.close_speed)
+            except Exception as e:
+                log.warning("[%s] 更新开合目标/速度失败: %s", self.name, e)
 
     # ----------------------------------------------------------- Station API
     def open(self) -> None:
@@ -1227,6 +1297,7 @@ class GripperCAN:
             ctrl = self._ctrl
             if ctrl is not None:
                 try:
+                    ctrl.set_target_angles(self.open_angle_rad, self.close_angle_rad)
                     ctrl.set_motion_speeds(self.open_speed, self.close_speed)
                 except Exception:
                     pass
@@ -1337,8 +1408,8 @@ class GripperCAN:
             "hold_state": "-",
             "position_rad": None,
             "position_raw": None,
-            "open_target_rad": None,
-            "close_target_rad": None,
+            "open_target_rad": float(self.open_angle_rad),
+            "close_target_rad": float(self.close_angle_rad),
             "position_text": self.position_display(),
             "torque_nm": None,
             "driver_status": "-",
@@ -1374,9 +1445,13 @@ class GripperConfig:
     use_mock: bool = True
     open_speed: float = DEFAULT_GRIP_SPEED
     close_speed: float = DEFAULT_GRIP_SPEED
+    open_angle_rad: float | None = None
+    close_angle_rad: float | None = None
 
     @classmethod
     def from_mapping(cls, name: str, cfg: Mapping[str, Any]) -> "GripperConfig":
+        open_a = cfg.get("open_angle_rad")
+        close_a = cfg.get("close_angle_rad")
         return cls(
             name=name,
             interface=str(cfg.get("interface", "can0")),
@@ -1385,6 +1460,8 @@ class GripperConfig:
             use_mock=bool(cfg.get("use_mock", True)),
             open_speed=float(cfg.get("open_speed", DEFAULT_GRIP_SPEED)),
             close_speed=float(cfg.get("close_speed", DEFAULT_GRIP_SPEED)),
+            open_angle_rad=None if open_a is None else float(open_a),
+            close_angle_rad=None if close_a is None else float(close_a),
         )
 
 
@@ -1397,6 +1474,8 @@ def create_gripper(
     use_mock: bool = True,
     open_speed: float = DEFAULT_GRIP_SPEED,
     close_speed: float = DEFAULT_GRIP_SPEED,
+    open_angle_rad: float | None = None,
+    close_angle_rad: float | None = None,
     connect: bool = False,
 ) -> GripperCAN:
     """创建夹爪实例；connect=True 时立即 connect()。"""
@@ -1408,6 +1487,8 @@ def create_gripper(
         use_mock=use_mock,
         open_speed=open_speed,
         close_speed=close_speed,
+        open_angle_rad=open_angle_rad,
+        close_angle_rad=close_angle_rad,
     )
     if connect:
         g.connect()
@@ -1425,6 +1506,8 @@ def create_gripper_from_config(cfg: Mapping[str, Any], *, name: str, connect: bo
         use_mock=gc.use_mock,
         open_speed=gc.open_speed,
         close_speed=gc.close_speed,
+        open_angle_rad=gc.open_angle_rad,
+        close_angle_rad=gc.close_angle_rad,
         connect=connect,
     )
 

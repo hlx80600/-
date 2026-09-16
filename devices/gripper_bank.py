@@ -8,7 +8,7 @@ yaml 结构：
     load_index: 1           # 上料工位绑定的电机序号 → ctx.gripper1
     unload_index: 2         # 下料工位绑定的电机序号 → ctx.gripper2
     motors:
-      "1": { interface, can_id, gripper_type, open_speed, close_speed, use_mock, label, link_role }
+      "1": { interface, can_id, gripper_type, open_speed, close_speed, open_angle_rad, close_angle_rad, use_mock, label, link_role }
       # link_role: none | load | unload  （额外电机跟随上料或下料同时开合）
       "2": ...
     gripper1 / gripper2:    # 与 load/unload 同步的别名（兼容旧代码）
@@ -41,6 +41,10 @@ def _default_motor(index: int) -> Dict[str, Any]:
             "gripper_type": DEFAULT_GRIPPER_TYPE,
             "open_speed": DEFAULT_OPEN_SPEED,
             "close_speed": DEFAULT_CLOSE_SPEED,
+            "open_angle_rad": 2.1,
+            "close_angle_rad": -1.5,
+            "open_angle_rad": 2.1,
+            "close_angle_rad": -1.5,
             "use_mock": True,
             "link_role": LINK_NONE,
         }
@@ -52,6 +56,8 @@ def _default_motor(index: int) -> Dict[str, Any]:
             "gripper_type": DEFAULT_GRIPPER_TYPE,
             "open_speed": 100.0,
             "close_speed": DEFAULT_CLOSE_SPEED,
+            "open_angle_rad": 2.1,
+            "close_angle_rad": -1.5,
             "use_mock": True,
             "link_role": LINK_NONE,
         }
@@ -62,6 +68,8 @@ def _default_motor(index: int) -> Dict[str, Any]:
         "gripper_type": DEFAULT_GRIPPER_TYPE,
         "open_speed": DEFAULT_OPEN_SPEED,
         "close_speed": DEFAULT_CLOSE_SPEED,
+        "open_angle_rad": 2.1,
+        "close_angle_rad": -1.5,
         "use_mock": True,
         "link_role": LINK_NONE,
     }

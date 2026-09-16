@@ -698,6 +698,13 @@ class ConfigPage(QWidget):
             inst.can_id = int(m.get("can_id") or 0)
             inst.gripper_type = int(m.get("gripper_type") or 2)
             inst.set_speeds(float(m.get("open_speed", 50)), float(m.get("close_speed", 50)))
+            if hasattr(inst, "set_angles"):
+                oa = m.get("open_angle_rad")
+                ca = m.get("close_angle_rad")
+                inst.set_angles(
+                    None if oa is None else float(oa),
+                    None if ca is None else float(ca),
+                )
             inst.connect()
         self.ctx.bind_gripper_groups()
 

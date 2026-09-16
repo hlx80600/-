@@ -128,6 +128,8 @@ grippers:
       gripper_type: 2
       open_speed: 50.0
       close_speed: 50.0
+      open_angle_rad: 2.1
+      close_angle_rad: -1.5
       use_mock: true
       link_role: none
     '2':
@@ -137,6 +139,8 @@ grippers:
       gripper_type: 2
       open_speed: 100.0
       close_speed: 50.0
+      open_angle_rad: 2.1
+      close_angle_rad: -1.5
       use_mock: true
       link_role: none
     '3':
@@ -146,6 +150,8 @@ grippers:
       gripper_type: 2
       open_speed: 50.0
       close_speed: 50.0
+      open_angle_rad: 2.1
+      close_angle_rad: -1.5
       use_mock: true
       link_role: load
   gripper1:
@@ -155,6 +161,8 @@ grippers:
     gripper_type: 2
     open_speed: 50.0
     close_speed: 50.0
+    open_angle_rad: 2.1
+    close_angle_rad: -1.5
     use_mock: true
     link_role: none
   gripper2:
@@ -164,6 +172,8 @@ grippers:
     gripper_type: 2
     open_speed: 100.0
     close_speed: 50.0
+    open_angle_rad: 2.1
+    close_angle_rad: -1.5
     use_mock: true
     link_role: none
 press:

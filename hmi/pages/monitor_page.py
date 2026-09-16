@@ -623,11 +623,53 @@ class MonitorPage(QWidget):
         self.sp_g2_close_spd.setValue(float(self.ctx.gripper2.close_speed))
         gl.addWidget(self.sp_g2_close_spd, 5, 3)
 
+        self.lbl_grip_ang1_open = QLabel()
+        gl.addWidget(self.lbl_grip_ang1_open, 6, 0)
+        self.sp_g1_open_ang = QDoubleSpinBox()
+        self.sp_g1_open_ang.setRange(-12.5, 12.5)
+        self.sp_g1_open_ang.setDecimals(3)
+        self.sp_g1_open_ang.setSingleStep(0.1)
+        self.sp_g1_open_ang.setSuffix(" rad")
+        self.sp_g1_open_ang.setValue(float(getattr(self.ctx.gripper1, "open_angle_rad", 2.1)))
+        gl.addWidget(self.sp_g1_open_ang, 6, 1)
+        self.lbl_grip_ang1_close = QLabel()
+        gl.addWidget(self.lbl_grip_ang1_close, 6, 2)
+        self.sp_g1_close_ang = QDoubleSpinBox()
+        self.sp_g1_close_ang.setRange(-12.5, 12.5)
+        self.sp_g1_close_ang.setDecimals(3)
+        self.sp_g1_close_ang.setSingleStep(0.1)
+        self.sp_g1_close_ang.setSuffix(" rad")
+        self.sp_g1_close_ang.setValue(float(getattr(self.ctx.gripper1, "close_angle_rad", -1.5)))
+        gl.addWidget(self.sp_g1_close_ang, 6, 3)
+
+        self.lbl_grip_ang2_open = QLabel()
+        gl.addWidget(self.lbl_grip_ang2_open, 7, 0)
+        self.sp_g2_open_ang = QDoubleSpinBox()
+        self.sp_g2_open_ang.setRange(-12.5, 12.5)
+        self.sp_g2_open_ang.setDecimals(3)
+        self.sp_g2_open_ang.setSingleStep(0.1)
+        self.sp_g2_open_ang.setSuffix(" rad")
+        self.sp_g2_open_ang.setValue(float(getattr(self.ctx.gripper2, "open_angle_rad", 2.1)))
+        gl.addWidget(self.sp_g2_open_ang, 7, 1)
+        self.lbl_grip_ang2_close = QLabel()
+        gl.addWidget(self.lbl_grip_ang2_close, 7, 2)
+        self.sp_g2_close_ang = QDoubleSpinBox()
+        self.sp_g2_close_ang.setRange(-12.5, 12.5)
+        self.sp_g2_close_ang.setDecimals(3)
+        self.sp_g2_close_ang.setSingleStep(0.1)
+        self.sp_g2_close_ang.setSuffix(" rad")
+        self.sp_g2_close_ang.setValue(float(getattr(self.ctx.gripper2, "close_angle_rad", -1.5)))
+        gl.addWidget(self.sp_g2_close_ang, 7, 3)
+
         for sp in (
             self.sp_g1_open_spd,
             self.sp_g1_close_spd,
             self.sp_g2_open_spd,
             self.sp_g2_close_spd,
+            self.sp_g1_open_ang,
+            self.sp_g1_close_ang,
+            self.sp_g2_open_ang,
+            self.sp_g2_close_ang,
         ):
             sp.wheelEvent = lambda e: e.ignore()  # type: ignore
             sp.valueChanged.connect(self._on_grip_speed_changed)
@@ -635,7 +677,7 @@ class MonitorPage(QWidget):
         self.btn_grip_spd_save = QPushButton("保存夹爪速度到 yaml")
         style_button(self.btn_grip_spd_save, "primary")
         self.btn_grip_spd_save.clicked.connect(self._save_grip_speeds)
-        gl.addWidget(self.btn_grip_spd_save, 6, 0, 1, 4)
+        gl.addWidget(self.btn_grip_spd_save, 8, 0, 1, 4)
 
         # 压鞋机 / 转盘手动（现场点检；自动跑 Station6 时勿同时猛点）
         press_box = QGroupBox(
@@ -986,6 +1028,10 @@ class MonitorPage(QWidget):
         self.lbl_grip_spd1_close.setText(t("monitor.grip.spd1_close"))
         self.lbl_grip_spd2_open.setText(t("monitor.grip.spd2_open"))
         self.lbl_grip_spd2_close.setText(t("monitor.grip.spd2_close"))
+        self.lbl_grip_ang1_open.setText(t("monitor.grip.ang1_open"))
+        self.lbl_grip_ang1_close.setText(t("monitor.grip.ang1_close"))
+        self.lbl_grip_ang2_open.setText(t("monitor.grip.ang2_open"))
+        self.lbl_grip_ang2_close.setText(t("monitor.grip.ang2_close"))
         self.btn_grip_spd_save.setText(t("monitor.grip.save_spd"))
         self.press_box.setTitle(t("monitor.press.title"))
         self.btn_press_rot_on.setText(t("monitor.press.rot_on"))
@@ -1286,20 +1332,49 @@ class MonitorPage(QWidget):
             float(self.sp_g2_open_spd.value()),
             float(self.sp_g2_close_spd.value()),
         )
+        if hasattr(self.ctx.gripper1, "set_angles"):
+            self.ctx.gripper1.set_angles(
+                float(self.sp_g1_open_ang.value()),
+                float(self.sp_g1_close_ang.value()),
+            )
+        if hasattr(self.ctx.gripper2, "set_angles"):
+            self.ctx.gripper2.set_angles(
+                float(self.sp_g2_open_ang.value()),
+                float(self.sp_g2_close_ang.value()),
+            )
 
     def _on_grip_speed_changed(self, *_args) -> None:
         self._apply_grip_speeds_from_ui()
 
     def _save_grip_speeds(self) -> None:
         self._apply_grip_speeds_from_ui()
-        g1 = self.ctx.cfg.setdefault("grippers", {}).setdefault("gripper1", {})
-        g2 = self.ctx.cfg.setdefault("grippers", {}).setdefault("gripper2", {})
-        g1["open_speed"] = float(self.ctx.gripper1.open_speed)
-        g1["close_speed"] = float(self.ctx.gripper1.close_speed)
-        g2["open_speed"] = float(self.ctx.gripper2.open_speed)
-        g2["close_speed"] = float(self.ctx.gripper2.close_speed)
+        from devices.gripper_bank import normalize_grippers_cfg, write_motor
+
+        gcfg = normalize_grippers_cfg(self.ctx.cfg)
+        load_i = int(gcfg.get("load_index", 1))
+        unload_i = int(gcfg.get("unload_index", 2))
+        write_motor(
+            gcfg,
+            load_i,
+            {
+                "open_speed": float(self.ctx.gripper1.open_speed),
+                "close_speed": float(self.ctx.gripper1.close_speed),
+                "open_angle_rad": float(self.ctx.gripper1.open_angle_rad),
+                "close_angle_rad": float(self.ctx.gripper1.close_angle_rad),
+            },
+        )
+        write_motor(
+            gcfg,
+            unload_i,
+            {
+                "open_speed": float(self.ctx.gripper2.open_speed),
+                "close_speed": float(self.ctx.gripper2.close_speed),
+                "open_angle_rad": float(self.ctx.gripper2.open_angle_rad),
+                "close_angle_rad": float(self.ctx.gripper2.close_angle_rad),
+            },
+        )
         save_config(self.ctx.cfg)
-        QMessageBox.information(self, "已保存", "夹爪开合速度已写入 config/default.yaml")
+        QMessageBox.information(self, "已保存", "夹爪开合速度与角度已写入 config/default.yaml")
 
     def _set_grip_lamp(self, label: QLabel, on: bool, color: str) -> None:
         if on:
