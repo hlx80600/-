@@ -189,7 +189,7 @@ press:
     pick: right
   addr_power_ok: 0
   addr_rotate_done: 1
-  addr_press_done: 2
+  addr_press_done: 0
   addr_cmd_rotate: 10
   addr_cmd_start_press: 11
   addr_host_control: 2577

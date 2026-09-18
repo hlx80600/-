@@ -278,7 +278,7 @@ class CasPlcPointsWidget(QWidget):
         return card
 
     def _build_pick_done_card(self) -> QFrame:
-        """取料槽工作完成：工控机发出，随当前工位（放料槽号）切换。"""
+        """取料槽工作完成：压机PLC给出，由放料槽号推算取料槽后只读。"""
         card = QFrame()
         card.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -294,16 +294,16 @@ class CasPlcPointsWidget(QWidget):
         title.setStyleSheet(
             f"font-weight:bold;color:#1c2833;font-size:{_fpx(14)}px;"
         )
-        hint = QLabel("工控机发出；随当前工位（放料槽号）改写该槽线圈")
+        hint = QLabel("压机PLC给出；由当前放料槽号推算取料槽号后读取该槽线圈")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:#7f8c8d;font-size:{_fpx(12)}px;")
-        slot_lbl = QLabel("当前工位 #-")
+        slot_lbl = QLabel("放料槽 #- → 取料槽 #-")
         slot_lbl.setStyleSheet(f"color:#1a5276;font-size:{_fpx(12)}px;")
         self._pick_done_slot_lbl = slot_lbl
         inner.addWidget(title)
         inner.addWidget(hint)
         inner.addWidget(slot_lbl)
-        pt = self._slot_done_point(self._press().current_station_no())
+        pt = self._slot_done_point(self._press().derived_pick_slot())
         if pt is None:
             inner.addWidget(QLabel("无完成点"))
             return card
@@ -439,8 +439,6 @@ class CasPlcPointsWidget(QWidget):
             if pt.id.endswith("_rod_fwd") or pt.id.endswith("_rod_back"):
                 return self._hold_coil_button(ui)
             on_txt, off_txt = "开", "关"
-            if pt.id.endswith("_slot_done"):
-                on_txt, off_txt = "置1", "置0"
             btn_on = style_button(QPushButton(on_txt), "success", tall=False)
             btn_off = style_button(QPushButton(off_txt), "neutral", tall=False)
             btn_on.clicked.connect(lambda _=False, u=ui: self._write_m(u.point, True))
@@ -604,12 +602,6 @@ class CasPlcPointsWidget(QWidget):
                     self.coord.cmd_estop()
                 else:
                     self.coord.cmd_reset_estop()
-            elif str(point.id).endswith("_slot_done"):
-                slot: int | None = None
-                head = str(point.id).split("_", 1)[0]
-                if head.startswith("s") and head[1:].isdigit():
-                    slot = int(head[1:])
-                self._press().set_pick_slot_work_done(bool(on), slot=slot)
             else:
                 self._press().cas_write(point, on)
         except Exception as exc:
@@ -646,10 +638,13 @@ class CasPlcPointsWidget(QWidget):
         self._write_d(point, spin)
 
     def _sync_pick_done_binding(self, press: PressMachine) -> None:
-        """取料槽工作完成卡片绑定到当前工位（放料槽）的线圈。"""
-        slot = press.current_station_no()
+        """取料槽工作完成卡片绑定到由放料槽推算出的取料槽线圈。"""
+        place = int(press.place_slot)
+        slot = press.derived_pick_slot()
         if self._pick_done_slot_lbl is not None:
-            self._pick_done_slot_lbl.setText(f"当前工位 #{slot}（放料槽）")
+            self._pick_done_slot_lbl.setText(
+                f"放料槽 #{place} → 取料槽 #{slot}"
+            )
         ui = self._pick_done_row
         pt = self._slot_done_point(slot)
         if ui is None or pt is None:

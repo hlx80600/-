@@ -1,15 +1,27 @@
 # =============================================================================
-# Station6 —— 先压鞋(按放料槽号控压杆/底座) → 再旋转 → 清记忆
-# CASE Auto_A[10] OF  10/20/30/40/50
+# Station6 —— 取料槽已拍完且无料、放料侧结束后，才写启动字（1=空转 2=启动）
 #
-# 四槽：左口=放料、右口=取料；压合打到当前放料槽号 slots[N]；
-#       完成看该槽状态 / press_done。Mem10=1 只转不压。
-#       旋转到位后按 HMI 所选顺序(12341/43214)自行推进槽号。
+# 进入：Mem3（放料侧本圈结束）且 Mem7=1、Mem6=0（已拍、槽内无料：空槽或已取走）。
+# 启动 1/2 都会转盘，站内再等压机放鞋完成=1（放过或禁放时 Station3 已置1；Mem10 空转仍可进）。
+# 取料槽工作完成是压机 PLC 给出的，本工位不写。
 # =============================================================================
 
 from __future__ import annotations
 
+import logging
+
 from core.plc_util import advance_step, cmd_reset, delay_done, delay_start, pulse_cmd, sync_mem
+
+log = logging.getLogger(__name__)
+
+
+def _robots_clear_of_slots(ctx) -> tuple[bool, bool]:
+    """放鞋完成是否已下发。Mem10 未放料时不要求放鞋完成。取料侧由进入条件 Mem7/Mem6 保证。"""
+    gvl = ctx.gvl
+    m = gvl.Memory_BOOL
+    shoe_ok = bool(m[10]) or ctx.press.cas_word("shoe_done") == 1
+    pick_ok = bool(m[7]) and (not m[6])
+    return shoe_ok, pick_ok
 
 
 def cycle(ctx) -> None:
@@ -28,8 +40,9 @@ def cycle(ctx) -> None:
     if (
         (not gvl.Main.DebugBypass)
         and M[3]
+        and M[7]
         and (not M[6])
-        and ctx.press.press_done
+        and ctx.press.is_press_idle()
         and (not st.Busy)
         and gvl.Main.Running
         and (not gvl.Main.Paused)
@@ -42,81 +55,60 @@ def cycle(ctx) -> None:
 
     match A[10]:
         case 10:
-            if pulse_cmd(gvl, "s6_10"):
-                sync_mem(ctx, 7, False)
-                sync_mem(ctx, 4, False)
-                ctx.press.refresh_inputs()
-                need_press = not bool(M[10])
-                gvl._s6_need_press = need_press
-                gvl._s6_place_slot = int(ctx.press.place_slot)
-                gvl._s6_pick_slot = int(ctx.press.pick_slot)
-                gvl._s6_slots_advanced = False
-                if need_press:
-                    ctx.press.set_start_press(True)
-                    press_s = float(
-                        ctx.cfg.get("press", {}).get("mock_auto_press_done_s", 0) or 0
-                    )
-                    if ctx.press.use_mock and press_s > 0:
-                        delay_start(gvl, "s6_press", press_s)
-            if advance_step(st, single):
-                cmd_reset(gvl, "s6_10")
+            shoe_ok, pick_ok = _robots_clear_of_slots(ctx)
+            if shoe_ok and pick_ok and advance_step(st, single):
                 A[10] = 20
 
         case 20:
-            # 等「当前放料槽号」压合完成（slots[place_slot]）
-            ctx.press.refresh_inputs()
-            need_press = bool(getattr(gvl, "_s6_need_press", False))
-            if need_press:
-                press_s = float(
-                    ctx.cfg.get("press", {}).get("mock_auto_press_done_s", 0) or 0
-                )
-                if ctx.press.use_mock and press_s > 0 and delay_done(gvl, "s6_press"):
-                    ctx.press.simulate_press_done()
-                place_ok = bool(ctx.press.press_done) or ctx.press.is_place_press_idle()
-                if place_ok and advance_step(st, single):
-                    A[10] = 30
+            shoe_ok, pick_ok = _robots_clear_of_slots(ctx)
+            if not (shoe_ok and pick_ok):
+                A[10] = 10
             else:
-                if advance_step(st, single):
+                if pulse_cmd(gvl, "s6_20"):
+                    mode = 1 if bool(M[10]) else 2
+                    gvl._s6_place_slot = int(ctx.press.place_slot)
+                    gvl._s6_pick_slot = int(ctx.press.pick_slot)
+                    gvl._s6_slots_advanced = False
+                    idle_s = float(
+                        ctx.cfg.get("press", {}).get("mock_auto_press_done_s", 2.0) or 2.0
+                    ) + float(
+                        ctx.cfg.get("press", {}).get("mock_auto_rotate_done_s", 1.5)
+                        or 1.5
+                    )
+                    delay_start(gvl, "s6_busy", max(2.0, idle_s + 1.0))
+                    ctx.press.set_press_run_mode(mode)
+                    log.info(
+                        "Station6: 放鞋完成=%s 取料侧结束=%s → 启动=%s（%s）",
+                        ctx.press.cas_word("shoe_done"),
+                        int(pick_ok),
+                        mode,
+                        "空转" if mode == 1 else "启动",
+                    )
+                if ctx.press.cas_word("start") in (1, 2) and advance_step(st, single):
+                    cmd_reset(gvl, "s6_20")
                     A[10] = 30
 
         case 30:
-            if pulse_cmd(gvl, "s6_30"):
-                ctx.press.set_start_press(False)
-                ctx.press.clear_place_press_cmds()
-                ctx.press.set_rotate(True)
-                ctx.press.set_pick_slot_work_done(False)
-                auto_s = float(
-                    ctx.cfg.get("press", {}).get("mock_auto_rotate_done_s", 0) or 0
-                )
-                if ctx.press.use_mock and auto_s > 0:
-                    delay_start(gvl, "s6_rot", auto_s)
-            if advance_step(st, single):
-                cmd_reset(gvl, "s6_30")
-                A[10] = 40
+            if (not ctx.press.is_press_idle()) or delay_done(gvl, "s6_busy"):
+                if advance_step(st, single):
+                    A[10] = 40
 
         case 40:
             ctx.press.refresh_inputs()
-            auto_s = float(
-                ctx.cfg.get("press", {}).get("mock_auto_rotate_done_s", 0) or 0
-            )
-            if ctx.press.use_mock and auto_s > 0 and delay_done(gvl, "s6_rot"):
-                # 槽号推进放到 case50，避免与 advance 重复
-                ctx.press.simulate_rotate_done(advance_slots=False)
-            if ctx.press.rotate_done and advance_step(st, single):
+            if ctx.press.is_press_idle() and advance_step(st, single):
                 A[10] = 50
 
         case 50:
             if pulse_cmd(gvl, "s6_50"):
-                ctx.press.set_rotate(False)
-                ctx.press.set_start_press(False)
-                ctx.press.clear_place_press_cmds()
+                ctx.press.set_press_run_mode(0)
+                ctx.press.set_shoe_placed(False)
                 if not getattr(gvl, "_s6_slots_advanced", False):
                     ctx.press.advance_slots_after_rotate()
                     gvl._s6_slots_advanced = True
                 sync_mem(ctx, 10, False)
                 sync_mem(ctx, 3, False)
                 sync_mem(ctx, 7, False)
-                gvl._s6_need_press = False
+                sync_mem(ctx, 4, False)
             if advance_step(st, single):
                 cmd_reset(gvl, "s6_50")
                 A[10] = 0

@@ -426,7 +426,10 @@ def cycle(ctx) -> None:
                 sync_mem(ctx, 3, True)
                 sync_mem(ctx, 8, False)
                 sync_mem(ctx, 9, False)
-                log.info("Station2: 已回place_entry，放料完成 Mem2=0 Mem3=1 清Mem8/9")
+                ctx.press.set_shoe_placed(True)
+                log.info(
+                    "Station2: 已回place_entry，放鞋完成→压机  Mem2=0 Mem3=1 清Mem8/9"
+                )
             if advance_step(st, single):
                 cmd_reset(gvl, "s2a20_90")
                 A[20] = 0

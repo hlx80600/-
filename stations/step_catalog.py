@@ -138,24 +138,24 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
                 "robot": "robot1",
                 "points": ["place_entry"],
             },
-            {"step": 90, "title": "写记忆", "detail": "已回进入点后：Mem2=0 Mem3=1 清Mem8/9", "kind": "mem", "points": []},
+            {"step": 90, "title": "写记忆+放鞋完成", "detail": "已回进入点后：Mem2=0 Mem3=1 清Mem8/9；放鞋完成=1 给压机", "kind": "io", "points": []},
         ],
     },
     3: {
         10: [
             {"step": 10, "title": "放料槽拍照", "detail": "相机3", "kind": "vision", "points": []},
-            {"step": 20, "title": "写Mem3/4/10", "detail": "有料/方向互锁", "kind": "mem", "points": []},
+            {"step": 20, "title": "写Mem3/4/10", "detail": "可放则只写Mem；禁放（左右不对或槽内有料）同时写压机放鞋完成=1", "kind": "mem", "points": []},
         ],
     },
     4: {
         10: [
-            {"step": 10, "title": "取料槽拍照", "detail": "相机4", "kind": "vision", "points": []},
+            {"step": 10, "title": "取料槽拍照", "detail": "相机4；进入需空闲=1，且压机取料槽工作完成=1（由放料槽号推取料槽）", "kind": "vision", "points": []},
             {"step": 20, "title": "写Mem6/7", "detail": "有料标志", "kind": "mem", "points": []},
         ],
     },
     5: {
         10: [
-            {"step": 10, "title": "张爪", "detail": "下料夹爪张开，等张开完成", "kind": "grip", "robot": "robot2", "points": []},
+            {"step": 10, "title": "张爪", "detail": "进入需空闲=1、压机取料槽工作完成=1、Mem6有料；下料夹爪张开", "kind": "grip", "robot": "robot2", "points": []},
             {"step": 20, "title": "(跳过)", "detail": "原固定延时已取消", "kind": "other", "points": []},
             {
                 "step": 30,
@@ -249,32 +249,32 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
     },
     6: {
         10: [
-            {"step": 10, "title": "启压鞋(或跳过)", "detail": "清Mem7/4；按左口放料槽号对slots[N]发压杆/底座/压合；Mem10=1跳过", "kind": "io", "points": []},
+            {"step": 10, "title": "等放鞋完成", "detail": "进入已要求 Mem7=1、Mem6=0；此处等放鞋完成=1，Mem10 未放料则不要求", "kind": "wait", "points": []},
             {
                 "step": 20,
-                "title": "等压鞋完成",
-                "detail": "放料口 press_done / 侧状态就绪",
-                "kind": "wait",
-                "points": [],
-            },
-            {
-                "step": 30,
-                "title": "启旋转",
-                "detail": "关压鞋令后 set_rotate",
+                "title": "写启动字",
+                "detail": "正常启动=2，左右不对空转=1；1/2 都会转盘，此前必须两臂离开槽口",
                 "kind": "io",
                 "points": [],
             },
             {
+                "step": 30,
+                "title": "等压机忙",
+                "detail": "空闲变 0，或超时仍空闲则继续",
+                "kind": "wait",
+                "points": [],
+            },
+            {
                 "step": 40,
-                "title": "等旋转完成",
-                "detail": "rotate_done",
+                "title": "等压机空闲",
+                "detail": "空闲=1 即转盘到位",
                 "kind": "wait",
                 "points": [],
             },
             {
                 "step": 50,
-                "title": "清输出+推进槽号",
-                "detail": "关令；按12341/43214推进取放料槽号；Mem10/3/7=0",
+                "title": "清令+推进槽号",
+                "detail": "启动=0、放鞋完成=0；按顺序推进槽号；Mem10/3/7/4=0",
                 "kind": "mem",
                 "points": [],
             },

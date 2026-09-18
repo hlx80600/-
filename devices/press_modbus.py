@@ -12,7 +12,8 @@
 不依赖 PLC 槽号寄存器（仍可选手动锁定/改号）。
 
 控制对象是「槽位 1~4」：
-  压杆/底座等发到当前放料槽号；取料槽工作完成由工控机写到当前工位。
+  压杆/底座等发到当前放料槽号；
+  取料槽工作完成由压机 PLC 给出，工控机按放料槽号推算取料槽号后只读。
 """
 
 from __future__ import annotations
@@ -122,7 +123,6 @@ class PressMachine:
         self.last_error = ""
 
         self.power_ok = True
-        self.rotate_done = True
         self.press_done = True
         self.cmd_rotate = False
         self.cmd_start_press = False
@@ -152,6 +152,7 @@ class PressMachine:
         self._connect_tried = False
         self._last_reconnect_try = 0.0
         self._pending_host_estop: bool | None = None
+        self._mock_cycle_t0: float | None = None
         self._watch_lock = threading.Lock()
         self._watch_ids: list[str] = [
             "online",
@@ -325,6 +326,10 @@ class PressMachine:
         except Exception as e:
             log.debug("[压鞋机] 槽状态轮询: %s", e)
             return
+        try:
+            self._poll_done_coils()
+        except Exception as e:
+            log.debug("[压鞋机] 压合/旋转到位轮询: %s", e)
         with self._watch_lock:
             ids = list(self._watch_ids)
         if not ids:
@@ -348,13 +353,13 @@ class PressMachine:
         st = self.slots.setdefault(slot, _empty_slot_state())
         done_pt = self._slot_cas_point(slot, "addr_motor_done")
         home_pt = self._slot_cas_point(slot, "addr_rod_home")
-        slot_done_pt = self._slot_cas_point(slot, "addr_slot_done")
         if done_pt is not None:
             st["motor_done"] = bool(self._cas_read_io(done_pt))
         if home_pt is not None:
             st["rod_home"] = bool(self._cas_read_io(home_pt))
-        if slot_done_pt is not None:
-            st["slot_done"] = bool(self._cas_read_io(slot_done_pt))
+        done_work = self._slot_cas_point(slot, "addr_slot_done")
+        if done_work is not None:
+            st["slot_done"] = bool(self._cas_read_io(done_work))
         st["rod_aligned"] = True
         st["rod_in_pos"] = True
         st["base_down"] = True
@@ -362,6 +367,12 @@ class PressMachine:
         st["estop"] = False
         if "slot_done" not in st:
             st["slot_done"] = False
+
+    def _poll_done_coils(self) -> None:
+        """现场无压合完成线圈：addr_press_done=0 则不读。转盘到位用空闲。"""
+        pa = self._addr("addr_press_done")
+        if pa > 0:
+            self.press_done = bool(self._read_coil(pa, bool(self.press_done)))
 
     def _flush_host_estop_io(self) -> None:
         bit = self._pending_host_estop
@@ -661,9 +672,87 @@ class PressMachine:
                 self.cas_write(online, True)
         self.last_tx[tag] = val
         self._cas_holdings[addr] = val
-        self._sticky_put(kind, addr, val)
+        ttl = 2.0 if str(point.id) in ("start", "shoe_done") else 0.8
+        self._sticky_put(kind, addr, val, ttl_s=ttl)
         if not self.use_mock:
             self._enqueue(lambda p=point, v=val: self._cas_write_io(p, v))
+        # 只有启动 1/2 会让压机转动；放鞋完成不得触发 Mock 转盘
+        if self.use_mock and str(point.id) == "start" and val in (1, 2):
+            self._begin_mock_press_cycle()
+
+    def _cas_pt(self, point_id: str) -> CasPoint | None:
+        return next((p for p in self.cas_point_list() if p.id == point_id), None)
+
+    def _set_cas_holding(self, point_id: str, value: int) -> None:
+        pt = self._cas_pt(point_id)
+        if pt is None:
+            return
+        self._cas_holdings[pdu_addr(pt)] = int(value) & 0xFFFF
+
+    def cas_word(self, point_id: str, default: int = 0) -> int:
+        """读联机字（缓存）。"""
+        pt = self._cas_pt(point_id)
+        if pt is None:
+            return int(default)
+        try:
+            return int(self.cas_read(pt))
+        except Exception:
+            return int(default)
+
+    def is_press_idle(self) -> bool:
+        """空闲信号=1，同时表示转盘到位。"""
+        pt = self._cas_pt("idle")
+        if pt is None:
+            return True
+        addr = pdu_addr(pt)
+        if addr not in self._cas_holdings and self.use_mock:
+            return True
+        return self.cas_word("idle", 0) == 1
+
+    @property
+    def rotate_done(self) -> bool:
+        """无独立转盘到位：空闲=1 即转盘到位。"""
+        return self.is_press_idle()
+
+    def set_shoe_placed(self, on: bool) -> None:
+        """工控机发放鞋完成（1/0）。"""
+        pt = self._cas_pt("shoe_done")
+        if pt is None:
+            raise RuntimeError("无放鞋完成点")
+        self.cas_write(pt, 1 if on else 0)
+
+    def set_press_run_mode(self, value: int) -> None:
+        """启动信号：0=关，1=空转，2=启动。"""
+        pt = self._cas_pt("start")
+        if pt is None:
+            raise RuntimeError("无启动信号点")
+        self.cas_write(pt, int(value) & 0xFFFF)
+
+    def _begin_mock_press_cycle(self) -> None:
+        """Mock：收到放鞋完成/空转后先忙再空闲。"""
+        self._mock_cycle_t0 = time.monotonic()
+        self._set_cas_holding("idle", 0)
+        self.press_done = False
+        self._set_slot_done_cache(int(self.place_slot), False)
+        self._mock_place_busy()
+        log.info("[压鞋机] Mock 进入压合/转盘周期（空闲=0）")
+
+    def _tick_mock_press_cycle(self) -> None:
+        t0 = self._mock_cycle_t0
+        if t0 is None:
+            return
+        elapsed = time.monotonic() - t0
+        press_s = float(self.cfg.get("mock_auto_press_done_s", 2.0) or 0.2)
+        rot_s = float(self.cfg.get("mock_auto_rotate_done_s", 1.5) or 0.2)
+        press_s = max(0.05, press_s)
+        rot_s = max(0.05, rot_s)
+        if elapsed >= press_s:
+            self.press_done = True
+        if elapsed >= press_s + rot_s:
+            self.press_done = True
+            self._set_cas_holding("idle", 1)
+            self._mock_cycle_t0 = None
+            log.info("[压鞋机] Mock 压合/转盘结束（空闲=1，转盘到位）")
 
     def _init_mock_slots(self) -> None:
         fs = self._four()
@@ -674,6 +763,11 @@ class PressMachine:
             )
         else:
             self.place_slot = int(fs.get("mock_place_slot", 2) or 2)
+        self._set_cas_holding("idle", 1)
+        self._set_cas_holding("shoe_done", 0)
+        self._set_cas_holding("start", 0)
+        self._mock_cycle_t0 = None
+        self._set_slot_done_cache(self.derived_pick_slot(), True)
 
     def pair_from_pick(self) -> None:
         """按当前顺序：取料槽 → 放料槽。"""
@@ -718,6 +812,7 @@ class PressMachine:
         """扫描线程只读缓存；真机轮询在 IO 线程。"""
         if self.use_mock:
             self._refresh_slot_numbers()
+            self._tick_mock_press_cycle()
 
     def advance_slots_after_rotate(self) -> None:
         """旋转到位后：按所选顺序推进取料/放料槽号。"""
@@ -740,6 +835,8 @@ class PressMachine:
             old_place,
             self.place_slot,
         )
+        if self.use_mock:
+            self._set_slot_done_cache(self.derived_pick_slot(), True)
 
     def enable_host_control(self, on: bool = True) -> None:
         self.host_control = bool(on)
@@ -753,7 +850,7 @@ class PressMachine:
         self.last_tx["cmd_rotate"] = bool(value)
         if self.use_mock:
             if value:
-                self.rotate_done = False
+                self._set_cas_holding("idle", 0)
                 self._rotating = True
             else:
                 self._rotating = False
@@ -829,26 +926,34 @@ class PressMachine:
                 pass
         return max(1, min(4, int(self.place_slot or 1)))
 
-    def set_pick_slot_work_done(self, on: bool, *, slot: int | None = None) -> None:
-        """工控机改写取料槽工作完成（当前工位对应线圈）。"""
-        sid = int(slot) if slot is not None else self.current_station_no()
-        sid = max(1, min(4, sid))
-        if on:
-            for other in range(1, 5):
-                if other != sid:
-                    self._write_slot_work_done(other, False)
-        self._write_slot_work_done(sid, bool(on))
+    def derived_pick_slot(self) -> int:
+        """由当前放料槽号按顺序推算取料槽号。"""
+        place = max(1, min(self.slot_count(), int(self.place_slot or 1)))
+        return pick_from_place(place, self.slot_count(), self.slot_sequence())
 
-    def _write_slot_work_done(self, slot: int, on: bool) -> None:
-        pt = self._slot_cas_point(int(slot), "addr_slot_done")
+    def is_pick_work_done(self) -> bool:
+        """压机PLC「取料槽工作完成」：读推算出的取料槽线圈。"""
+        sid = self.derived_pick_slot()
+        pt = self._slot_cas_point(sid, "addr_slot_done")
+        if pt is None:
+            return False
+        try:
+            return bool(int(self.cas_read(pt)))
+        except Exception:
+            return False
+
+    def _set_slot_done_cache(self, slot: int, on: bool) -> None:
+        """仅改本地缓存（Mock 模拟 PLC，或刷新后的镜像）。"""
+        sid = max(1, min(4, int(slot)))
+        pt = self._slot_cas_point(sid, "addr_slot_done")
         if pt is not None:
-            self.cas_write(pt, bool(on))
-        self.slots.setdefault(int(slot), _empty_slot_state())["slot_done"] = bool(on)
+            self._cas_coils[pdu_addr(pt)] = bool(on)
+        self.slots.setdefault(sid, _empty_slot_state())["slot_done"] = bool(on)
 
     @property
     def pick_ready(self) -> bool:
         if self.use_mock:
-            return bool(self.press_done) and bool(self.rotate_done)
+            return bool(self.press_done) and bool(self.is_press_idle())
         st = self.slots.get(int(self.pick_slot), {})
         return not bool(st.get("estop", False))
 
@@ -877,7 +982,8 @@ class PressMachine:
         log.info("[压鞋机] Mock 压鞋完成 放料槽=#%s", self.place_slot)
 
     def simulate_rotate_done(self, *, advance_slots: bool = True) -> None:
-        self.rotate_done = True
+        self._set_cas_holding("idle", 1)
+        self._mock_cycle_t0 = None
         self._rotating = False
         self.cmd_rotate = False
         if self.cmd_start_press or not self.press_done:
@@ -885,16 +991,17 @@ class PressMachine:
         if advance_slots:
             self.advance_slots_after_rotate()
         log.info(
-            "[压鞋机] 旋转完成 取料=#%s 放料=#%s 顺序=%s",
+            "[压鞋机] 空闲=1（转盘到位）取料=#%s 放料=#%s 顺序=%s",
             self.pick_slot,
             self.place_slot,
             self.slot_sequence(),
         )
 
     def set_rotate_done_mock(self, value: bool) -> None:
-        self.rotate_done = bool(value)
+        self._set_cas_holding("idle", 1 if value else 0)
         if value:
             self._rotating = False
+            self._mock_cycle_t0 = None
 
     def set_press_done_mock(self, value: bool) -> None:
         self.press_done = bool(value)

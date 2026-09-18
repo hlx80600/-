@@ -37,8 +37,8 @@ def cycle(ctx) -> None:
     if (
         (not gvl.Main.DebugBypass)
         and ctx.press.rotate_done
+        and ctx.press.is_pick_work_done()
         and (not M[7])
-        and ctx.press.press_done
         and (not st.Busy)
         and gvl.Main.Running
         and (not gvl.Main.Paused)
@@ -83,8 +83,9 @@ def cycle(ctx) -> None:
         case 20:
             # 写记忆并结束
             r = gvl._last_pick_result
+            has_mat = bool(r.has_material) if r else False
             sync_mem(ctx, 7, True)
-            sync_mem(ctx, 6, bool(r.has_material) if r else False)
+            sync_mem(ctx, 6, has_mat)
             if advance_step(st, single):
                 A[10] = 0
 

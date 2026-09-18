@@ -99,7 +99,8 @@ def default_cas_points() -> list[CasPoint]:
                 f"{slot}槽工作完成",
                 "M",
                 49 + 100 * (slot - 1),
-                hint="工控机发出：该槽取料工作完成",
+                rw="ro",
+                hint="压机PLC给出：该槽取料工作完成",
             )
         )
     for slot in (1, 2, 3, 4):
@@ -186,7 +187,7 @@ SLOT_CAS_ROWS: tuple[tuple[str, str, str], ...] = (
     ("addr_rod_forward", "rod_fwd", "压杆点进"),
     ("addr_rod_back", "rod_back", "压杆点退"),
     ("addr_motor_done", "rod_done", "移动完成"),
-    ("addr_slot_done", "slot_done", "槽工作完成"),
+    ("addr_slot_done", "slot_done", "取料槽工作完成"),
     ("addr_rod_home", "rod_home", "压杆原点"),
 )
 SLOT_YAML_TO_SUFFIX: dict[str, str] = {k: suf for k, suf, _ in SLOT_CAS_ROWS}

@@ -48,10 +48,10 @@ def cycle(ctx) -> None:
         return
 
     if (not gvl.Main.DebugBypass) and (not st.Busy) and gvl.Main.Running and (not gvl.Main.Paused):
+        # 转盘到位（空闲=1）且压机取料槽工作完成=1 才允许伸进取料槽
         if (
             ctx.press.rotate_done
-            and ctx.press.press_done
-            and ctx.press.pick_ready
+            and ctx.press.is_pick_work_done()
             and M[6]
             and (not M[5])
             and A[10] == 0
@@ -70,7 +70,6 @@ def cycle(ctx) -> None:
             if pulse_cmd(gvl, "s5a10_10"):
                 ctx.set_robot_holding_shoe("robot2", False)
                 ctx.gripper2.open()
-                ctx.press.set_pick_slot_work_done(False)
             if ctx.gripper2.poll_done() and advance_step(st, single):
                 cmd_reset(gvl, "s5a10_10")
                 A[10] = 30
@@ -168,7 +167,6 @@ def cycle(ctx) -> None:
             if pulse_cmd(gvl, "s5a10_100"):
                 sync_mem(ctx, 5, True)
                 sync_mem(ctx, 6, False)
-                ctx.press.set_pick_slot_work_done(True)
             if advance_step(st, single):
                 cmd_reset(gvl, "s5a10_100")
                 A[10] = 0

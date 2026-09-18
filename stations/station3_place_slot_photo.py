@@ -102,16 +102,19 @@ def cycle(ctx) -> None:
                 sync_mem(ctx, 3, True)
                 sync_mem(ctx, 4, True)
                 sync_mem(ctx, 10, True)
+                ctx.press.set_shoe_placed(True)
                 decision = (
-                    f"禁止放料Mem10=1：{hand}不能放进{slot}（须左→左/右→右），只转不压"
+                    f"禁止放料Mem10=1：{hand}不能放进{slot}（须左→左/右→右），"
+                    "放鞋完成=1 后空转"
                 )
                 log.warning("Station3: %s", decision)
             else:
                 sync_mem(ctx, 3, True)
                 sync_mem(ctx, 4, True)
                 sync_mem(ctx, 10, False)
+                ctx.press.set_shoe_placed(True)
                 why = "槽内有料" if (r and r.has_material) else "拍照结果无效"
-                decision = f"禁止放料：{why}（手中{hand}/目标{slot}）"
+                decision = f"禁止放料：{why}（手中{hand}/目标{slot}），放鞋完成=1 后可启动"
                 log.info("Station3: %s", decision)
 
             # 供 HMI 常显（避免只看 Mem 勾选错过判定瞬间）

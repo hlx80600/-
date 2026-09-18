@@ -86,7 +86,7 @@ class PressIoPage(QWidget):
         self.chk_slot_lock = QCheckBox("锁定手动槽号")
         self.chk_slot_lock.setToolTip(
             "勾选后旋转到位仍可按顺序推进；周期刷新不再改你设的槽号。\n"
-            "压杆发令→放料槽；取料完成判断→取料槽。"
+            "压杆发令→放料槽；取料槽工作完成←压机PLC（由放料槽号推取料槽）。"
         )
         self.chk_slot_lock.setChecked(bool(self.ctx.press.manual_slot_lock))
         self.chk_slot_lock.toggled.connect(self._on_io_slot_lock)
@@ -108,7 +108,7 @@ class PressIoPage(QWidget):
         for i, (key, title) in enumerate(
             [
                 ("power_ok", "上电完成"),
-                ("rotate_done", "旋转完成"),
+                ("rotate_done", "转盘到位(空闲=1)"),
                 ("press_done", "压合完成"),
                 ("pick_ready", "右口可取"),
                 ("host_control", "上位机控制"),
