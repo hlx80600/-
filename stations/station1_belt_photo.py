@@ -67,7 +67,13 @@ def cycle(ctx) -> None:
             elif delay_done(gvl, "s1_retry"):
                 max_r = int(ctx.cfg["vision"].get("photo_retry", 3))
                 if gvl._photo_retries.get("s1", 0) >= max_r:
-                    ctx.raise_alarm("VISION1", "皮带拍照失败超过重试次数", "Station1", 10)
+                    ctx.raise_alarm(
+                        "VISION1",
+                        f"【{ctx.camera_alarm_device('cam1')}】皮带拍照失败，已超过重试次数。\n"
+                        "请查相机连接、触发与视野内是否有鞋。",
+                        ctx.camera_alarm_device("cam1"),
+                        10,
+                    )
                     gvl._photo_retries["s1"] = 0
                 else:
                     cmd_reset(gvl, "s1_10")

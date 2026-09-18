@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.alarm import alarm_kind_zh
 from core.config_loader import save_config
 from core.machine_state import RunMode
 from core.coordinator import Coordinator
@@ -49,6 +50,7 @@ class MonitorPage(QWidget):
         self.ctx = coord.ctx
         self._syncing_vel = False
         self._syncing_slot_ui = False
+        self._syncing_estop_chk = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -799,7 +801,11 @@ class MonitorPage(QWidget):
         self.lbl_belt.setWordWrap(True)
 
         self.chk_estop = QCheckBox("物理急停 DI")
-        self.chk_estop.toggled.connect(self.ctx.io.set_estop_mock)
+        self.chk_estop.setToolTip(
+            "Mock/模拟物理急停：勾选等同按下急停，压机急停信号同步为开；"
+            "取消勾选只松开按钮，须再点「急停复位」才关压机急停线圈。"
+        )
+        self.chk_estop.toggled.connect(self._on_estop_di_mock)
         self.chk_rotate_done = QCheckBox("Mock旋转到位")
         self.chk_rotate_done.setChecked(True)
         self.chk_rotate_done.toggled.connect(self.ctx.press.set_rotate_done_mock)
@@ -929,6 +935,7 @@ class MonitorPage(QWidget):
 
         self._syncing_press_chk = False
         self._syncing_belt_chk = False
+        self._syncing_estop_chk = False
         self.vel_box = vel_box
         self.init_vel_box = init_vel_box
         self.blend_box = blend_box
@@ -1176,9 +1183,14 @@ class MonitorPage(QWidget):
             start_tip = i18n.tr("monitor.start_tip.estop")
             start_ok = False
         elif state == MachineState.ALARM:
-            text = i18n.tr("monitor.init.alarm")
-            if self.ctx.alarms.active:
-                text += f"\n[{self.ctx.alarms.active.code}] {self.ctx.alarms.active.message}"
+            a = self.ctx.alarms.active
+            if a:
+                text = (
+                    f"【{a.station or '未知设备'}】{alarm_kind_zh(a.code)}\n"
+                    f"{a.message}"
+                )
+            else:
+                text = i18n.tr("monitor.init.alarm")
             css = base % "#922b21" + "background:#f5b7b1;color:#641e16;"
             start_tip = i18n.tr("monitor.start_tip.alarm")
             start_ok = False
@@ -1243,9 +1255,16 @@ class MonitorPage(QWidget):
         ):
             self._init_flag_text = text
             self._init_flag_css = css
+            alarming = state == MachineState.ALARM and bool(self.ctx.alarms.active)
+            if alarming:
+                edit.setFixedHeight(ui_scale.px(168, min_v=120))
+                align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            else:
+                edit.setFixedHeight(ui_scale.px(56, min_v=48))
+                align = Qt.AlignmentFlag.AlignCenter
             self.lbl_init_flag.setPlainText(text)
             self.lbl_init_flag.setStyleSheet(f"QTextEdit{{{css}}}")
-            self.lbl_init_flag.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_init_flag.setAlignment(align)
         self.btn_start.setToolTip(start_tip)
         from hmi.style import style_button
 
@@ -1768,6 +1787,25 @@ class MonitorPage(QWidget):
         self.ctx.robot1.set_di_force_mock(self._belt_di_id(), bool(on))
         self.ctx.cfg["robots"]["robot1"]["di_belt_use_mock"] = bool(on)
 
+    def _on_estop_di_mock(self, on: bool) -> None:
+        """Mock 物理急停 DI：按下立刻本机急停并写压机急停线圈（含压机 Mock）。"""
+        if self._syncing_estop_chk:
+            return
+        self.ctx.io.set_estop_mock(bool(on))
+        if on:
+            self.coord.cmd_estop()
+
+    def _sync_estop_di_chk(self) -> None:
+        """勾选框跟随 IO 急停 DI（急停复位会清 Mock）。"""
+        want = bool(self.ctx.io.read_estop())
+        if self.chk_estop.isChecked() == want:
+            return
+        self._syncing_estop_chk = True
+        self.chk_estop.blockSignals(True)
+        self.chk_estop.setChecked(want)
+        self.chk_estop.blockSignals(False)
+        self._syncing_estop_chk = False
+
     def _belt_toggled(self, on: bool) -> None:
         if self._syncing_belt_chk:
             return
@@ -1906,6 +1944,8 @@ class MonitorPage(QWidget):
                 self.chk_press_done.setChecked(p["press_done"])
                 self.chk_press_done.blockSignals(False)
             self._syncing_press_chk = False
+
+        self._sync_estop_di_chk()
 
     def _refresh_shoe_match(self) -> None:
         mem = self.ctx.memory.snapshot()
@@ -2143,6 +2183,8 @@ class MonitorPage(QWidget):
             self.chk_belt.setChecked(belt_on)
             self.chk_belt.blockSignals(False)
             self._syncing_belt_chk = False
+
+        self._sync_estop_di_chk()
 
         self.lbl_belt_mock.setText(self.ctx.vision.belt_mock_status_text())
         dry_on = bool(self.ctx.dry_run.enabled)

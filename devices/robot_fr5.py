@@ -1949,24 +1949,30 @@ class RobotFR5:
             ):
                 return None
 
-            parts = [f"{self.name} 机器人报警"]
+            parts = [f"【{self.name}】机器人控制器报警"]
             if strange:
-                parts.append("奇异点(strangePosFlag)")
+                parts.append("类型: 奇异点(strangePosFlag)")
             if cmd_pt:
-                parts.append("指令点错误(cmdPointError)")
+                parts.append("类型: 指令点错误(cmdPointError)")
             if soft_lim:
-                parts.append("超出软限位")
+                parts.append("类型: 超出软限位")
             if motion_al:
-                parts.append("运动警告")
+                parts.append("类型: 运动警告")
             if main_c or sub_c:
-                parts.append(f"主码={main_c} 子码={sub_c}")
+                hint = _FAIRINO_ERR_HINT.get(int(main_c)) or _FAIRINO_ERR_HINT.get(
+                    int(sub_c)
+                )
+                line = f"主码={main_c} 子码={sub_c}"
+                if hint:
+                    line += f"\n含义: {hint}"
+                parts.append(line)
             if alarm_flag:
-                parts.append(f"alarm={alarm_flag}")
+                parts.append(f"控制器 alarm 标志={alarm_flag}")
             if emerg:
                 parts.append("急停触点触发")
             if safety:
                 parts.append(f"安全停止码={safety}")
-            return "，".join(parts)
+            return "\n".join(parts)
         except Exception as e:
             log.debug("[%s] _read_fault_message 异常: %s", self.name, e)
             return None

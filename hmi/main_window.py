@@ -686,8 +686,16 @@ class MainWindow(QMainWindow):
         if getattr(self, "_alarm_dlg_open", False):
             return
         popup = self.ctx.alarms.pop_popup()
-        if popup and popup.code != "LINK":
+        if popup:
             self._alarm_dlg_open = True
+            extra = ""
+            if popup.code == "LINK":
+                extra = "同一组掉线只弹一次；后台仍会重连。连上后点「报警复位」。"
+            elif "路径：" in str(popup.message or ""):
+                extra = (
+                    "若含「路径：从…→…」请到「点位偏移」检查这两点或增加过渡点后用路径试跑。\n"
+                    "复位后从失败步重试。"
+                )
             try:
                 show_copyable_alarm(
                     self,
@@ -696,10 +704,7 @@ class MainWindow(QMainWindow):
                     step=popup.step,
                     message=popup.message,
                     time=popup.time,
-                    extra=(
-                        "若含「路径：从…→…」请到「点位偏移」检查这两点或增加过渡点后用路径试跑。\n"
-                        "复位后从失败步重试。"
-                    ),
+                    extra=extra,
                 )
             finally:
                 self._alarm_dlg_open = False

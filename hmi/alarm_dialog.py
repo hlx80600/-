@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.alarm import alarm_kind_zh, format_alarm_body
 from hmi.style import style_button
 
 
@@ -26,14 +27,7 @@ def format_alarm_text(
     *,
     time: str = "",
 ) -> str:
-    head = f"时间: {time}\n" if time else ""
-    return (
-        f"{head}"
-        f"报警代码: {code}\n"
-        f"工位: {station}\n"
-        f"步号: {step}\n"
-        f"内容:\n{message}"
-    )
+    return format_alarm_body(code, station, step, message, time=time)
 
 
 def show_copyable_alarm(
@@ -52,7 +46,10 @@ def show_copyable_alarm(
         body = f"{body}\n\n{extra}"
 
     dlg = QDialog(parent)
-    dlg.setWindowTitle(f"报警 {code}")
+    device = str(station or "").strip()
+    kind = alarm_kind_zh(code)
+    title = f"报警：{device} · {kind}" if device else f"报警：{kind}"
+    dlg.setWindowTitle(title)
     dlg.resize(640, 420)
     root = QVBoxLayout(dlg)
 

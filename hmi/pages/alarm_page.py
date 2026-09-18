@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.alarm import alarm_kind_zh
 from core.blackbox import (
     format_error_line,
     log_dir,
@@ -451,8 +452,10 @@ class AlarmPage(QWidget):
                 flag = "瞬态"
             else:
                 flag = "OK"
+            first = str(item.message or "").splitlines()[0]
             rows.append(
-                f"{item.time} [{flag}] {item.code} {item.station}@{item.step} {item.message}"
+                f"{item.time} [{flag}] {item.station or '未标明设备'} · "
+                f"{alarm_kind_zh(item.code)} — {first}"
             )
 
         if self._user_selecting():

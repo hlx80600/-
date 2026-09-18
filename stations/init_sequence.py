@@ -202,9 +202,10 @@ def cycle(ctx) -> None:
                 gvl.Main.Init_Auto = 0
                 ctx.raise_alarm(
                     "INIT",
-                    f"上料机器人未连接 {ctx.robot1.ip}（看启动日志「连接失败」）。"
-                    "请确认 fairino SDK 可导入、Docker/控制器已开、能 ping 通后再初始化。",
-                    "Init",
+                    f"【{ctx.robot1.name}】未连接\n"
+                    f"地址: {ctx.robot1.ip}\n"
+                    f"原因: 看启动日志「连接失败」。请确认 fairino SDK、控制器远程、能 ping 通后再初始化。",
+                    ctx.robot1.name,
                     20,
                 )
                 ctx.machine.set_state(MachineState.IDLE)
@@ -217,7 +218,12 @@ def cycle(ctx) -> None:
                     cmd_reset(gvl, "init_20")
                     gvl.Main.Initializing = False
                     gvl.Main.Init_Auto = 0
-                    ctx.raise_alarm("INIT", f"上料回home失败: {e}", "Init", 20)
+                    ctx.raise_alarm(
+                        "INIT",
+                        f"【{ctx.robot1.name}】回初始位失败\n原因: {e}",
+                        ctx.robot1.name,
+                        20,
+                    )
                     ctx.machine.set_state(MachineState.IDLE)
                     apply_run_controller_speed(ctx)
                     return
@@ -253,7 +259,12 @@ def cycle(ctx) -> None:
             except Exception as e:
                 gvl.Main.Initializing = False
                 gvl.Main.Init_Auto = 0
-                ctx.raise_alarm("INIT", str(e), "Init", 40)
+                ctx.raise_alarm(
+                    "INIT",
+                    f"【压鞋机】初始化失败\n原因: {e}",
+                    "压鞋机",
+                    40,
+                )
                 ctx.machine.set_state(MachineState.IDLE)
                 apply_run_controller_speed(ctx)
 

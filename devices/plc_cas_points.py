@@ -82,7 +82,26 @@ def default_cas_points() -> list[CasPoint]:
         ),
         CasPoint("shoe_done", "联机", "放鞋完成", "D", 400063, hint="1=完成"),
         CasPoint("station_no", "联机", "当前工位显示", "D", 420491),
+        CasPoint(
+            "host_estop",
+            "联机",
+            "急停信号",
+            "M",
+            51,
+            hint="工控机发出：开=本机急停，关=急停复位（Mock 同样联动）",
+        ),
     ]
+    for slot in (1, 2, 3, 4):
+        rows.append(
+            CasPoint(
+                f"s{slot}_slot_done",
+                "联机",
+                f"{slot}槽工作完成",
+                "M",
+                49 + 100 * (slot - 1),
+                hint="工控机发出：该槽取料工作完成",
+            )
+        )
     for slot in (1, 2, 3, 4):
         rows.extend(_st_manual(slot))
         rows.extend(_st_rod(slot))
@@ -154,12 +173,46 @@ def default_cas_points() -> list[CasPoint]:
     return rows
 
 
+# 槽号页：仅 Excel 有的工位信号（yaml 键 → 点表 id 后缀）。不含表外「放鞋完成」等。
+SLOT_CAS_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("addr_man_en", "man_en", "手动操作启用"),
+    ("addr_swing", "swing", "摆杆"),
+    ("addr_cinch_in", "cinch_in", "束紧进"),
+    ("addr_cinch_out", "cinch_out", "束紧退"),
+    ("addr_edge", "edge", "压边"),
+    ("addr_press_up", "up", "上升"),
+    ("addr_second", "second", "二次压"),
+    ("addr_press_down", "down", "下降"),
+    ("addr_rod_forward", "rod_fwd", "压杆点进"),
+    ("addr_rod_back", "rod_back", "压杆点退"),
+    ("addr_motor_done", "rod_done", "移动完成"),
+    ("addr_slot_done", "slot_done", "槽工作完成"),
+    ("addr_rod_home", "rod_home", "压杆原点"),
+)
+SLOT_YAML_TO_SUFFIX: dict[str, str] = {k: suf for k, suf, _ in SLOT_CAS_ROWS}
+
+
 def cas_point_by_id() -> dict[str, CasPoint]:
     return {p.id: p for p in default_cas_points()}
 
 
+def slot_cas_point_id(slot: int, yaml_key: str) -> str:
+    """槽号 yaml 键 → 点表 id（如 s1_up）。"""
+    return f"s{int(slot)}_{SLOT_YAML_TO_SUFFIX[yaml_key]}"
+
+
+def default_slot_modbus_map(slot: int) -> dict[str, int]:
+    """该槽/工位各信号的协议 Modbus Dec（与点表一致）。"""
+    by_id = cas_point_by_id()
+    out: dict[str, int] = {}
+    for key, suffix, _lab in SLOT_CAS_ROWS:
+        pt = by_id.get(f"s{int(slot)}_{suffix}")
+        out[key] = int(hmi_modbus_dec(pt)) if pt is not None else 0
+    return out
+
+
 def pdu_addr(point: CasPoint, *, modbus_dec: int | None = None) -> int:
-    """Excel Dec → pymodbus 0 基 PDU。"""
+    """Excel「MODBUS地址(Dec)」→ pymodbus 0 基 PDU。"""
     dec = int(point.modbus_dec if modbus_dec is None else modbus_dec)
     kind = point.plc_kind
     if kind == "M":
@@ -178,6 +231,27 @@ def pdu_addr(point: CasPoint, *, modbus_dec: int | None = None) -> int:
     return max(0, dec)
 
 
+def hmi_modbus_dec(point: CasPoint) -> int:
+    """HMI 显示/编辑用的协议 Modbus 地址（不是 M/D 号）。
+
+    线圈：1 基 Dec（M573 → 574）。
+    保持：4xxxxx（D60 → 400061）。
+    离散：1xxxxx。
+    """
+    kind = point.plc_kind
+    if kind == "D":
+        dec = int(point.modbus_dec)
+        if dec >= 400001:
+            return dec
+        return 400001 + int(pdu_addr(point))
+    if kind == "X":
+        dec = int(point.modbus_dec)
+        if dec >= 100001:
+            return dec
+        return 100001 + int(pdu_addr(point))
+    return int(point.modbus_dec)
+
+
 def apply_cas_overrides(
     points: list[CasPoint], overrides: dict[str, Any] | None
 ) -> list[CasPoint]:
@@ -194,6 +268,13 @@ def apply_cas_overrides(
         except (TypeError, ValueError):
             out.append(p)
             continue
+        # HMI 存协议 Modbus Dec；旧配置若只写了 D 号（<100000）仍当 PDU
+        new_d_index = p.d_index
+        if p.plc_kind == "D":
+            if 0 <= dec < 100000:
+                new_d_index = dec
+            else:
+                new_d_index = None
         out.append(
             CasPoint(
                 id=p.id,
@@ -203,7 +284,7 @@ def apply_cas_overrides(
                 modbus_dec=dec,
                 rw=p.rw,
                 hint=p.hint,
-                d_index=p.d_index,
+                d_index=new_d_index,
             )
         )
     return out

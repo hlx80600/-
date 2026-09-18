@@ -250,7 +250,9 @@ class Coordinator:
                         MachineState.PAUSED,
                         MachineState.READY,
                     ):
-                        self._handle_robot_fault("OB1", f"程序扫描异常停机: {e}")
+                        self._handle_robot_fault(
+                            "OB1", f"本机程序扫描异常停机\n原因: {e}", "本机程序"
+                        )
                 except Exception:
                     pass
             time.sleep(max(0.0, scan - (time.perf_counter() - t0)))
@@ -283,11 +285,13 @@ class Coordinator:
                     self.ctx.press.estop_outputs_off()
                 except Exception:
                     pass
+            self._sync_press_host_estop()
             self._sync_main_flags()
             self.ctx.update_lights()
             return
 
         self._sync_main_flags()
+        self._sync_press_host_estop()
         self.ctx.press.refresh_inputs()
 
         # ★ 每周期查机器人本体报警：有则停流程并弹 HMI 报警
@@ -331,10 +335,10 @@ class Coordinator:
             msg = robot.poll_fault()
             if not msg:
                 continue
-            self._handle_robot_fault(code, msg)
+            self._handle_robot_fault(code, msg, robot.name)
             return
 
-    def _handle_robot_fault(self, code: str, msg: str) -> None:
+    def _handle_robot_fault(self, code: str, msg: str, device: str) -> None:
         log.error("机器人故障停机: %s %s", code, msg)
         # 停两臂运动
         self.ctx.robot1.halt_motion()
@@ -347,41 +351,34 @@ class Coordinator:
         gvl.Main.Init_Auto = 0
         gvl.Main.Initializing = False
         gvl.Main.Running = False
-        self.ctx.raise_alarm(code, msg, "Robot", 0)
+        self.ctx.raise_alarm(code, msg, device, 0)
 
     def _poll_device_link_loss(self) -> None:
         """
-        非 Mock 设备掉线：在初始化/就绪/运行/暂停中立刻停机报警。
-        已处于 ALARM/ESTOP/IDLE/STOPPED 不再重复弹；后台仍会重连。
+        非 Mock 设备掉线：立刻 LINK 报警；运行/初始化中同时停机。
+        已处于 ALARM/ESTOP 不再重复处理；后台仍会重连。
         """
         m = self.ctx.machine
-        if m.state in (
-            MachineState.ESTOP,
-            MachineState.ALARM,
-            MachineState.IDLE,
-            MachineState.STOPPED,
-        ):
+        if m.state in (MachineState.ESTOP, MachineState.ALARM):
             return
-        if m.state not in (
+        try:
+            self.ctx.probe_all_device_links()
+        except Exception as e:
+            log.debug("probe_all_device_links: %s", e)
+        missing = self.ctx.missing_real_devices()
+        if not missing:
+            return
+        if m.state in (
             MachineState.INITIALIZING,
             MachineState.READY,
             MachineState.RUNNING,
             MachineState.PAUSED,
         ):
+            self._handle_link_loss()
             return
-        missing = self.ctx.missing_real_devices()
-        if not missing:
-            return
-        names = "、".join(f"{r['name']}({r['endpoint']})" for r in missing)
-        msg = (
-            f"设备掉线停机：{names}。"
-            "已停止运动与程序；后台持续重连。"
-            "全部连上后请「报警复位」→「初始化」→「启动」。"
-        )
-        self._handle_link_loss("LINK", msg)
+        self.ctx.raise_link_failures_if_needed()
 
-    def _handle_link_loss(self, code: str, msg: str) -> None:
-        log.error("设备掉线停机: %s", msg)
+    def _handle_link_loss(self) -> None:
         self.ctx.robot1.halt_motion()
         self.ctx.robot2.halt_motion()
         try:
@@ -398,7 +395,8 @@ class Coordinator:
         gvl.Main.InitDone = False
         self.ctx.machine.init_ok = False
         self.ctx.init_message = "设备掉线，需重连后重新初始化"
-        self.ctx.raise_link_failures_if_needed()
+        log.error("设备掉线停机，将报 LINK")
+        self.ctx.raise_link_failures_if_needed(stopped=True)
 
     def cmd_init(self) -> Optional[str]:
         """返回拒绝原因（None=已开始初始化）。
@@ -417,7 +415,7 @@ class Coordinator:
         near_err = init_sequence.check_both_near_home(self.ctx)
         if near_err:
             log.warning("初始化拒绝（不在初始位）: %s", near_err.replace("\n", " | "))
-            self.ctx.raise_alarm("INIT_HOME", near_err, "Init", 0)
+            self.ctx.raise_alarm("INIT_HOME", near_err, "机器人初始位", 0)
             return near_err
         init_sequence.start_init(self.ctx)
         return None
@@ -513,6 +511,21 @@ class Coordinator:
         except Exception:
             pass
 
+    def _press_host_estop_on(self) -> bool:
+        """工控机侧是否应向压机发急停（物理 DI / 锁存 ESTOP 任一为真）。"""
+        return (
+            bool(self.ctx.io.read_estop())
+            or self.ctx.machine.state == MachineState.ESTOP
+            or bool(self.ctx.gvl.Main.EStopped)
+        )
+
+    def _sync_press_host_estop(self) -> None:
+        """压机急停线圈与本机急停一致（真机 Modbus 与 Mock 内存同一路径）。"""
+        try:
+            self.ctx.press.set_host_estop(self._press_host_estop_on())
+        except Exception as e:
+            log.error("压机急停信号同步失败: %s", e)
+
     def cmd_estop(self) -> None:
         """急停：ImmStop+StopMotion，清所有 Auto。再动须急停复位+报警复位。"""
         log.error("!!! 急停触发：立即停止所有运动 !!!")
@@ -531,6 +544,7 @@ class Coordinator:
             st.reset_all_auto()
         self.ctx.gvl.clear_cmd_state()
         self.ctx.machine.set_state(MachineState.ESTOP)
+        self._sync_press_host_estop()
         init_sequence.apply_run_controller_speed(self.ctx)
         try:
             self.ctx.update_lights()
@@ -546,6 +560,10 @@ class Coordinator:
             st.reset_all_auto()
         self.ctx.gvl.clear_cmd_state()
         self.ctx.machine.set_state(MachineState.IDLE)
+        try:
+            self.ctx.press.set_host_estop(False, force=True)
+        except Exception as e:
+            log.error("压机急停信号复位失败: %s", e)
 
     def cmd_alarm_reset(self):
         """

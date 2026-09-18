@@ -23,6 +23,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Deque, Optional
 
+from core.alarm import alarm_kind_zh
+
 _ROOT = Path(__file__).resolve().parents[1]
 _LOG_DIR = _ROOT / "logs"
 _DUMP_DIR = _LOG_DIR / "dumps"
@@ -633,8 +635,8 @@ def format_error_line(rec: dict[str, Any]) -> str:
     kind = str(rec.get("kind") or "log").upper()
     if kind == "ALARM":
         return (
-            f"{ts} [报警] {rec.get('code', '')} "
-            f"{rec.get('station', '')}@{rec.get('step', '')} {rec.get('message', '')}"
+            f"{ts} [报警] {rec.get('station') or '未标明设备'} · "
+            f"{alarm_kind_zh(str(rec.get('code') or ''))} — {rec.get('message', '')}"
         )
     if kind == "CRASH":
         return f"{ts} [崩溃] {rec.get('exc_type', '')}: {rec.get('message', '')}"

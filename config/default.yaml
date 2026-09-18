@@ -177,10 +177,11 @@ grippers:
     use_mock: true
     link_role: none
 press:
-  ip: 192.168.52.2
+  ip: 192.168.57.5
   port: 502
   unit_id: 1
-  use_mock: true
+  use_mock: false
+  timeout_s: 0.4
   mock_auto_press_done_s: 2.0
   mock_auto_rotate_done_s: 1.5
   opening:
@@ -192,7 +193,9 @@ press:
   addr_cmd_rotate: 10
   addr_cmd_start_press: 11
   addr_host_control: 2577
-  cas_points: {}
+  cas_points:
+    idle: 400062
+    start: 400061
   four_slot:
     enabled: true
     slot_count: 4
@@ -205,79 +208,67 @@ press:
     mock_place_slot: 3
   slots:
     1:
-      addr_shoe_placed: 2168
-      addr_motor_start: 2170
-      addr_motor_done: 2171
-      addr_move_distance: 4552
-      addr_slot_up: 2169
-      addr_rod_aligned: 1030
-      addr_rod_in_pos: 1024
-      addr_base_down: 1034
-      addr_rod_home: 1037
-      addr_work_status: 4157
-      addr_estop: 1597
-      addr_rod_forward: 2132
-      addr_rod_back: 2134
-      addr_rod_go_home: 2133
-      addr_press_up: 2124
-      addr_press_down: 2126
+      addr_man_en: 30
+      addr_swing: 22
+      addr_cinch_in: 23
+      addr_cinch_out: 24
+      addr_edge: 25
+      addr_press_up: 27
+      addr_second: 28
+      addr_press_down: 29
+      addr_rod_forward: 177
+      addr_rod_back: 178
+      addr_motor_done: 193
+      addr_slot_done: 49
+      addr_rod_home: 124598
       default_move_distance_mm: 20
       auto_motor_on_press: true
     2:
-      addr_shoe_placed: 2148
-      addr_motor_start: 2150
-      addr_motor_done: 2151
-      addr_move_distance: 4546
-      addr_slot_up: 2149
-      addr_rod_aligned: 1025
-      addr_rod_in_pos: 1025
-      addr_base_down: 1027
-      addr_rod_home: 1036
-      addr_work_status: 4156
-      addr_estop: 1547
-      addr_rod_forward: 2129
-      addr_rod_back: 2131
-      addr_rod_go_home: 2130
-      addr_press_up: 2074
-      addr_press_down: 2076
+      addr_man_en: 130
+      addr_swing: 122
+      addr_cinch_in: 123
+      addr_cinch_out: 124
+      addr_edge: 125
+      addr_press_up: 127
+      addr_second: 128
+      addr_press_down: 129
+      addr_rod_forward: 179
+      addr_rod_back: 180
+      addr_motor_done: 194
+      addr_slot_done: 149
+      addr_rod_home: 124599
       default_move_distance_mm: 20
       auto_motor_on_press: true
     3:
-      addr_shoe_placed: 0
-      addr_motor_start: 0
-      addr_motor_done: 0
-      addr_move_distance: 0
-      addr_slot_up: 0
-      addr_rod_aligned: 0
-      addr_rod_in_pos: 0
-      addr_base_down: 0
-      addr_rod_home: 0
-      addr_work_status: 0
-      addr_estop: 0
-      addr_rod_forward: 0
-      addr_rod_back: 0
-      addr_rod_go_home: 0
-      addr_press_up: 0
-      addr_press_down: 0
+      addr_man_en: 230
+      addr_swing: 222
+      addr_cinch_in: 223
+      addr_cinch_out: 224
+      addr_edge: 225
+      addr_press_up: 227
+      addr_second: 228
+      addr_press_down: 229
+      addr_rod_forward: 181
+      addr_rod_back: 182
+      addr_motor_done: 195
+      addr_slot_done: 249
+      addr_rod_home: 124600
       default_move_distance_mm: 20
       auto_motor_on_press: true
     4:
-      addr_shoe_placed: 0
-      addr_motor_start: 0
-      addr_motor_done: 0
-      addr_move_distance: 0
-      addr_slot_up: 0
-      addr_rod_aligned: 0
-      addr_rod_in_pos: 0
-      addr_base_down: 0
-      addr_rod_home: 0
-      addr_work_status: 0
-      addr_estop: 0
-      addr_rod_forward: 0
-      addr_rod_back: 0
-      addr_rod_go_home: 0
-      addr_press_up: 0
-      addr_press_down: 0
+      addr_man_en: 330
+      addr_swing: 322
+      addr_cinch_in: 323
+      addr_cinch_out: 324
+      addr_edge: 325
+      addr_press_up: 327
+      addr_second: 328
+      addr_press_down: 329
+      addr_rod_forward: 183
+      addr_rod_back: 184
+      addr_motor_done: 196
+      addr_slot_done: 349
+      addr_rod_home: 124601
       default_move_distance_mm: 20
       auto_motor_on_press: true
 io:

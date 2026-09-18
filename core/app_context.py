@@ -302,8 +302,41 @@ class AppContext:
         code = str(code or "GRIP").upper()
         if not code.startswith("GRIP"):
             code = f"GRIP_{code}"
-        station = f"Gripper{motor_index}" if motor_index else "Gripper"
-        self.raise_alarm(code, message, station, int(motor_index), popup=popup)
+        station = self.gripper_alarm_device(int(motor_index))
+        kind = {
+            "GRIP_LINK": "通讯失败",
+            "GRIP_OPEN": "张开失败",
+            "GRIP_CLOSE": "夹紧失败",
+            "GRIP_DRV": "驱动故障",
+        }.get(code, "故障")
+        text = str(message or "").strip()
+        if station and station not in text:
+            text = f"【{station}】{kind}\n{text}" if text else f"【{station}】{kind}"
+        self.raise_alarm(code, text, station, int(motor_index), popup=popup)
+
+    def gripper_alarm_device(self, motor_index: int) -> str:
+        """夹爪报警用：电机号 + 配置中文名。"""
+        idx = int(motor_index)
+        gcfg = self.cfg.get("grippers") or {}
+        motors = gcfg.get("motors") if isinstance(gcfg.get("motors"), dict) else {}
+        m = motors.get(str(idx)) or motors.get(idx) or {}
+        bank = getattr(self, "grippers", {}) or {}
+        g = bank.get(idx)
+        label = str(m.get("label") or getattr(g, "name", "") or "").strip()
+        if idx <= 0:
+            return label or "夹爪"
+        if label:
+            return f"夹爪电机{idx}（{label}）"
+        return f"夹爪电机{idx}"
+
+    def camera_alarm_device(self, cam_key: str) -> str:
+        """相机报警用：配置中文名 + cam 键。"""
+        key = str(cam_key or "").strip()
+        ccfg = (self.cfg.get("cameras") or {}).get(key) or {}
+        name = str(ccfg.get("name") or "").strip()
+        if name:
+            return f"{name}相机（{key}）"
+        return f"相机{key}"
 
     def clear_gripper_faults(self) -> list[str]:
         """
@@ -388,8 +421,9 @@ class AppContext:
             if cam is None:
                 continue
             ccfg = (self.cfg.get("cameras") or {}).get(key) or {}
+            cam_name = str(ccfg.get("name") or key).strip()
             ep = ccfg.get("serial") or f"index={ccfg.get('index', cam.index)}"
-            rows.append((key, cam, str(ep)))
+            rows.append((f"{cam_name}（{key}）", cam, str(ep)))
         return rows
 
     @staticmethod
@@ -453,10 +487,10 @@ class AppContext:
         missing = self.missing_real_devices()
         if not missing:
             return None
-        names = "、".join(f"{r['name']}({r['endpoint']})" for r in missing)
+        names = "、".join(f"{r['name']}（{r['endpoint']}）" for r in missing)
         return (
-            f"设备未连接：{names}。"
-            "请等待自动重连完成，或在「通信配置」将该设备改为 Mock。"
+            f"下列设备未连接：{names}。"
+            "请等待自动重连，或在「通信配置」将该设备改为模拟。"
         )
 
     def connection_status_text(self) -> tuple[str, bool]:
@@ -480,12 +514,55 @@ class AppContext:
             return f"{line}\n{tip}", True
         return line, False
 
-    def raise_link_failures_if_needed(self) -> None:
-        """真机连不上：记 LINK 报警（不弹窗）。
+    def probe_all_device_links(self) -> None:
+        """每周期探测非 Mock 设备链路（不重连）。"""
+        for name, dev, _ep in self._link_device_entries():
+            if bool(getattr(dev, "use_mock", False)):
+                continue
+            if bool(getattr(dev, "opening", False)):
+                continue
+            if not hasattr(dev, "refresh_link"):
+                continue
+            try:
+                dev.refresh_link()
+            except Exception as e:
+                log.debug("[%s] refresh_link: %s", name, e)
 
-        - 启动未完成（links_bootstrapped=False）：不报，避免开机抢跑误报。
-        - 空闲/停止且未武装：只写日志，不把整机切到报警红灯（开机未连上常见）。
-        - 初始化/运行中或已武装：正式 raise_alarm，禁止启动。
+    def compose_link_alarm(
+        self, missing: list[dict], *, stopped: bool = False
+    ) -> tuple[str, str]:
+        """拼 LINK 报警：（设备名, 详情）。"""
+        names = [str(r.get("name") or "未知设备") for r in missing]
+        station = "、".join(names) if names else "未知设备"
+        blocks: list[str] = []
+        for i, row in enumerate(missing, start=1):
+            name = str(row.get("name") or "未知设备")
+            ep = str(row.get("endpoint") or "-")
+            status = str(row.get("status") or "").strip() or "未连接"
+            err = str(row.get("error") or "").strip()
+            reason = err or "无详细错误码，请查网线、电源、IP/CAN/序列号"
+            blocks.append(
+                f"{i}. 【{name}】\n"
+                f"   地址: {ep}\n"
+                f"   现象: {status}\n"
+                f"   原因: {reason}"
+            )
+        if stopped:
+            head = "运行中设备掉线，已停止机械臂运动并关掉压机输出。"
+        else:
+            head = "下列真机通讯失败（模拟设备不报）："
+        tail = (
+            "处理：检查该设备线缆与地址；「通信配置」可改模拟。"
+            "全部连上后点「报警复位」；若曾在自动运行中，再「初始化」→「启动」。"
+        )
+        msg = head + "\n" + "\n".join(blocks) + "\n" + tail
+        return station, msg
+
+    def raise_link_failures_if_needed(self, *, stopped: bool = False) -> None:
+        """真机连不上：记 LINK 报警并弹窗。
+
+        启动未完成（links_bootstrapped=False）不报，避免开机抢跑。
+        其后任一非 Mock 设备断连都报警（含空闲/停止）。
         """
         if not getattr(self, "links_bootstrapped", False):
             return
@@ -494,27 +571,11 @@ class AppContext:
             self._last_link_alarm_key = None
             return
         key = tuple(r["name"] for r in missing)
-        parts = []
-        for r in missing:
-            err = r.get("error") or r.get("status") or "未连接"
-            parts.append(f"{r['name']}({r['endpoint']}): {err}")
-        msg = "设备连接失败：\n" + "\n".join(parts) + "\n请检查线缆/IP/CAN/序列号，或改回模拟。"
-
-        st = self.machine.state
-        soft = (not getattr(self, "link_alarm_armed", False)) and st in (
-            MachineState.IDLE,
-            MachineState.STOPPED,
-        )
-        if soft:
-            if key != self._last_link_alarm_key:
-                self._last_link_alarm_key = key
-                log.warning("[启动/空闲] %s", msg.replace("\n", " | "))
-            return
-
+        station, msg = self.compose_link_alarm(missing, stopped=stopped)
         if key == self._last_link_alarm_key and self.alarms.has_alarm:
             return
         self._last_link_alarm_key = key
-        self.raise_alarm("LINK", msg, "System", 0, popup=False)
+        self.raise_alarm("LINK", msg, station, 0, popup=True)
 
     def maintain_device_links(self) -> None:
         """
@@ -622,14 +683,15 @@ class AppContext:
                 cam.open()
             else:
                 cam.open_async()
+        # 启动连接完成后：真机掉线一律 LINK 报警（含空闲）
         self.links_bootstrapped = True
-        # 空闲不武装：未连上只写日志/监控提示，不立刻整机报警
+        self.link_alarm_armed = True
         self.raise_link_failures_if_needed()
         missing = self.missing_real_devices()
         if missing:
             names = "、".join(r["name"] for r in missing)
             log.warning(
-                "启动后仍有设备未连接：%s（后台重连；点初始化时再检查）",
+                "启动后仍有设备未连接：%s（已报 LINK，后台持续重连）",
                 names,
             )
 
@@ -688,8 +750,8 @@ class AppContext:
         except Exception as e:
             self.raise_alarm(
                 "PAYLOAD",
-                f"{robot.name} 切换负载失败: {e}",
-                "Robot1" if robot_key == "robot1" else "Robot2",
+                f"【{robot.name}】切换负载失败\n原因: {e}",
+                robot.name,
                 0,
             )
 

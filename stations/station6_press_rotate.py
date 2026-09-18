@@ -84,6 +84,7 @@ def cycle(ctx) -> None:
                 ctx.press.set_start_press(False)
                 ctx.press.clear_place_press_cmds()
                 ctx.press.set_rotate(True)
+                ctx.press.set_pick_slot_work_done(False)
                 auto_s = float(
                     ctx.cfg.get("press", {}).get("mock_auto_rotate_done_s", 0) or 0
                 )

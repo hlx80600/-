@@ -712,7 +712,7 @@ class ConfigPage(QWidget):
         self.ctx.press.cfg = press
         self.ctx.press.use_mock = bool(press["use_mock"])
         try:
-            self.ctx.press.connect()
+            self.ctx.press.connect(wait=True)
         except Exception:
             pass
 

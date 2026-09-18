@@ -69,7 +69,13 @@ def cycle(ctx) -> None:
                     cmd_reset(gvl, "s4_10")
             elif delay_done(gvl, "s4_retry"):
                 if gvl._photo_retries.get("s4", 0) >= int(ctx.cfg["vision"].get("photo_retry", 3)):
-                    ctx.raise_alarm("VISION4", "取料槽拍照失败", "Station4", 10)
+                    ctx.raise_alarm(
+                        "VISION4",
+                        f"【{ctx.camera_alarm_device('cam4')}】取料槽拍照失败，已超过重试次数。\n"
+                        "请查相机连接、槽口视野与曝光。",
+                        ctx.camera_alarm_device("cam4"),
+                        10,
+                    )
                     gvl._photo_retries["s4"] = 0
                 else:
                     cmd_reset(gvl, "s4_10")

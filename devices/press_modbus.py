@@ -12,15 +12,27 @@
 不依赖 PLC 槽号寄存器（仍可选手动锁定/改号）。
 
 控制对象是「槽位 1~4」：
-  压杆/底座等发到当前放料槽号；取料完成看当前取料槽号。
+  压杆/底座等发到当前放料槽号；取料槽工作完成由工控机写到当前工位。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+import queue
+import threading
+import time
+from typing import Any, Callable, Dict, Optional
 
-from devices.plc_cas_points import CasPoint, apply_cas_overrides, default_cas_points, pdu_addr
+from dataclasses import replace
+
+from devices.plc_cas_points import (
+    CasPoint,
+    SLOT_CAS_ROWS,
+    apply_cas_overrides,
+    default_cas_points,
+    pdu_addr,
+    slot_cas_point_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -41,24 +53,7 @@ WORK_STATUS_NAMES = {
 SEQ_FORWARD = "12341"
 SEQ_REVERSE = "43214"
 
-SLOT_ADDR_KEYS = (
-    "addr_shoe_placed",
-    "addr_motor_start",
-    "addr_motor_done",
-    "addr_move_distance",
-    "addr_slot_up",
-    "addr_rod_aligned",
-    "addr_rod_in_pos",
-    "addr_base_down",
-    "addr_rod_home",
-    "addr_work_status",
-    "addr_estop",
-    "addr_rod_forward",
-    "addr_rod_back",
-    "addr_rod_go_home",
-    "addr_press_up",
-    "addr_press_down",
-)
+SLOT_ADDR_KEYS = tuple(k for k, _suf, _lab in SLOT_CAS_ROWS)
 
 
 def normalize_slot_sequence(raw: Any) -> str:
@@ -112,6 +107,7 @@ def _empty_slot_state() -> Dict[str, Any]:
         "rod_in_pos": True,
         "base_down": True,
         "rod_home": False,
+        "slot_done": False,
         "work_status": 0,
         "estop": False,
     }
@@ -145,6 +141,31 @@ class PressMachine:
         self._cas_coils: Dict[int, bool] = {}
         self._cas_holdings: Dict[int, int] = {}
         self._cas_discretes: Dict[int, bool] = {}
+        self._io_lock = threading.RLock()
+        self._fail_streak = 0
+        self._last_ok_io = 0.0
+        self._last_slot_refresh = 0.0
+        self._sticky_rx: Dict[tuple[str, int], tuple[float, int]] = {}
+        self._tx_q: queue.Queue[Callable[[], None]] = queue.Queue(maxsize=128)
+        self._io_stop = threading.Event()
+        self._io_thread: threading.Thread | None = None
+        self._connect_tried = False
+        self._last_reconnect_try = 0.0
+        self._pending_host_estop: bool | None = None
+        self._watch_lock = threading.Lock()
+        self._watch_ids: list[str] = [
+            "online",
+            "idle",
+            "start",
+            "shoe_done",
+            "station_no",
+            "host_estop",
+            "s1_slot_done",
+            "s2_slot_done",
+            "s3_slot_done",
+            "s4_slot_done",
+        ]
+        self._watch_cursor = 0
 
     def _unit(self) -> int:
         return int(self.cfg.get("unit_id", 1))
@@ -179,134 +200,444 @@ class PressMachine:
         op = self.cfg.get("opening") or {}
         return str(op.get("pick", "right"))
 
-    def connect(self) -> bool:
+    def _ensure_io_thread(self) -> None:
+        """压机 TCP 只在本线程做，避免卡住 OB1 / HMI。"""
+        if self.use_mock:
+            return
+        th = self._io_thread
+        if th is not None and th.is_alive():
+            return
+        self._io_stop.clear()
+        self._io_thread = threading.Thread(
+            target=self._io_loop, name="press-modbus", daemon=True
+        )
+        self._io_thread.start()
+
+    def _enqueue(self, fn: Callable[[], None]) -> None:
+        if self.use_mock:
+            fn()
+            return
+        self._ensure_io_thread()
+        try:
+            self._tx_q.put_nowait(fn)
+        except queue.Full:
+            log.warning("[压鞋机] 发送队列满，本笔稍后由周期任务补发")
+
+    def request_cas_poll(self, ids: list[str], *, full: bool = False) -> None:
+        """HMI 指定要刷的点；IO 线程去读，调用方不占总线。"""
+        with self._watch_lock:
+            if full:
+                self._watch_ids = [p.id for p in self.cas_point_list()]
+                return
+            base = [
+                "online",
+                "idle",
+                "start",
+                "shoe_done",
+                "station_no",
+                "host_estop",
+                "s1_slot_done",
+                "s2_slot_done",
+                "s3_slot_done",
+                "s4_slot_done",
+            ]
+            self._watch_ids = list(dict.fromkeys([*base, *[str(i) for i in ids if i]]))
+
+    def _io_loop(self) -> None:
+        while not self._io_stop.is_set():
+            t0 = time.monotonic()
+            try:
+                self._io_tick()
+            except Exception:
+                log.exception("[压鞋机] IO 线程异常")
+            time.sleep(max(0.01, 0.03 - (time.monotonic() - t0)))
+
+    def _io_tick(self) -> None:
+        if self._pending_host_estop is not None:
+            try:
+                self._flush_host_estop_io()
+            except Exception as e:
+                log.warning("[压鞋机] 急停线圈下发失败: %s", e)
+        n = 0
+        while n < 16:
+            try:
+                job = self._tx_q.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                job()
+            except Exception as e:
+                log.warning("[压鞋机] IO 任务失败: %s", e)
+            n += 1
+        if not self.connected or self.client is None:
+            now = time.monotonic()
+            if now - self._last_reconnect_try >= 3.0:
+                self._last_reconnect_try = now
+                self._connect_blocking()
+            return
+        if not self._tx_q.empty():
+            return
+        self._poll_runtime()
+
+    def _cas_read_io(self, point: CasPoint) -> int:
+        """仅 IO 线程：真读并写入缓存。"""
+        addr = pdu_addr(point)
+        kind = str(point.plc_kind)
+        if kind == "M":
+            val = int(bool(self._read_coil(addr, False)))
+            self._cas_coils[addr] = bool(val)
+            return val
+        if kind == "X":
+            val = int(bool(self._read_discrete(addr, False)))
+            self._cas_discretes[addr] = bool(val)
+            return val
+        val = int(self._read_holding(addr, 0)) & 0xFFFF
+        self._cas_holdings[addr] = val
+        return val
+
+    def _cas_write_io(self, point: CasPoint, value: int | bool) -> None:
+        addr = pdu_addr(point)
+        kind = str(point.plc_kind)
+        tag = str(point.id or f"cas_{addr}")
+        if kind == "M":
+            self._write_coil(addr, bool(value), tag=tag)
+            return
+        val = int(value) & 0xFFFF
+        last_err = ""
+        for attempt in range(2):
+            try:
+                self._write_holding(addr, val, tag=tag, strict=True)
+                back = int(self._read_holding(addr, -1))
+                if back == val or back < 0:
+                    return
+                last_err = f"回读 {back}"
+            except Exception as e:
+                last_err = str(e)
+            if attempt == 0:
+                time.sleep(0.03)
+        log.warning("[压鞋机] 点 %s 下发 %s：%s", tag, val, last_err)
+
+    def _poll_runtime(self) -> None:
+        """运行必需的槽到位 + HMI 关注点，每圈限量，把带宽留给写。"""
+        try:
+            for i in range(1, self.slot_count() + 1):
+                self._refresh_slot_io(i)
+        except Exception as e:
+            log.debug("[压鞋机] 槽状态轮询: %s", e)
+            return
+        with self._watch_lock:
+            ids = list(self._watch_ids)
+        if not ids:
+            return
+        n = len(ids)
+        start = self._watch_cursor % max(1, n)
+        by_id = {p.id: p for p in self.cas_point_list()}
+        budget = 6
+        for k in range(min(budget, n)):
+            pid = ids[(start + k) % n]
+            pt = by_id.get(pid)
+            if pt is None:
+                continue
+            try:
+                self._cas_read_io(pt)
+            except Exception:
+                break
+        self._watch_cursor = start + budget
+
+    def _refresh_slot_io(self, slot: int) -> None:
+        st = self.slots.setdefault(slot, _empty_slot_state())
+        done_pt = self._slot_cas_point(slot, "addr_motor_done")
+        home_pt = self._slot_cas_point(slot, "addr_rod_home")
+        slot_done_pt = self._slot_cas_point(slot, "addr_slot_done")
+        if done_pt is not None:
+            st["motor_done"] = bool(self._cas_read_io(done_pt))
+        if home_pt is not None:
+            st["rod_home"] = bool(self._cas_read_io(home_pt))
+        if slot_done_pt is not None:
+            st["slot_done"] = bool(self._cas_read_io(slot_done_pt))
+        st["rod_aligned"] = True
+        st["rod_in_pos"] = True
+        st["base_down"] = True
+        st["work_status"] = 0
+        st["estop"] = False
+        if "slot_done" not in st:
+            st["slot_done"] = False
+
+    def _flush_host_estop_io(self) -> None:
+        bit = self._pending_host_estop
+        if bit is None:
+            return
+        pt = next((p for p in self.cas_point_list() if p.id == "host_estop"), None)
+        if pt is None:
+            self._pending_host_estop = None
+            return
+        self._cas_write_io(pt, bit)
+        if self.last_tx.get("host_estop") == bit:
+            self._pending_host_estop = None
+
+    def connect(self, *, wait: bool = False) -> bool:
+        """连压机。默认丢给 IO 线程，不阻塞运行扫描。HMI 点重连时 wait=True。"""
         if self.use_mock:
             self.connected = True
             self.last_error = ""
             self._init_mock_slots()
             log.info("[压鞋机] Mock 已连接 %s:%s", self.cfg.get("ip"), self.cfg.get("port"))
             return True
+        self._ensure_io_thread()
+        self._last_reconnect_try = time.monotonic()
+        if wait:
+            return self._connect_blocking()
+        self._enqueue(self._connect_blocking)
+        return bool(self.connected)
+
+    def _connect_blocking(self) -> bool:
         try:
             from pymodbus.client import ModbusTcpClient
 
-            if self.client is not None:
+            with self._io_lock:
+                if self.client is not None:
+                    try:
+                        self.client.close()
+                    except Exception:
+                        pass
+                    self.client = None
+                timeout_s = float(self.cfg.get("timeout_s", 0.4) or 0.4)
+                kw: Dict[str, Any] = {
+                    "port": int(self.cfg.get("port", 502)),
+                    "timeout": timeout_s,
+                }
                 try:
-                    self.client.close()
-                except Exception:
-                    pass
-                self.client = None
-            self.client = ModbusTcpClient(self.cfg["ip"], port=int(self.cfg.get("port", 502)))
-            self.connected = bool(self.client.connect())
+                    self.client = ModbusTcpClient(self.cfg["ip"], retries=0, **kw)
+                except TypeError:
+                    self.client = ModbusTcpClient(self.cfg["ip"], **kw)
+                self.connected = bool(self.client.connect())
+                self._connect_tried = True
+                if self.connected:
+                    self.last_error = ""
+                    self._io_ok()
+                else:
+                    self.last_error = f"无法连接 {self.cfg.get('ip')}:{self.cfg.get('port')}"
+                    log.error("[压鞋机] 连接失败 %s", self.last_error)
+                    return self.connected
             if self.connected:
-                self.last_error = ""
-                self.enable_host_control(True)
-            else:
-                self.last_error = f"无法连接 {self.cfg.get('ip')}:{self.cfg.get('port')}"
-                log.error("[压鞋机] 连接失败 %s", self.last_error)
+                self.host_control = True
+                self._write_coil(
+                    self._addr("addr_host_control"), True, "host_control"
+                )
             return self.connected
         except Exception as e:
             log.error("[压鞋机] 连接失败: %s", e)
             self.last_error = str(e)
             self.connected = False
             self.client = None
+            self._connect_tried = True
             return False
 
+    def _mark_comm_down(self, err: str) -> None:
+        """TCP/Modbus 失败：标未连接，供 LINK 报警与重连。"""
+        self.connected = False
+        text = str(err or "压机通信中断").strip()
+        self.last_error = text
+        log.warning("[压鞋机] 通信中断: %s", text)
+        self.last_tx.pop("host_estop", None)
+
+    def _io_ok(self) -> None:
+        self._fail_streak = 0
+        self._last_ok_io = time.monotonic()
+
+    def _io_fail(self, err: Exception | str, *, mark_down: bool = False) -> None:
+        """单笔超时不立刻拆链路；连续失败或明确断线才标掉线。"""
+        text = str(err or "压机通信失败")
+        low = text.lower()
+        hard = any(
+            s in low
+            for s in ("connection", "broken", "reset", "closed", "not connected", "断开")
+        )
+        if mark_down or hard:
+            self._mark_comm_down(text)
+            return
+        self._fail_streak += 1
+        if self._fail_streak >= 4:
+            self._mark_comm_down(text)
+
+    def _sticky_get(self, kind: str, addr: int) -> int | None:
+        hit = self._sticky_rx.get((kind, addr))
+        if hit is None:
+            return None
+        until, val = hit
+        if time.monotonic() > until:
+            self._sticky_rx.pop((kind, addr), None)
+            return None
+        return int(val)
+
+    def _sticky_put(self, kind: str, addr: int, val: int, ttl_s: float = 0.8) -> None:
+        self._sticky_rx[(kind, addr)] = (time.monotonic() + float(ttl_s), int(val))
+
     def refresh_link(self) -> bool:
+        """给 LINK 用：只看缓存，不在扫描线程里打 Modbus。"""
         if self.use_mock:
             self.connected = True
             return True
-        if self.client is None:
-            self.connected = False
-            return False
-        try:
-            if hasattr(self.client, "is_socket_open"):
-                self.connected = bool(self.client.is_socket_open())
-        except Exception:
-            self.connected = False
-        return self.connected
+        if not self._connect_tried:
+            return True
+        return bool(self.connected)
 
     def reconnect(self) -> bool:
-        return self.connect()
+        return self.connect(wait=True)
 
     def _read_coil(self, addr: int, default: bool = False) -> bool:
         if addr <= 0 or self.use_mock or not self.client:
             return default
-        try:
-            rr = self.client.read_coils(int(addr), count=1, device_id=self._unit())
-            if rr.isError():
+        with self._io_lock:
+            try:
+                rr = self.client.read_coils(int(addr), count=1, device_id=self._unit())
+                if rr.isError():
+                    return default
+                self._io_ok()
+                return bool(rr.bits[0])
+            except Exception as e:
+                log.debug("[压鞋机] 读线圈 0x%X 失败: %s", addr, e)
+                self._io_fail(e)
                 return default
-            return bool(rr.bits[0])
-        except Exception as e:
-            log.debug("[压鞋机] 读线圈 0x%X 失败: %s", addr, e)
-            return default
 
     def _write_coil(self, addr: int, value: bool, tag: str = "") -> None:
         self.last_tx[tag or f"coil_{addr}"] = bool(value)
         if addr <= 0 or self.use_mock or not self.client:
             return
-        try:
-            self.client.write_coil(int(addr), bool(value), device_id=self._unit())
-        except Exception as e:
-            log.warning("[压鞋机] 写线圈 0x%X 失败: %s", addr, e)
+        with self._io_lock:
+            try:
+                self.client.write_coil(int(addr), bool(value), device_id=self._unit())
+                self._io_ok()
+            except Exception as e:
+                log.warning("[压鞋机] 写线圈 0x%X 失败: %s", addr, e)
+                self._io_fail(e)
 
     def _read_holding(self, addr: int, default: int = 0) -> int:
         if addr <= 0 or self.use_mock or not self.client:
             return int(default)
-        try:
-            rr = self.client.read_holding_registers(int(addr), count=1, device_id=self._unit())
-            if rr.isError():
+        with self._io_lock:
+            try:
+                rr = self.client.read_holding_registers(
+                    int(addr), count=1, device_id=self._unit()
+                )
+                if rr.isError():
+                    return int(default)
+                self._io_ok()
+                return int(rr.registers[0])
+            except Exception as e:
+                log.debug("[压鞋机] 读寄存器 0x%X 失败: %s", addr, e)
+                self._io_fail(e)
                 return int(default)
-            return int(rr.registers[0])
-        except Exception as e:
-            log.debug("[压鞋机] 读寄存器 0x%X 失败: %s", addr, e)
-            return int(default)
 
-    def _write_holding(self, addr: int, value: int, tag: str = "") -> None:
-        self.last_tx[tag or f"reg_{addr}"] = int(value)
-        if addr <= 0 or self.use_mock or not self.client:
+    def _holding_write_failed(self, resp: Any) -> bool:
+        """pymodbus 写成功时可能返回 None，异常响应才算失败。"""
+        if resp is None:
+            return False
+        check = getattr(resp, "isError", None)
+        return bool(check()) if callable(check) else False
+
+    def _write_holding(
+        self, addr: int, value: int, tag: str = "", *, strict: bool = False
+    ) -> None:
+        """写保持寄存器。优先 FC16（台达 DVP 对奇数地址 FC06 常拒写），失败再试 FC06。"""
+        val = int(value) & 0xFFFF
+        self.last_tx[tag or f"reg_{addr}"] = val
+        if addr < 0 or self.use_mock or not self.client:
             return
-        try:
-            self.client.write_register(int(addr), int(value) & 0xFFFF, device_id=self._unit())
-        except Exception as e:
-            log.warning("[压鞋机] 写寄存器 0x%X 失败: %s", addr, e)
+        unit = self._unit()
+        last_err: str = ""
+        with self._io_lock:
+            try:
+                wr = self.client.write_registers(int(addr), [val], device_id=unit)
+                if not self._holding_write_failed(wr):
+                    self._io_ok()
+                    log.info("[压鞋机] FC16 写寄存器 addr=%s val=%s tag=%s", addr, val, tag)
+                    return
+                last_err = str(wr)
+                wr2 = self.client.write_register(int(addr), val, device_id=unit)
+                if not self._holding_write_failed(wr2):
+                    self._io_ok()
+                    log.info("[压鞋机] FC06 写寄存器 addr=%s val=%s tag=%s", addr, val, tag)
+                    return
+                last_err = f"{wr} / {wr2}"
+            except Exception as e:
+                last_err = str(e)
+                self._io_fail(e)
+        log.warning("[压鞋机] 写寄存器 addr=%s val=%s 失败: %s", addr, val, last_err)
+        if strict:
+            raise RuntimeError(f"写保持寄存器地址 {addr}（值 {val}）失败：{last_err}")
 
     def _read_discrete(self, addr: int, default: bool = False) -> bool:
         if addr <= 0 or self.use_mock or not self.client:
             return default
-        try:
-            rr = self.client.read_discrete_inputs(int(addr), count=1, device_id=self._unit())
-            if not rr.isError():
-                return bool(rr.bits[0])
-        except Exception:
-            pass
+        with self._io_lock:
+            try:
+                rr = self.client.read_discrete_inputs(
+                    int(addr), count=1, device_id=self._unit()
+                )
+                if not rr.isError():
+                    self._io_ok()
+                    return bool(rr.bits[0])
+            except Exception:
+                pass
         return self._read_coil(addr, default)
 
     def cas_point_list(self) -> list[CasPoint]:
         """当前点表（yaml press.cas_points 可覆盖 Excel Dec）。"""
         return apply_cas_overrides(default_cas_points(), self.cfg.get("cas_points"))
 
+    def _slot_cas_point(self, slot: int, yaml_key: str) -> CasPoint | None:
+        """槽号对应工位点；地址优先槽 yaml，否则点表。"""
+        try:
+            pid = slot_cas_point_id(slot, yaml_key)
+        except KeyError:
+            return None
+        pt = next((p for p in self.cas_point_list() if p.id == pid), None)
+        if pt is None:
+            return None
+        raw = self._slot_cfg(slot).get(yaml_key)
+        if raw is None:
+            return pt
+        try:
+            dec = int(raw)
+        except (TypeError, ValueError):
+            return pt
+        if dec <= 0:
+            return pt
+        return replace(pt, modbus_dec=dec)
+
+    def _slot_cas_read(self, slot: int, yaml_key: str, default: int | bool) -> int:
+        pt = self._slot_cas_point(slot, yaml_key)
+        if pt is None:
+            return int(default)
+        try:
+            return int(self.cas_read(pt))
+        except Exception:
+            return int(default)
+
+    def _slot_cas_write(self, slot: int, yaml_key: str, value: int | bool) -> None:
+        pt = self._slot_cas_point(slot, yaml_key)
+        if pt is None or pt.rw != "rw":
+            return
+        self.cas_write(pt, value)
+
     def cas_read(self, point: CasPoint, *, modbus_dec: int | None = None) -> int:
-        """读中科院点：M/X→0/1，D/T→保持寄存器。Mock 走独立内存。"""
+        """读中科院点：只走缓存，不阻塞调用线程。"""
         addr = pdu_addr(point, modbus_dec=modbus_dec)
         kind = str(point.plc_kind)
-        if self.use_mock:
-            if kind == "M":
-                return int(bool(self._cas_coils.get(addr, False)))
-            if kind == "X":
-                return int(bool(self._cas_discretes.get(addr, False)))
-            return int(self._cas_holdings.get(addr, 0)) & 0xFFFF
-        if not self.connected or self.client is None:
-            raise RuntimeError(self.last_error or "压机未连接")
+        sticky = self._sticky_get(kind, addr)
+        if sticky is not None:
+            return sticky
         if kind == "M":
-            return int(bool(self._read_coil(addr, False)))
+            return int(bool(self._cas_coils.get(addr, False)))
         if kind == "X":
-            return int(bool(self._read_discrete(addr, False)))
-        return int(self._read_holding(addr, 0))
+            return int(bool(self._cas_discretes.get(addr, False)))
+        return int(self._cas_holdings.get(addr, 0)) & 0xFFFF
 
     def cas_write(
         self, point: CasPoint, value: int | bool, *, modbus_dec: int | None = None
     ) -> None:
-        """写中科院可写点（M 线圈 / D 保持）。不改 Station6 旧地址。"""
+        """写中科院可写点：先改缓存再投递 IO 线程。"""
         if point.rw != "rw":
             raise RuntimeError("该点只读")
         addr = pdu_addr(point, modbus_dec=modbus_dec)
@@ -315,23 +646,24 @@ class PressMachine:
         if kind == "M":
             bit = bool(value)
             self.last_tx[tag] = bit
-            if self.use_mock:
-                self._cas_coils[addr] = bit
-                return
-            if addr <= 0 or not self.client:
-                raise RuntimeError("无法写线圈（未连接或地址无效）")
-            self._write_coil(addr, bit, tag=tag)
+            self._cas_coils[addr] = bit
+            ttl = 2.0 if str(point.id).endswith("_slot_done") else 0.8
+            self._sticky_put(kind, addr, int(bit), ttl_s=ttl)
+            if not self.use_mock:
+                self._enqueue(lambda p=point, v=bit: self._cas_write_io(p, v))
             return
         if kind != "D":
             raise RuntimeError("该点不可写")
         val = int(value) & 0xFFFF
+        if str(point.id) in ("start", "shoe_done"):
+            online = next((p for p in self.cas_point_list() if p.id == "online"), None)
+            if online is not None and online.id != point.id:
+                self.cas_write(online, True)
         self.last_tx[tag] = val
-        if self.use_mock:
-            self._cas_holdings[addr] = val
-            return
-        if addr < 0 or not self.client:
-            raise RuntimeError("无法写寄存器（未连接或地址无效）")
-        self._write_holding(addr, val, tag=tag)
+        self._cas_holdings[addr] = val
+        self._sticky_put(kind, addr, val)
+        if not self.use_mock:
+            self._enqueue(lambda p=point, v=val: self._cas_write_io(p, v))
 
     def _init_mock_slots(self) -> None:
         fs = self._four()
@@ -383,33 +715,9 @@ class PressMachine:
             )
 
     def refresh_inputs(self) -> None:
+        """扫描线程只读缓存；真机轮询在 IO 线程。"""
         if self.use_mock:
             self._refresh_slot_numbers()
-            return
-        if not self.connected or self.client is None:
-            return
-        try:
-            self.power_ok = self._read_coil(self._addr("addr_power_ok"), False)
-            self.rotate_done = self._read_coil(self._addr("addr_rotate_done"), False)
-            self.press_done = self._read_coil(self._addr("addr_press_done"), True)
-            self.host_control = self._read_coil(self._addr("addr_host_control"), False)
-            self._refresh_slot_numbers()
-            for i in range(1, self.slot_count() + 1):
-                self._refresh_slot(i)
-        except Exception as e:
-            log.warning("[压鞋机] 刷新失败，标记未连接: %s", e)
-            self.connected = False
-
-    def _refresh_slot(self, slot: int) -> None:
-        sc = self._slot_cfg(slot)
-        st = self.slots.setdefault(slot, _empty_slot_state())
-        st["motor_done"] = self._read_coil(int(sc.get("addr_motor_done", 0) or 0), True)
-        st["rod_aligned"] = self._read_discrete(int(sc.get("addr_rod_aligned", 0) or 0), True)
-        st["rod_in_pos"] = self._read_discrete(int(sc.get("addr_rod_in_pos", 0) or 0), True)
-        st["base_down"] = self._read_discrete(int(sc.get("addr_base_down", 0) or 0), True)
-        st["rod_home"] = self._read_discrete(int(sc.get("addr_rod_home", 0) or 0), False)
-        st["work_status"] = self._read_holding(int(sc.get("addr_work_status", 0) or 0), 0)
-        st["estop"] = self._read_coil(int(sc.get("addr_estop", 0) or 0), False)
 
     def advance_slots_after_rotate(self) -> None:
         """旋转到位后：按所选顺序推进取料/放料槽号。"""
@@ -435,7 +743,10 @@ class PressMachine:
 
     def enable_host_control(self, on: bool = True) -> None:
         self.host_control = bool(on)
-        self._write_coil(self._addr("addr_host_control"), bool(on), "host_control")
+        if self.use_mock:
+            return
+        addr = self._addr("addr_host_control")
+        self._enqueue(lambda a=addr, v=bool(on): self._write_coil(a, v, "host_control"))
 
     def set_rotate(self, value: bool) -> None:
         self.cmd_rotate = bool(value)
@@ -448,7 +759,10 @@ class PressMachine:
                 self._rotating = False
             log.info("[压鞋机] Mock 旋转命令=%s", value)
             return
-        self._write_coil(self._addr("addr_cmd_rotate"), value, "cmd_rotate")
+        addr = self._addr("addr_cmd_rotate")
+        self._enqueue(
+            lambda a=addr, v=bool(value): self._write_coil(a, v, "cmd_rotate")
+        )
 
     def set_start_press(self, value: bool) -> None:
         self.cmd_start_press = bool(value)
@@ -463,7 +777,10 @@ class PressMachine:
                 self.place_slot,
             )
             return
-        self._write_coil(self._addr("addr_cmd_start_press"), value, "cmd_start_press")
+        addr = self._addr("addr_cmd_start_press")
+        self._enqueue(
+            lambda a=addr, v=bool(value): self._write_coil(a, v, "cmd_start_press")
+        )
         if value and bool(self._four().get("enabled", True)):
             self.begin_place_press()
 
@@ -472,21 +789,11 @@ class PressMachine:
         slot = int(self.place_slot)
         sc = self._slot_cfg(slot)
         log.info("[压鞋机] 放料口(左口) 压合 → 槽#%s", slot)
-        self._write_coil(
-            int(sc.get("addr_shoe_placed", 0) or 0), True, f"slot{slot}.shoe_placed"
-        )
-        dist = int(sc.get("default_move_distance_mm", 0) or 0)
-        if dist and int(sc.get("addr_move_distance", 0) or 0) > 0:
-            self._write_holding(
-                int(sc["addr_move_distance"]), dist, f"slot{slot}.move_distance"
-            )
         if bool(sc.get("auto_motor_on_press", True)):
-            self._write_coil(
-                int(sc.get("addr_motor_start", 0) or 0), True, f"slot{slot}.motor_start"
-            )
-        self._write_coil(int(sc.get("addr_slot_up", 0) or 0), True, f"slot{slot}.slot_up")
+            self._slot_cas_write(slot, "addr_rod_forward", True)
+        self._slot_cas_write(slot, "addr_press_up", True)
         st = self.slots.setdefault(slot, _empty_slot_state())
-        st["shoe_placed_cmd"] = True
+        st["shoe_placed_cmd"] = False
         st["motor_start_cmd"] = True
         st["slot_up_cmd"] = True
         if self.use_mock:
@@ -500,52 +807,63 @@ class PressMachine:
 
     def clear_place_press_cmds(self) -> None:
         slot = int(self.place_slot)
-        sc = self._slot_cfg(slot)
-        self._write_coil(
-            int(sc.get("addr_motor_start", 0) or 0), False, f"slot{slot}.motor_start"
-        )
-        self._write_coil(int(sc.get("addr_slot_up", 0) or 0), False, f"slot{slot}.slot_up")
+        self._slot_cas_write(slot, "addr_rod_forward", False)
+        self._slot_cas_write(slot, "addr_press_up", False)
         st = self.slots.setdefault(slot, _empty_slot_state())
         st["motor_start_cmd"] = False
         st["slot_up_cmd"] = False
 
     def is_place_press_idle(self) -> bool:
         st = self.slots.get(int(self.place_slot), {})
-        ws = int(st.get("work_status", 0))
-        return ws in (0, 9) and bool(st.get("motor_done", True))
+        return bool(st.get("motor_done", True))
+
+    def current_station_no(self) -> int:
+        """当前工位：优先「当前工位显示」，否则放料槽号。"""
+        pt = next((p for p in self.cas_point_list() if p.id == "station_no"), None)
+        if pt is not None:
+            try:
+                raw = int(self.cas_read(pt))
+                if 1 <= raw <= 4:
+                    return raw
+            except Exception:
+                pass
+        return max(1, min(4, int(self.place_slot or 1)))
+
+    def set_pick_slot_work_done(self, on: bool, *, slot: int | None = None) -> None:
+        """工控机改写取料槽工作完成（当前工位对应线圈）。"""
+        sid = int(slot) if slot is not None else self.current_station_no()
+        sid = max(1, min(4, sid))
+        if on:
+            for other in range(1, 5):
+                if other != sid:
+                    self._write_slot_work_done(other, False)
+        self._write_slot_work_done(sid, bool(on))
+
+    def _write_slot_work_done(self, slot: int, on: bool) -> None:
+        pt = self._slot_cas_point(int(slot), "addr_slot_done")
+        if pt is not None:
+            self.cas_write(pt, bool(on))
+        self.slots.setdefault(int(slot), _empty_slot_state())["slot_done"] = bool(on)
 
     @property
     def pick_ready(self) -> bool:
         if self.use_mock:
             return bool(self.press_done) and bool(self.rotate_done)
         st = self.slots.get(int(self.pick_slot), {})
-        ws = int(st.get("work_status", 0))
-        return (
-            ws in (0, 9)
-            and bool(st.get("motor_done", True))
-            and not bool(st.get("estop", False))
-        )
+        return not bool(st.get("estop", False))
 
     def set_rod_move(self, slot: int, direction: str, on: bool) -> None:
-        sc = self._slot_cfg(int(slot))
         addr_map = {
             "forward": "addr_rod_forward",
             "back": "addr_rod_back",
-            "home": "addr_rod_go_home",
+            "home": "addr_rod_back",
         }
         key = addr_map.get(direction, "addr_rod_forward")
-        self._write_coil(
-            int(sc.get(key, 0) or 0), bool(on), f"slot{slot}.rod_{direction}"
-        )
+        self._slot_cas_write(int(slot), key, bool(on))
 
     def set_base(self, slot: int, up: bool, on: bool = True) -> None:
-        sc = self._slot_cfg(int(slot))
         key = "addr_press_up" if up else "addr_press_down"
-        self._write_coil(
-            int(sc.get(key, 0) or 0),
-            bool(on),
-            f"slot{slot}.base_{'up' if up else 'down'}",
-        )
+        self._slot_cas_write(int(slot), key, bool(on))
 
     def simulate_press_done(self) -> None:
         self.press_done = True
@@ -612,6 +930,30 @@ class PressMachine:
 
     def set_mock_slots(self, pick: Optional[int] = None, place: Optional[int] = None) -> None:
         self.set_current_slots(pick=pick, place=place, lock=True)
+
+    def set_host_estop(self, on: bool, *, force: bool = False) -> None:
+        """把工控机急停发给压机（联机点 host_estop，默认 Modbus Dec 51）。
+
+        Mock 时写独立线圈内存，与真机同一套点表；last_tx 跳过不得留下过期 Mock 值。
+        """
+        bit = bool(on)
+        pt = next((p for p in self.cas_point_list() if p.id == "host_estop"), None)
+        if pt is None:
+            log.warning("[压鞋机] 点表无急停信号 host_estop，未下发")
+            return
+        if self.use_mock:
+            addr = pdu_addr(pt)
+            same = self.last_tx.get("host_estop") == bit and bool(
+                self._cas_coils.get(addr, False)
+            ) == bit
+            if same and not force:
+                return
+        elif (not force) and self.last_tx.get("host_estop") == bit:
+            return
+        if not self.use_mock:
+            self._pending_host_estop = bit
+        self.cas_write(pt, bit)
+        log.info("[压鞋机] 工控机急停 → 压机 %s (Modbus %s)", bit, pt.modbus_dec)
 
     def estop_outputs_off(self) -> None:
         self.set_rotate(False)

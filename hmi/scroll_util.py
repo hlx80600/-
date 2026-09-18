@@ -310,21 +310,27 @@ def wrap_in_scroll(
     *,
     wheel_scale: float | None = None,
     require_ctrl: bool = False,
+    horizontal: bool = True,
 ) -> QScrollArea:
     """
     把整页放进可滚动区域，内容随窗口变窄自动换行/收缩，超出则滚轮滑动。
     wheel_scale: 滚轮倍率，越小越慢；默认 PAGE_WHEEL_SCALE。
     require_ctrl: True 时须按住 Ctrl 才滚动（适合视觉等控件密集页）。
+    horizontal: False 则禁止左右滑，内容须在布局里换行/收缩。
     """
     scale = float(PAGE_WHEEL_SCALE if wheel_scale is None else wheel_scale)
     scale = max(0.05, min(1.0, scale))
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
     scroll.setFrameShape(QFrame.Shape.NoFrame)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    if horizontal:
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        page.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+    else:
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
     scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
     scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-    page.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
     scroll.setWidget(page)
     attach_page_scroll(scroll, wheel_scale=scale, require_ctrl=require_ctrl)
     harden_wheel(page)

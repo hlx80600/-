@@ -21,37 +21,18 @@ from PySide6.QtWidgets import (
 
 from core.config_loader import save_config
 from core.coordinator import Coordinator
-from devices.press_modbus import WORK_STATUS_NAMES
+from devices.plc_cas_points import SLOT_CAS_ROWS, hmi_modbus_dec
 from hmi.pages.cas_plc_points_page import CasPlcPointsWidget
 from hmi.scroll_util import disable_tab_bar_wheel, wrap_in_scroll
 from hmi.style import apply_page_chrome, hbox_pair, style_button
 
-SLOT_ADDR_ROWS = [
-    ("addr_shoe_placed", "放鞋完成"),
-    ("addr_motor_start", "压杆电机启动"),
-    ("addr_motor_done", "压杆电机完成"),
-    ("addr_move_distance", "压杆距离D"),
-    ("addr_slot_up", "槽上升/压合"),
-    ("addr_rod_aligned", "压杆回正X"),
-    ("addr_rod_in_pos", "压杆到位X"),
-    ("addr_base_down", "大座下到位X"),
-    ("addr_rod_home", "压杆原点X"),
-    ("addr_work_status", "工作状态D"),
-    ("addr_estop", "急停M"),
-    ("addr_rod_forward", "压杆前进"),
-    ("addr_rod_back", "压杆后退"),
-    ("addr_rod_go_home", "压杆回原"),
-    ("addr_press_up", "大座上升"),
-    ("addr_press_down", "大座下降"),
-]
 
-
-def _hex_spin(val: int) -> QSpinBox:
+def _modbus_dec_spin(val: int) -> QSpinBox:
+    """协议 Modbus Dec（与中科院点表相同，不是 0x PDU）。"""
     sp = QSpinBox()
-    sp.setRange(0, 0xFFFF)
-    sp.setDisplayIntegerBase(16)
-    sp.setPrefix("0x")
-    sp.setValue(int(val) & 0xFFFF)
+    sp.setRange(0, 999999)
+    sp.setValue(max(0, int(val)))
+    sp.setMinimumWidth(110)
     sp.wheelEvent = lambda e: e.ignore()  # type: ignore
     return sp
 
@@ -190,8 +171,8 @@ class PressIoPage(QWidget):
         self.cmb_pick_open = QComboBox()
         self.cmb_pick_open.addItems(["right", "left"])
         self.cmb_pick_open.setCurrentText(str(op.get("pick", "right")))
-        self.sp_addr_pick = _hex_spin(int(fs.get("addr_pick_slot", 0x2100) or 0))
-        self.sp_addr_place = _hex_spin(int(fs.get("addr_place_slot", 0x2101) or 0))
+        self.sp_addr_pick = _modbus_dec_spin(int(fs.get("addr_pick_slot", 0x2100) or 0))
+        self.sp_addr_place = _modbus_dec_spin(int(fs.get("addr_place_slot", 0x2101) or 0))
         fm.addRow(self.chk_4)
         fm.addRow("槽号顺序", self.cmb_seq)
         fm.addRow(self.chk_auto_slot)
@@ -205,12 +186,12 @@ class PressIoPage(QWidget):
 
         box_g = QGroupBox("公共口地址")
         fg = QFormLayout(box_g)
-        self.sp_host = _hex_spin(int(press.get("addr_host_control", 0xA11) or 0))
-        self.sp_cmd_rot = _hex_spin(int(press.get("addr_cmd_rotate", 10) or 0))
-        self.sp_rot_done = _hex_spin(int(press.get("addr_rotate_done", 1) or 0))
-        self.sp_cmd_press = _hex_spin(int(press.get("addr_cmd_start_press", 11) or 0))
-        self.sp_press_done = _hex_spin(int(press.get("addr_press_done", 2) or 0))
-        self.sp_power = _hex_spin(int(press.get("addr_power_ok", 0) or 0))
+        self.sp_host = _modbus_dec_spin(int(press.get("addr_host_control", 0xA11) or 0))
+        self.sp_cmd_rot = _modbus_dec_spin(int(press.get("addr_cmd_rotate", 10) or 0))
+        self.sp_rot_done = _modbus_dec_spin(int(press.get("addr_rotate_done", 1) or 0))
+        self.sp_cmd_press = _modbus_dec_spin(int(press.get("addr_cmd_start_press", 11) or 0))
+        self.sp_press_done = _modbus_dec_spin(int(press.get("addr_press_done", 2) or 0))
+        self.sp_power = _modbus_dec_spin(int(press.get("addr_power_ok", 0) or 0))
         fg.addRow("上位机控制", self.sp_host)
         fg.addRow("旋转命令 / 完成", self._pair(self.sp_cmd_rot, self.sp_rot_done))
         fg.addRow("压合命令 / 完成", self._pair(self.sp_cmd_press, self.sp_press_done))
@@ -220,17 +201,23 @@ class PressIoPage(QWidget):
         tabs = QTabWidget()
         disable_tab_bar_wheel(tabs)
         slots_cfg = press.get("slots") or {}
+        cas_by_id = {p.id: p for p in self.ctx.press.cas_point_list()}
         for i in range(1, 5):
             sc = slots_cfg.get(i) or slots_cfg.get(str(i)) or {}
             page = QWidget()
             fl = QFormLayout(page)
             spins: dict[str, QSpinBox] = {}
-            for key, lab in SLOT_ADDR_ROWS:
-                sp = _hex_spin(int(sc.get(key, 0) or 0))
+            for key, suffix, lab in SLOT_CAS_ROWS:
+                pt = cas_by_id.get(f"s{i}_{suffix}")
+                table_dec = int(hmi_modbus_dec(pt)) if pt is not None else 0
+                raw = int(sc.get(key, 0) or 0)
+                # 点表有地址则填入；旧 yaml 非表地址丢弃
+                val = table_dec if table_dec > 0 else raw
+                sp = _modbus_dec_spin(val)
                 spins[key] = sp
                 fl.addRow(lab, sp)
             self.slot_spins[i] = spins
-            tabs.addTab(page, f"槽{i}")
+            tabs.addTab(page, f"槽{i} / 工位{i}")
         addr_root.addWidget(tabs, 1)
 
         row = QHBoxLayout()
@@ -357,7 +344,7 @@ class PressIoPage(QWidget):
         self.refresh()
 
     def _reconnect(self) -> None:
-        ok = self.ctx.press.connect()
+        ok = self.ctx.press.connect(wait=True)
         QMessageBox.information(self, "压机", f"重连{'成功' if ok else '失败'}")
         self.refresh()
 
@@ -387,10 +374,26 @@ class PressIoPage(QWidget):
         press["addr_power_ok"] = int(self.sp_power.value())
 
         slots = press.setdefault("slots", {})
+        cas_ov = press.setdefault("cas_points", {})
         for i, spins in self.slot_spins.items():
             sc = slots.setdefault(i, {})
-            for key, sp in spins.items():
-                sc[key] = int(sp.value())
+            for key, suffix, _lab in SLOT_CAS_ROWS:
+                dec = int(spins[key].value())
+                sc[key] = dec
+                cas_ov[f"s{i}_{suffix}"] = dec
+            for stale in (
+                "addr_shoe_placed",
+                "addr_motor_start",
+                "addr_move_distance",
+                "addr_slot_up",
+                "addr_rod_aligned",
+                "addr_rod_in_pos",
+                "addr_base_down",
+                "addr_work_status",
+                "addr_estop",
+                "addr_rod_go_home",
+            ):
+                sc.pop(stale, None)
         press.pop("sides", None)
 
         self.ctx.press.cfg = press
@@ -419,10 +422,6 @@ class PressIoPage(QWidget):
         except Exception:
             pass
         p = self.ctx.press
-        try:
-            p.refresh_inputs()
-        except Exception:
-            pass
         snap = p.snapshot()
         lock = bool(snap.get("manual_slot_lock"))
         lock_txt = "　[手动锁定]" if lock else ""
@@ -440,12 +439,9 @@ class PressIoPage(QWidget):
 
         def slot_line(slot: int, role: str) -> str:
             st = (snap.get("slots") or {}).get(slot) or (snap.get("slots") or {}).get(str(slot)) or {}
-            ws = int(st.get("work_status", 0))
             return (
-                f"{role} 槽#{slot} 状态={WORK_STATUS_NAMES.get(ws, ws)} "
-                f"电机完成={st.get('motor_done')} 大座下={st.get('base_down')} "
-                f"压杆到位={st.get('rod_in_pos')} 回正={st.get('rod_aligned')} "
-                f"原点={st.get('rod_home')} 急停={st.get('estop')}"
+                f"{role} 槽#{slot} 压杆完成={st.get('motor_done')} "
+                f"原点={st.get('rod_home')} 上升令={st.get('slot_up_cmd')}"
             )
 
         self.lbl_place.setText(slot_line(int(snap["place_slot"]), "左口放料→压杆/底座发令"))

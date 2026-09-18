@@ -21,11 +21,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.config_loader import save_config
 from core.coordinator import Coordinator
 from devices.plc_cas_points import (
     PROTOCOL_IP_HINT,
     PROTOCOL_PORT_HINT,
     CasPoint,
+    hmi_modbus_dec,
 )
 from devices.press_modbus import PressMachine
 from hmi import ui_scale
@@ -46,6 +48,7 @@ class _RowUi:
     point: CasPoint
     value_lbl: QLabel
     spin: QSpinBox | None = None
+    addr_spin: QSpinBox | None = None
 
 
 def _px(design: float, *, min_v: int = 1) -> int:
@@ -88,6 +91,8 @@ class CasPlcPointsWidget(QWidget):
         self.coord = coord
         self.ctx = coord.ctx
         self._rows: list[_RowUi] = []
+        self._pick_done_row: _RowUi | None = None
+        self._pick_done_slot_lbl: QLabel | None = None
 
         root = QVBoxLayout(self)
         root.addWidget(self._build_header())
@@ -106,11 +111,18 @@ class CasPlcPointsWidget(QWidget):
         online_lay = QVBoxLayout(online_page)
         online_lay.setContentsMargins(4, 4, 4, 4)
         if "联机" in by_group:
-            online_lay.addWidget(self._build_online(by_group["联机"]))
+            online_pts = by_group["联机"]
+            slot_done = [p for p in online_pts if p.id.endswith("_slot_done")]
+            core = [p for p in online_pts if p not in slot_done]
+            online_lay.addWidget(self._build_online(core, slot_done))
         if "公共参数" in by_group:
-            online_lay.addWidget(self._build_station_box("公共参数", by_group["公共参数"]))
+            online_lay.addWidget(
+                self._build_station_box(
+                    "公共参数", by_group["公共参数"], edit_addr=True
+                )
+            )
         online_lay.addStretch(1)
-        tabs.addTab(wrap_in_scroll(online_page), "联机/公共")
+        tabs.addTab(wrap_in_scroll(online_page, horizontal=False), "联机/公共")
 
         man_boxes = [
             self._build_station_box(title, pts)
@@ -123,7 +135,7 @@ class CasPlcPointsWidget(QWidget):
             man_lay.setContentsMargins(4, 4, 4, 4)
             man_lay.addWidget(self._grid_cards(man_boxes, columns=2))
             man_lay.addStretch(1)
-            tabs.addTab(wrap_in_scroll(man_page), "压机手动")
+            tabs.addTab(wrap_in_scroll(man_page, horizontal=False), "压机手动")
 
         rod_boxes = [
             self._build_station_box(title, pts)
@@ -136,7 +148,7 @@ class CasPlcPointsWidget(QWidget):
             rod_lay.setContentsMargins(4, 4, 4, 4)
             rod_lay.addWidget(self._grid_cards(rod_boxes, columns=2))
             rod_lay.addStretch(1)
-            tabs.addTab(wrap_in_scroll(rod_page), "压杆")
+            tabs.addTab(wrap_in_scroll(rod_page, horizontal=False), "压杆")
 
         hold_page = QWidget()
         hold_lay = QVBoxLayout(hold_page)
@@ -152,7 +164,7 @@ class CasPlcPointsWidget(QWidget):
             if leftover:
                 hold_lay.addWidget(self._build_station_box(title, leftover))
         hold_lay.addStretch(1)
-        tabs.addTab(wrap_in_scroll(hold_page), "压着时间")
+        tabs.addTab(wrap_in_scroll(hold_page, horizontal=False), "压着时间")
 
         root.addWidget(tabs, 1)
         apply_page_chrome(self)
@@ -186,27 +198,32 @@ class CasPlcPointsWidget(QWidget):
         row.addWidget(self.lbl_link)
         btn_refresh = style_button(QPushButton("刷新"), "primary")
         btn_all = style_button(QPushButton("全部读取"), "success")
-        btn_refresh.clicked.connect(self.refresh)
-        btn_all.clicked.connect(self.refresh)
+        btn_refresh.clicked.connect(lambda: self.refresh())
+        btn_all.clicked.connect(lambda: self.refresh(all_tabs=True))
         row.addWidget(btn_refresh)
         row.addWidget(btn_all)
         lay.addLayout(row)
 
-        chips = QHBoxLayout()
+        chips = QGridLayout()
         chips.setSpacing(_px(8))
-        for text in (
+        chip_texts = (
             f"协议默认 {PROTOCOL_IP_HINT}:{PROTOCOL_PORT_HINT}",
             "本页不改通信配置里的压机 IP",
             "空闲/放鞋完成：1=有效",
             "启动：1=空转　2=启动",
-        ):
+            "地址为协议 Modbus Dec",
+        )
+        for i, text in enumerate(chip_texts):
             chip = QLabel(text)
+            chip.setWordWrap(True)
             chip.setStyleSheet(
                 f"background:#eef3f7;color:#34495e;padding:{_px(4)}px {_px(10)}px;"
                 f"border-radius:{_px(12)}px;font-size:{_fpx(12)}px;"
             )
-            chips.addWidget(chip)
-        chips.addStretch(1)
+            chips.addWidget(chip, i // 3, i % 3)
+        chips.setColumnStretch(0, 1)
+        chips.setColumnStretch(1, 1)
+        chips.setColumnStretch(2, 1)
         lay.addLayout(chips)
         return bar
 
@@ -220,39 +237,106 @@ class CasPlcPointsWidget(QWidget):
             grid.setColumnStretch(i % columns, 1)
         return wrap
 
-    def _build_online(self, points: list[CasPoint]) -> QGroupBox:
+    def _build_online(
+        self, core: list[CasPoint], slot_done: list[CasPoint]
+    ) -> QGroupBox:
         box = QGroupBox("联机")
         grid = QGridLayout(box)
-        grid.setHorizontalSpacing(_px(12))
+        grid.setHorizontalSpacing(_px(10))
         grid.setVerticalSpacing(_px(10))
-        for col, pt in enumerate(points):
-            card = QFrame()
-            card.setStyleSheet(
-                f"QFrame {{ background:#ffffff;border:1px solid #d5dde5;"
-                f"border-radius:{_px(8)}px; }}"
-            )
-            inner = QVBoxLayout(card)
-            inner.setContentsMargins(_px(10), _px(8), _px(10), _px(8))
-            inner.setSpacing(_px(8))
-            inner.addWidget(self._name_block(pt))
-            ui = self._make_row(pt)
-            inner.addWidget(ui.value_lbl)
-            acts = self._action_widget(pt, ui)
-            if acts is not None:
-                inner.addWidget(acts)
-            inner.addStretch(1)
-            grid.addWidget(card, 0, col)
-            grid.setColumnStretch(col, 1)
+        cols = 3
+        cards: list[QWidget] = [self._build_pick_done_card()]
+        cards.extend(self._online_card(pt) for pt in core)
+        cards.extend(self._online_card(pt) for pt in slot_done)
+        for i, card in enumerate(cards):
+            r, c = divmod(i, cols)
+            grid.addWidget(card, r, c)
+        for c in range(cols):
+            grid.setColumnStretch(c, 1)
         return box
 
-    def _build_station_box(self, title: str, points: list[CasPoint]) -> QGroupBox:
+    def _online_card(self, pt: CasPoint) -> QFrame:
+        card = QFrame()
+        card.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        card.setMinimumWidth(0)
+        card.setStyleSheet(
+            f"QFrame {{ background:#ffffff;border:1px solid #d5dde5;"
+            f"border-radius:{_px(8)}px; }}"
+        )
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(_px(10), _px(8), _px(10), _px(8))
+        inner.setSpacing(_px(8))
+        inner.addWidget(self._name_block(pt))
+        ui = self._make_row(pt)
+        inner.addWidget(ui.value_lbl)
+        acts = self._action_widget(pt, ui)
+        if acts is not None:
+            inner.addWidget(acts)
+        inner.addWidget(self._addr_editor(pt, ui))
+        return card
+
+    def _build_pick_done_card(self) -> QFrame:
+        """取料槽工作完成：工控机发出，随当前工位（放料槽号）切换。"""
+        card = QFrame()
+        card.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        card.setStyleSheet(
+            f"QFrame {{ background:#ffffff;border:1px solid #d5dde5;"
+            f"border-radius:{_px(8)}px; }}"
+        )
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(_px(10), _px(8), _px(10), _px(8))
+        inner.setSpacing(_px(8))
+        title = QLabel("取料槽工作完成")
+        title.setStyleSheet(
+            f"font-weight:bold;color:#1c2833;font-size:{_fpx(14)}px;"
+        )
+        hint = QLabel("工控机发出；随当前工位（放料槽号）改写该槽线圈")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:#7f8c8d;font-size:{_fpx(12)}px;")
+        slot_lbl = QLabel("当前工位 #-")
+        slot_lbl.setStyleSheet(f"color:#1a5276;font-size:{_fpx(12)}px;")
+        self._pick_done_slot_lbl = slot_lbl
+        inner.addWidget(title)
+        inner.addWidget(hint)
+        inner.addWidget(slot_lbl)
+        pt = self._slot_done_point(self._press().current_station_no())
+        if pt is None:
+            inner.addWidget(QLabel("无完成点"))
+            return card
+        ui = self._make_row(pt)
+        self._pick_done_row = ui
+        inner.addWidget(ui.value_lbl)
+        acts = self._action_widget(pt, ui)
+        if acts is not None:
+            inner.addWidget(acts)
+        inner.addWidget(self._addr_editor(pt, ui))
+        return card
+
+    def _slot_done_point(self, slot: int) -> CasPoint | None:
+        sid = max(1, min(4, int(slot)))
+        return next(
+            (p for p in self._press().cas_point_list() if p.id == f"s{sid}_slot_done"),
+            None,
+        )
+
+    def _build_station_box(
+        self,
+        title: str,
+        points: list[CasPoint],
+        *,
+        edit_addr: bool = False,
+    ) -> QGroupBox:
         short = title.replace("压机手动 · ", "").replace("压杆操作 · ", "")
         box = QGroupBox(short)
         grid = QGridLayout(box)
         grid.setHorizontalSpacing(_px(8))
         grid.setVerticalSpacing(_px(8))
         for r, pt in enumerate(points):
-            self._place_row(grid, r, pt, show_name=True)
+            self._place_row(grid, r, pt, show_name=True, edit_addr=edit_addr)
             grid.setRowMinimumHeight(r, _px(36))
         return box
 
@@ -301,7 +385,7 @@ class CasPlcPointsWidget(QWidget):
         title.setStyleSheet(
             f"font-weight:bold;color:#1c2833;font-size:{_fpx(14)}px;"
         )
-        title.setWordWrap(False)
+        title.setWordWrap(True)
         v.addWidget(title)
         if pt.hint:
             hint = QLabel(pt.hint)
@@ -328,6 +412,7 @@ class CasPlcPointsWidget(QWidget):
         pt: CasPoint,
         *,
         show_name: bool,
+        edit_addr: bool = False,
     ) -> None:
         ui = self._make_row(pt)
         col = 0
@@ -335,18 +420,31 @@ class CasPlcPointsWidget(QWidget):
             grid.addWidget(self._name_block(pt), row, 0)
             col = 1
         grid.addWidget(ui.value_lbl, row, col)
+        right = QWidget()
+        right.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.setSpacing(_px(6))
         acts = self._action_widget(pt, ui)
         if acts is not None:
-            grid.addWidget(acts, row, col + 1)
-        else:
-            grid.setColumnStretch(col, 1)
+            rv.addWidget(acts)
+        if edit_addr:
+            rv.addWidget(self._addr_editor(pt, ui))
+        if acts is not None or edit_addr:
+            grid.addWidget(right, row, col + 1)
+        grid.setColumnStretch(col + 1, 1)
 
     def _action_widget(self, pt: CasPoint, ui: _RowUi) -> QWidget | None:
         if pt.rw == "rw" and pt.plc_kind == "M":
-            btn_on = style_button(QPushButton("开"), "success", tall=False)
-            btn_off = style_button(QPushButton("关"), "neutral", tall=False)
-            btn_on.clicked.connect(lambda _=False, p=pt: self._write_m(p, True))
-            btn_off.clicked.connect(lambda _=False, p=pt: self._write_m(p, False))
+            if pt.id.endswith("_rod_fwd") or pt.id.endswith("_rod_back"):
+                return self._hold_coil_button(ui)
+            on_txt, off_txt = "开", "关"
+            if pt.id.endswith("_slot_done"):
+                on_txt, off_txt = "置1", "置0"
+            btn_on = style_button(QPushButton(on_txt), "success", tall=False)
+            btn_off = style_button(QPushButton(off_txt), "neutral", tall=False)
+            btn_on.clicked.connect(lambda _=False, u=ui: self._write_m(u.point, True))
+            btn_off.clicked.connect(lambda _=False, u=ui: self._write_m(u.point, False))
             cell = QWidget()
             wr = QHBoxLayout(cell)
             wr.setContentsMargins(0, 0, 0, 0)
@@ -357,26 +455,163 @@ class CasPlcPointsWidget(QWidget):
         if pt.rw == "rw" and pt.plc_kind == "D":
             sp = QSpinBox()
             sp.setRange(0, 65535)
-            sp.setMinimumWidth(_px(96))
+            sp.setMinimumWidth(_px(72))
             sp.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
             ui.spin = sp
             btn_w = style_button(QPushButton("写入"), "motion", tall=False)
-            btn_w.clicked.connect(lambda _=False, p=pt, s=sp: self._write_d(p, s))
+            btn_w.clicked.connect(lambda _=False, u=ui, s=sp: self._write_d(u.point, s))
             cell = QWidget()
             wr = QHBoxLayout(cell)
             wr.setContentsMargins(0, 0, 0, 0)
             wr.setSpacing(_px(6))
             wr.addWidget(sp, 1)
             wr.addWidget(btn_w)
+            extra: list[tuple[str, str, int]] = []
+            if pt.id == "start":
+                extra = [("空转", "neutral", 1), ("启动", "success", 2)]
+            elif pt.id == "shoe_done":
+                extra = [("置1", "success", 1), ("置0", "neutral", 0)]
+            if extra:
+                row2 = QHBoxLayout()
+                row2.setContentsMargins(0, 0, 0, 0)
+                row2.setSpacing(_px(6))
+                for text, role, val in extra:
+                    btn = style_button(QPushButton(text), role, tall=False)
+                    btn.clicked.connect(
+                        lambda _=False, u=ui, s=sp, v=val: self._write_d_preset(u.point, s, v)
+                    )
+                    row2.addWidget(btn, 1)
+                wrap = QWidget()
+                wrap_lay = QVBoxLayout(wrap)
+                wrap_lay.setContentsMargins(0, 0, 0, 0)
+                wrap_lay.setSpacing(_px(6))
+                wrap_lay.addWidget(cell)
+                wrap_lay.addLayout(row2)
+                return wrap
             return cell
         return None
+
+    def _hold_coil_button(self, ui: _RowUi) -> QWidget:
+        """点进/点退：按下写 1、松开写 0。"""
+        is_fwd = ui.point.id.endswith("_rod_fwd")
+        btn = style_button(
+            QPushButton("点进" if is_fwd else "点退"),
+            "success" if is_fwd else "warn",
+            tall=False,
+        )
+        btn.setAutoRepeat(False)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip("按下为 1，松开为 0")
+        btn.pressed.connect(lambda u=ui, b=btn: self._on_hold_coil_pressed(u, b))
+        btn.released.connect(lambda u=ui, b=btn: self._on_hold_coil_released(u, b))
+        return btn
+
+    def _rod_peer(self, point: CasPoint) -> CasPoint | None:
+        pid = point.id
+        if pid.endswith("_rod_fwd"):
+            want = pid.replace("_rod_fwd", "_rod_back")
+        elif pid.endswith("_rod_back"):
+            want = pid.replace("_rod_back", "_rod_fwd")
+        else:
+            return None
+        for row in self._rows:
+            if row.point.id == want:
+                return row.point
+        return None
+
+    def _on_hold_coil_pressed(self, ui: _RowUi, btn: QPushButton) -> None:
+        btn.grabMouse()
+        peer = self._rod_peer(ui.point)
+        if peer is not None:
+            self._write_m_hold(peer, False)
+        self._write_m_hold(ui.point, True)
+        self.refresh()
+
+    def _on_hold_coil_released(self, ui: _RowUi, btn: QPushButton) -> None:
+        try:
+            self._write_m_hold(ui.point, False)
+            self.refresh()
+        finally:
+            btn.releaseMouse()
+
+    def _write_m_hold(self, point: CasPoint, on: bool) -> None:
+        """保持型线圈写入；失败不弹窗，避免按住期间连弹。"""
+        try:
+            self._press().cas_write(point, on)
+        except Exception:
+            return
+
+    def _addr_editor(self, pt: CasPoint, ui: _RowUi) -> QWidget:
+        """改协议 Modbus 地址（Excel Dec），不是 PLC 的 M/D 号。"""
+        cell = QWidget()
+        wr = QHBoxLayout(cell)
+        wr.setContentsMargins(0, 0, 0, 0)
+        wr.setSpacing(_px(6))
+        lbl = QLabel("Modbus")
+        lbl.setStyleSheet("color:#5d6d7e;")
+        wr.addWidget(lbl)
+        sp = QSpinBox()
+        sp.setRange(0, 999999)
+        sp.setValue(int(hmi_modbus_dec(pt)))
+        sp.setMinimumWidth(_px(88))
+        sp.setToolTip("协议 Modbus 地址（Dec），与点表一致")
+        sp.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
+        ui.addr_spin = sp
+        wr.addWidget(sp, 1)
+        btn = style_button(QPushButton("保存地址"), "primary", tall=False)
+        btn.clicked.connect(lambda _=False, pid=pt.id, s=sp: self._save_cas_addr(pid, s))
+        wr.addWidget(btn)
+        return cell
+
+    def _save_cas_addr(self, point_id: str, spin: QSpinBox) -> None:
+        """把 Modbus Dec 写入 press.cas_points 并立刻用于读写。"""
+        press = self.ctx.cfg.setdefault("press", {})
+        if not isinstance(press, dict):
+            press = {}
+            self.ctx.cfg["press"] = press
+        ov = press.setdefault("cas_points", {})
+        if not isinstance(ov, dict):
+            ov = {}
+            press["cas_points"] = ov
+        ov[str(point_id)] = int(spin.value())
+        try:
+            save_config(self.ctx.cfg)
+        except Exception as exc:
+            QMessageBox.warning(self, "保存地址失败", str(exc))
+            return
+        self._reload_cas_points()
+        self.refresh()
+
+    def _reload_cas_points(self) -> None:
+        by_id = {p.id: p for p in self._press().cas_point_list()}
+        for ui in self._rows:
+            npt = by_id.get(ui.point.id)
+            if npt is None:
+                continue
+            ui.point = npt
+            if ui.addr_spin is not None and not ui.addr_spin.hasFocus():
+                ui.addr_spin.setValue(int(hmi_modbus_dec(npt)))
 
     def _press(self) -> PressMachine:
         return self.ctx.press
 
     def _write_m(self, point: CasPoint, on: bool) -> None:
+        """写线圈。急停信号与本机急停/急停复位同一路径（Mock 同样联动）。"""
         try:
-            self._press().cas_write(point, on)
+            if point.id == "host_estop":
+                if on:
+                    self.coord.cmd_estop()
+                else:
+                    self.coord.cmd_reset_estop()
+            elif str(point.id).endswith("_slot_done"):
+                slot: int | None = None
+                head = str(point.id).split("_", 1)[0]
+                if head.startswith("s") and head[1:].isdigit():
+                    slot = int(head[1:])
+                self._press().set_pick_slot_work_done(bool(on), slot=slot)
+            else:
+                self._press().cas_write(point, on)
         except Exception as exc:
             QMessageBox.warning(self, "写入失败", str(exc))
             return
@@ -389,6 +624,39 @@ class CasPlcPointsWidget(QWidget):
             QMessageBox.warning(self, "写入失败", str(exc))
             return
         self.refresh()
+        if point.id not in ("start", "shoe_done") or spin is None:
+            return
+        try:
+            back = int(self._press().cas_read(point))
+        except Exception:
+            return
+        want = int(spin.value())
+        if back != want:
+            title = "启动信号已下发" if point.id == "start" else "放鞋完成已下发"
+            QMessageBox.information(
+                self,
+                title,
+                f"已写入 {want}，当前显示 {back}。\n"
+                "请确认「联机模式」已开。\n"
+                "若 PLC 程序会把该字清零，只要动作发生就算成功。",
+            )
+
+    def _write_d_preset(self, point: CasPoint, spin: QSpinBox, value: int) -> None:
+        spin.setValue(int(value))
+        self._write_d(point, spin)
+
+    def _sync_pick_done_binding(self, press: PressMachine) -> None:
+        """取料槽工作完成卡片绑定到当前工位（放料槽）的线圈。"""
+        slot = press.current_station_no()
+        if self._pick_done_slot_lbl is not None:
+            self._pick_done_slot_lbl.setText(f"当前工位 #{slot}（放料槽）")
+        ui = self._pick_done_row
+        pt = self._slot_done_point(slot)
+        if ui is None or pt is None:
+            return
+        ui.point = pt
+        if ui.addr_spin is not None and not ui.addr_spin.hasFocus():
+            ui.addr_spin.setValue(int(hmi_modbus_dec(pt)))
 
     def _set_link_chip(self, text: str, *, ok: bool, mock: bool) -> None:
         pad = f"{_px(6)}px {_px(12)}px"
@@ -405,7 +673,7 @@ class CasPlcPointsWidget(QWidget):
             f"font-weight:bold;font-size:{_fpx(13)}px;"
         )
 
-    def refresh(self) -> None:
+    def refresh(self, all_tabs: bool = False) -> None:
         p = self._press()
         mock = bool(p.use_mock)
         ok = bool(p.connected) or mock
@@ -419,8 +687,17 @@ class CasPlcPointsWidget(QWidget):
         if err and not mock:
             status = f"{status}  {err}"
         self._set_link_chip(status, ok=ok, mock=mock)
+        ids: list[str] = ["station_no"]
+        for ui in self._rows:
+            if all_tabs or ui.value_lbl.isVisible():
+                ids.append(ui.point.id)
+        if hasattr(p, "request_cas_poll"):
+            p.request_cas_poll(ids, full=all_tabs)
+        self._sync_pick_done_binding(p)
 
         for ui in self._rows:
+            if (not all_tabs) and (not ui.value_lbl.isVisible()):
+                continue
             try:
                 raw = p.cas_read(ui.point)
             except Exception as exc:
