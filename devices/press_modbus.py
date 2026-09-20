@@ -13,7 +13,7 @@
 
 控制对象是「槽位 1~4」：
   压杆/底座等发到当前放料槽号；
-  取料槽工作完成由压机 PLC 给出，工控机按放料槽号推算取料槽号后只读。
+  取料槽工作完成由压机 PLC 给出；跟「当前工位显示」走，再按顺序推算取料槽后只读。
 """
 
 from __future__ import annotations
@@ -141,6 +141,7 @@ class PressMachine:
         self._cas_coils: Dict[int, bool] = {}
         self._cas_holdings: Dict[int, int] = {}
         self._cas_discretes: Dict[int, bool] = {}
+        self._shoe_done_on_mono: float | None = None
         self._io_lock = threading.RLock()
         self._fail_streak = 0
         self._last_ok_io = 0.0
@@ -666,6 +667,17 @@ class PressMachine:
         if kind != "D":
             raise RuntimeError("该点不可写")
         val = int(value) & 0xFFFF
+        if str(point.id) == "start" and val in (1, 2):
+            remain_s = self.press_start_hold_remain_s()
+            if self.cas_word("shoe_done") != 1:
+                raise RuntimeError("须先发放鞋完成=1，再等 500ms 后才能启动/空转")
+            if remain_s > 0:
+                raise RuntimeError(
+                    f"放鞋完成后需再等 {int(remain_s * 1000)}ms 才能启动/空转"
+                )
+        shoe_done_prev = (
+            self.cas_word("shoe_done") if str(point.id) == "shoe_done" else None
+        )
         if str(point.id) in ("start", "shoe_done"):
             online = next((p for p in self.cas_point_list() if p.id == "online"), None)
             if online is not None and online.id != point.id:
@@ -676,6 +688,12 @@ class PressMachine:
         self._sticky_put(kind, addr, val, ttl_s=ttl)
         if not self.use_mock:
             self._enqueue(lambda p=point, v=val: self._cas_write_io(p, v))
+        if str(point.id) == "shoe_done":
+            if val == 1:
+                if int(shoe_done_prev or 0) != 1:
+                    self._shoe_done_on_mono = time.monotonic()
+            else:
+                self._shoe_done_on_mono = None
         # 只有启动 1/2 会让压机转动；放鞋完成不得触发 Mock 转盘
         if self.use_mock and str(point.id) == "start" and val in (1, 2):
             self._begin_mock_press_cycle()
@@ -714,6 +732,29 @@ class PressMachine:
         """无独立转盘到位：空闲=1 即转盘到位。"""
         return self.is_press_idle()
 
+    def shoe_done_hold_s(self) -> float:
+        """放鞋完成=1 后，再隔这么久才允许启动/空转（秒）。"""
+        raw = self.cfg.get("shoe_done_hold_s", 0.5)
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return 0.5
+
+    def press_start_hold_remain_s(self) -> float:
+        """距离允许写启动/空转还差多少秒；0=可以写。"""
+        if self.cas_word("shoe_done") != 1:
+            return self.shoe_done_hold_s()
+        t0 = self._shoe_done_on_mono
+        if t0 is None:
+            self._shoe_done_on_mono = time.monotonic()
+            return self.shoe_done_hold_s()
+        left = self.shoe_done_hold_s() - (time.monotonic() - t0)
+        return left if left > 0 else 0.0
+
+    def can_issue_press_start(self) -> bool:
+        """放鞋完成已保持够 500ms（可配置），可以写启动=1/2。"""
+        return self.cas_word("shoe_done") == 1 and self.press_start_hold_remain_s() <= 0
+
     def set_shoe_placed(self, on: bool) -> None:
         """工控机发放鞋完成（1/0）。"""
         pt = self._cas_pt("shoe_done")
@@ -722,11 +763,21 @@ class PressMachine:
         self.cas_write(pt, 1 if on else 0)
 
     def set_press_run_mode(self, value: int) -> None:
-        """启动信号：0=关，1=空转，2=启动。"""
+        """启动信号：0=关，1=空转，2=启动。1/2 必须放鞋完成=1 且已保持够时间。"""
         pt = self._cas_pt("start")
         if pt is None:
             raise RuntimeError("无启动信号点")
-        self.cas_write(pt, int(value) & 0xFFFF)
+        mode = int(value) & 0xFFFF
+        if mode in (1, 2) and not self.can_issue_press_start():
+            remain_ms = int(self.press_start_hold_remain_s() * 1000)
+            log.warning(
+                "[压鞋机] 拒绝启动=%s：放鞋完成须先置1并保持 %sms（还差 %sms）",
+                mode,
+                int(self.shoe_done_hold_s() * 1000),
+                remain_ms,
+            )
+            return
+        self.cas_write(pt, mode)
 
     def _begin_mock_press_cycle(self) -> None:
         """Mock：收到放鞋完成/空转后先忙再空闲。"""
@@ -767,6 +818,7 @@ class PressMachine:
         self._set_cas_holding("shoe_done", 0)
         self._set_cas_holding("start", 0)
         self._mock_cycle_t0 = None
+        self._sync_mock_station_no()
         self._set_slot_done_cache(self.derived_pick_slot(), True)
 
     def pair_from_pick(self) -> None:
@@ -836,6 +888,7 @@ class PressMachine:
             self.place_slot,
         )
         if self.use_mock:
+            self._sync_mock_station_no()
             self._set_slot_done_cache(self.derived_pick_slot(), True)
 
     def enable_host_control(self, on: bool = True) -> None:
@@ -915,7 +968,7 @@ class PressMachine:
         return bool(st.get("motor_done", True))
 
     def current_station_no(self) -> int:
-        """当前工位：优先「当前工位显示」，否则放料槽号。"""
+        """PLC「当前工位显示」；无效则退回放料槽号。"""
         pt = next((p for p in self.cas_point_list() if p.id == "station_no"), None)
         if pt is not None:
             try:
@@ -927,12 +980,19 @@ class PressMachine:
         return max(1, min(4, int(self.place_slot or 1)))
 
     def derived_pick_slot(self) -> int:
-        """由当前放料槽号按顺序推算取料槽号。"""
-        place = max(1, min(self.slot_count(), int(self.place_slot or 1)))
+        """由 PLC 当前工位（放料工位）按顺序推算取料槽号。"""
+        place = self.current_station_no()
         return pick_from_place(place, self.slot_count(), self.slot_sequence())
 
+    def _sync_mock_station_no(self) -> None:
+        """Mock：当前工位显示跟放料槽号走（与现场 PLC 一致）。"""
+        if not self.use_mock:
+            return
+        sid = max(1, min(4, int(self.place_slot or 1)))
+        self._set_cas_holding("station_no", sid)
+
     def is_pick_work_done(self) -> bool:
-        """压机PLC「取料槽工作完成」：读推算出的取料槽线圈。"""
+        """压机PLC「取料槽工作完成」：按当前工位显示推算取料槽后读线圈。"""
         sid = self.derived_pick_slot()
         pt = self._slot_cas_point(sid, "addr_slot_done")
         if pt is None:
@@ -1002,9 +1062,16 @@ class PressMachine:
         if value:
             self._rotating = False
             self._mock_cycle_t0 = None
+            self.set_pick_work_done_mock(True)
 
     def set_press_done_mock(self, value: bool) -> None:
         self.press_done = bool(value)
+
+    def set_pick_work_done_mock(self, on: bool) -> None:
+        """Mock：当前取料槽「取料槽工作完成」（压机 PLC 镜像）。"""
+        if not self.use_mock:
+            return
+        self._set_slot_done_cache(self.derived_pick_slot(), bool(on))
 
     def set_current_slots(
         self,
@@ -1027,6 +1094,8 @@ class PressMachine:
             self._sync_derived_slots()
         if lock is not None:
             self.manual_slot_lock = bool(lock)
+        if self.use_mock:
+            self._sync_mock_station_no()
         log.info(
             "[压鞋机] 当前槽号 取料=#%s 放料=#%s 顺序=%s 手动锁定=%s",
             self.pick_slot,
@@ -1061,6 +1130,17 @@ class PressMachine:
             self._pending_host_estop = bit
         self.cas_write(pt, bit)
         log.info("[压鞋机] 工控机急停 → 压机 %s (Modbus %s)", bit, pt.modbus_dec)
+
+    def clear_host_run_signals(self) -> None:
+        """停止后把联机启动、放鞋完成都写成 0。"""
+        try:
+            self.set_press_run_mode(0)
+        except Exception as exc:
+            log.warning("[压鞋机] 清启动失败: %s", exc)
+        try:
+            self.set_shoe_placed(False)
+        except Exception as exc:
+            log.warning("[压鞋机] 清放鞋完成失败: %s", exc)
 
     def estop_outputs_off(self) -> None:
         self.set_rotate(False)

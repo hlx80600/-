@@ -191,7 +191,7 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.init.progress": "初始化进行中…（步 {step}）— 完成后才能启动",
         "monitor.init.running": "初始化完成 · 运行中",
         "monitor.init.paused": "初始化完成 · 已暂停 — 可再点「启动」继续",
-        "monitor.init.stopped": "初始化完成 · 已停止 — 可再点「启动」",
+        "monitor.init.stopped": "已停止 — 请重新「初始化」，完成后再「启动」",
         "monitor.init.ready": "✓ 初始化完成 — 可以点「启动」",
         "monitor.init.idle": "未初始化 — 请先点「初始化」，完成后再「启动」",
         "monitor.tab.overview": "总览",
@@ -220,17 +220,15 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.msg.slot_locked": "自动运行中不可改槽号，请先暂停或停止。",
         "monitor.msg.dry_ready_title": "空跑程序已就绪",
         "monitor.msg.dry_ready_body": (
-            "已启用空跑屏蔽（光电/压机Mock；Station6 先压后转自动完成；相机模拟仍按通信配置），"
-            "并切到「自动」模式。\n\n"
+            "已切 Mock：双臂/夹爪/相机/压机，维持光电与取料槽工作完成，并切到「自动」模式。\n\n"
             "请按：初始化 → 启动。\n"
             "若要逐步验证：模式切「单步」后点「单步：下一步」，"
             "或到「工位调试」页武装后推进。"
         ),
         "monitor.msg.dry_on_title": "空跑已启用",
         "monitor.msg.dry_on_body": (
-            "已启用空跑屏蔽（光电/相机/放料跟手/取料时序/压机先压后转）。\n"
-            "细节可到「空跑联调」页调整。\n"
-            "请「初始化」→「启动」验证。"
+            "已启用空跑：双臂/夹爪/相机/压机全部 Mock，维持光电与取料槽工作完成。\n"
+            "请「初始化」→「启动」验证整圈。细节可到「空跑联调」页调整。"
         ),
         "monitor.press.status": (
             "压鞋机: 顺序{seq} 放料#{place} 取料#{pick}({lock}) "
@@ -438,7 +436,7 @@ MONITOR_BY_LANG: dict[str, dict[str, str]] = {
         "monitor.init.progress": "Initializing… (step {step}) — wait before Start",
         "monitor.init.running": "Init done · Running",
         "monitor.init.paused": "Init done · Paused — click Start to resume",
-        "monitor.init.stopped": "Init done · Stopped — click Start",
+        "monitor.init.stopped": "Stopped — initialize again, then Start",
         "monitor.init.ready": "✓ Init done — click Start",
         "monitor.init.idle": "Not initialized — click Initialize, then Start",
         "monitor.tab.overview": "Overview",

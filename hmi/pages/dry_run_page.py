@@ -34,7 +34,7 @@ class DryRunPage(QWidget):
         box_main = QGroupBox("空跑总控")
         ml = QVBoxLayout(box_main)
         row = QHBoxLayout()
-        self.chk_enable = QCheckBox("启用空跑屏蔽（运行中自动维持信号）")
+        self.chk_enable = QCheckBox("启用空跑（维持光电/槽位时序，不改设置里的设备 Mock）")
         self.chk_enable.toggled.connect(self._on_enable_toggled)
         row.addWidget(self.chk_enable)
         btn_on = QPushButton("一键启用空跑")
@@ -70,7 +70,7 @@ class DryRunPage(QWidget):
         self.chk_place = QCheckBox("放料槽自动跟手（空槽+左右匹配）")
         self.chk_place.setChecked(True)
         self.chk_place.toggled.connect(self._on_opts)
-        self.chk_pick = QCheckBox("取料槽自动有料时序（待转无料 / 转完有料）")
+        self.chk_pick = QCheckBox("取料槽自动有料时序（未拍有料，取完后无料；不清 Mem6）")
         self.chk_pick.setChecked(True)
         self.chk_pick.toggled.connect(self._on_opts)
         ml.addLayout(form)
@@ -120,8 +120,14 @@ class DryRunPage(QWidget):
         self.btn_rot = QPushButton("手动：压机旋转完成")
         style_button(self.btn_rot, "warn")
         self.btn_rot.clicked.connect(self.ctx.press.simulate_rotate_done)
+        self.btn_pick_done = QPushButton("手动：取料槽工作完成=1")
+        style_button(self.btn_pick_done, "success")
+        self.btn_pick_done.clicked.connect(
+            lambda: self.ctx.press.set_pick_work_done_mock(True)
+        )
         r2.addWidget(self.btn_press)
         r2.addWidget(self.btn_rot)
+        r2.addWidget(self.btn_pick_done)
         mg.addLayout(r2)
         root.addLayout(hbox_pair(box_main, box_man))
 
@@ -155,7 +161,9 @@ class DryRunPage(QWidget):
         QMessageBox.information(
             self,
             "空跑已启用",
-            "已打开空跑屏蔽。\n请到监视页「初始化」→「启动」验证流程。",
+            "已维持光电和槽位时序。设备是否 Mock 以「设置」为准。\n"
+            "压机若已取消模拟，本页会显示真机连接状态。\n"
+            "请到监视页「初始化」→「启动」。",
         )
 
     def _one_click_off(self) -> None:

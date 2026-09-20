@@ -50,7 +50,7 @@ class MachineController:
             self.state = state
             if state == MachineState.READY:
                 self.init_ok = True
-            if state == MachineState.IDLE:
+            if state in (MachineState.IDLE, MachineState.STOPPED):
                 self.init_ok = False
         self._notify()
 

@@ -206,6 +206,15 @@ class ConfigPage(QWidget):
         self.sp_addr_cmd_press = _spin_int(0, 65535, int(press.get("addr_cmd_start_press", 11)))
         self.sp_mock_press_s = _spin_float(0.0, 30.0, float(press.get("mock_auto_press_done_s", 2.0)), 0.5, 1)
         self.sp_mock_rot_s = _spin_float(0.0, 30.0, float(press.get("mock_auto_rotate_done_s", 1.5)), 0.5, 1)
+        self.sp_idle_busy_s = _spin_float(
+            0.0, 600.0, float(press.get("idle_go_busy_timeout_s", 0.0)), 0.5, 1
+        )
+        self.sp_idle_busy_s.setSuffix(" s")
+        self.sp_idle_busy_s.setToolTip("写启动后等空闲变成 0。0=一直等，不超时。")
+        hold_s = float(press.get("shoe_done_hold_s", 0.5) or 0.0)
+        self.sp_shoe_hold_ms = _spin_int(0, 10000, int(round(hold_s * 1000.0)))
+        self.sp_shoe_hold_ms.setSuffix(" ms")
+        self.sp_shoe_hold_ms.setToolTip("放鞋完成=1 后，再隔这么久才允许写启动/空转。0=置1后立刻可写。")
         self.chk_press = QCheckBox("压鞋机 模拟")
         self.chk_press.setChecked(device_use_mock(press, sys_def))
         fp.addRow("压机 IP", self.ed_press)
@@ -217,6 +226,8 @@ class ConfigPage(QWidget):
         fp.addRow("addr_cmd_start_press（压鞋命令）", self.sp_addr_cmd_press)
         fp.addRow("Mock 压鞋完成延时 s", self.sp_mock_press_s)
         fp.addRow("Mock 旋转完成延时 s", self.sp_mock_rot_s)
+        fp.addRow("等空闲变0超时（0=不等超时）", self.sp_idle_busy_s)
+        fp.addRow("放鞋完成后等启动/空转", self.sp_shoe_hold_ms)
         fp.addRow(self.chk_press)
 
         # —— IO ——
@@ -640,6 +651,8 @@ class ConfigPage(QWidget):
         press["addr_cmd_start_press"] = int(self.sp_addr_cmd_press.value())
         press["mock_auto_press_done_s"] = float(self.sp_mock_press_s.value())
         press["mock_auto_rotate_done_s"] = float(self.sp_mock_rot_s.value())
+        press["idle_go_busy_timeout_s"] = float(self.sp_idle_busy_s.value())
+        press["shoe_done_hold_s"] = float(self.sp_shoe_hold_ms.value()) / 1000.0
         press["use_mock"] = bool(self.chk_press.isChecked())
 
         # IO

@@ -1,19 +1,18 @@
 """
-空跑联调屏蔽 —— 无实物/少传感器时跑通 Station1～6 握手。
+空跑联调屏蔽 —— 无实物光电/槽位时跑通 Station1～6 握手。
 
-启用后每扫描周期自动：
+设备是否 Mock 以设置页 / yaml 为准，空跑不再改写。
+启用后每扫描周期：
   · 皮带光电保持有料（可触发 S1）
   · 放料槽：空槽 + 左右跟手中鞋（避免 Mem10 卡死）
-  · 取料槽：待旋转时无料（S6 要 not Mem6）；转完后有料（S5）
-  · 压鞋机 Mock：先压鞋完成延时，再旋转完成延时（对齐 Station6 先压后转）
-
-相机模拟以通信配置 / yaml cameras.camN.use_mock 为准，空跑不再改写。
+  · 取料槽：未拍时有料供 S4/S5；拍完且取完后无料，不提前清 Mem6
+  · 仅当压机本身是 Mock 时：空闲维持「取料槽工作完成=1」，启动后先忙再空闲
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Optional
 
 log = logging.getLogger(__name__)
 
@@ -37,8 +36,6 @@ class DryRunShield:
         self.auto_press_s = float(dry.get("auto_press_s", DEFAULT_AUTO_PRESS_S))
         self._saved_press_auto: Optional[float] = None
         self._saved_press_done_s: Optional[float] = None
-        self._saved_press_mock: Optional[bool] = None
-        self._cam_prev: Dict[str, bool] = {}
 
     def status_lines(self) -> list[str]:
         v = self.ctx.vision
@@ -47,11 +44,17 @@ class DryRunShield:
         belt = bool(self.ctx.robot1.get_di(belt_di))
         press_cfg = self.ctx.cfg.get("press") or {}
         return [
-            f"空跑屏蔽: {'开' if self.enabled else '关'}",
+            f"空跑屏蔽: {'开' if self.enabled else '关'}（不改设置里的设备 Mock）",
+            f"R1={'模' if self.ctx.robot1.use_mock else '真'} "
+            f"R2={'模' if self.ctx.robot2.use_mock else '真'} "
+            f"压机={'模' if p.use_mock else '真'} "
+            f"爪1={'模' if self.ctx.gripper1.use_mock else '真'} "
+            f"爪2={'模' if self.ctx.gripper2.use_mock else '真'}",
             f"光电DI[{belt_di}]={'有料' if belt else '无料'} | 保持有料={self.keep_belt_on}",
             f"放料槽Mock: 有料={v.mock_place_has_material} 左槽={v.mock_place_is_left} | 自动跟手={self.auto_place_match}",
             f"取料槽Mock有料={v.mock_pick_has_material} | 自动={self.auto_pick_slot}",
-            f"压机: rotate_done={p.rotate_done} press_done={p.press_done} "
+            f"压机: 空闲={int(p.rotate_done)} 取料槽工作完成={int(p.is_pick_work_done())} "
+            f"放鞋完成={p.cas_word('shoe_done')} 启动={p.cas_word('start')}",
             f"auto_press_s={press_cfg.get('mock_auto_press_done_s', 0)} "
             f"auto_rotate_s={press_cfg.get('mock_auto_rotate_done_s', 0)}",
             f"相机: "
@@ -62,7 +65,7 @@ class DryRunShield:
         ]
 
     def enable(self) -> None:
-        """一键空跑：打开屏蔽并写入运行态。"""
+        """一键空跑：维持光电/槽位时序；设备是否 Mock 以设置页为准。"""
         self.enabled = True
         cfg_sys = self.ctx.cfg.setdefault("system", {})
         dry = cfg_sys.setdefault("dry_run", {})
@@ -70,37 +73,32 @@ class DryRunShield:
         dry["auto_rotate_s"] = float(self.auto_rotate_s)
         dry["auto_press_s"] = float(self.auto_press_s)
 
-        # 皮带光电强制模拟 + 有料
         belt_di = int(self.ctx.cfg["robots"]["robot1"].get("di_belt_sensor", 0))
         self.ctx.robot1.set_di_force_mock(belt_di, True)
         self.ctx.cfg["robots"]["robot1"]["di_belt_use_mock"] = True
         if self.keep_belt_on:
             self.ctx.robot1.set_di_mock(belt_di, True)
 
-        # 压机：空跑强制 Mock，并写入「先压后转」延时
         press = self.ctx.cfg.setdefault("press", {})
         if self._saved_press_auto is None:
             self._saved_press_auto = float(press.get("mock_auto_rotate_done_s", 0) or 0)
         if self._saved_press_done_s is None:
             self._saved_press_done_s = float(press.get("mock_auto_press_done_s", 0) or 0)
-        if self._saved_press_mock is None:
-            self._saved_press_mock = bool(self.ctx.press.use_mock)
-        press["use_mock"] = True
-        self.ctx.press.use_mock = True
         press["mock_auto_press_done_s"] = float(self.auto_press_s)
         press["mock_auto_rotate_done_s"] = float(self.auto_rotate_s)
 
-        # 初始放料空槽、取料先无料（避免一开机 Mem6 挡住 S6）
         self.ctx.vision.mock_place_has_material = False
         self.ctx.vision.mock_place_is_left = True
-        self.ctx.vision.mock_pick_has_material = False
+        self.ctx.vision.mock_pick_has_material = True
 
-        # 压机到位默认 True，便于进入条件
-        self.ctx.press.set_rotate_done_mock(True)
-        self.ctx.press.set_press_done_mock(True)
+        if self.ctx.press.use_mock:
+            self.ctx.press.set_rotate_done_mock(True)
+            self.ctx.press.set_press_done_mock(True)
+            self.ctx.press.set_pick_work_done_mock(True)
 
         log.info(
-            "[空跑] 已启用：光电模拟 压机auto_press=%.1fs auto_rotate=%.1fs 放料自动跟手（不改相机模拟）",
+            "[空跑] 已启用（压机Mock=%s）：压合=%.1fs 转盘=%.1fs",
+            self.ctx.press.use_mock,
             self.auto_press_s,
             self.auto_rotate_s,
         )
@@ -117,11 +115,7 @@ class DryRunShield:
         if self._saved_press_done_s is not None:
             press["mock_auto_press_done_s"] = float(self._saved_press_done_s)
             self._saved_press_done_s = None
-        if self._saved_press_mock is not None:
-            press["use_mock"] = bool(self._saved_press_mock)
-            self.ctx.press.use_mock = bool(self._saved_press_mock)
-            self._saved_press_mock = None
-        log.info("[空跑] 已关闭（相机 Mock 保持现状，可自行在通信配置改回）")
+        log.info("[空跑] 已关闭")
 
     def tick(self) -> None:
         """OB1 每周期调用：维持空跑所需信号。"""
@@ -133,7 +127,6 @@ class DryRunShield:
             self.ctx.robot1.set_di_force_mock(belt_di, True)
             self.ctx.robot1.set_di_mock(belt_di, True)
 
-        # 压机 auto 时间保持（先压后转）
         press = self.ctx.cfg.setdefault("press", {})
         want_p = float(self.auto_press_s)
         want_r = float(self.auto_rotate_s)
@@ -141,14 +134,12 @@ class DryRunShield:
             press["mock_auto_press_done_s"] = want_p
         if float(press.get("mock_auto_rotate_done_s", 0) or 0) != want_r:
             press["mock_auto_rotate_done_s"] = want_r
-        if not self.ctx.press.use_mock:
-            self.ctx.press.use_mock = True
-            press["use_mock"] = True
+        if self.ctx.press.use_mock and self.ctx.press.is_press_idle():
+            self.ctx.press.set_pick_work_done_mock(True)
 
         M = self.ctx.gvl.Memory_BOOL
         v = self.ctx.vision
 
-        # —— 放料槽：手中有料时强制空槽 + 左右跟 Mem8/9 ——
         if self.auto_place_match and bool(M.get(2)):
             m8, m9 = bool(M.get(8)), bool(M.get(9))
             if m8 and not m9:
@@ -164,20 +155,16 @@ class DryRunShield:
                 )
             v.mock_place_has_material = False
 
-        # —— 取料槽：Mem3 待转时必须无料；否则（且下手无料）有料供 S4/S5 ——
         if self.auto_pick_slot:
-            if bool(M.get(3)):
-                v.mock_pick_has_material = False
-                # 若开机已拍成 Mem6=1，会挡住 S6：空跑强制清
-                if bool(M.get(6)) and not bool(M.get(5)):
-                    from core.plc_util import sync_mem
-
-                    sync_mem(self.ctx, 6, False)
-            elif bool(M.get(5)):
-                v.mock_pick_has_material = False
-            else:
-                # 转完 / 待机：有料，供取料槽拍照与下料臂
+            s5_picking = int(self.ctx.gvl.Station[5].Auto_A.get(10, 0) or 0) != 0
+            if s5_picking:
+                pass
+            elif not bool(M.get(7)):
                 v.mock_pick_has_material = True
+            elif bool(M.get(6)):
+                v.mock_pick_has_material = True
+            else:
+                v.mock_pick_has_material = False
 
 
 def apply_dry_run_from_cfg(ctx: "AppContext") -> None:

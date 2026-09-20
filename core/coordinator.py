@@ -433,10 +433,10 @@ class Coordinator:
         if err:
             self.ctx.raise_link_failures_if_needed()
             return err
-        if not gvl.Main.InitDone and m.state != MachineState.READY:
+        if m.state == MachineState.STOPPED or (not gvl.Main.InitDone and m.state != MachineState.READY):
             return "请先完成初始化"
-        # 停止后残留：启动前安静消警（不再二次 StopMotion，避免示教器闪红）
-        if m.state in (MachineState.READY, MachineState.STOPPED, MachineState.PAUSED):
+        # 暂停/就绪：启动前安静消警（不再二次 StopMotion，避免示教器闪红）
+        if m.state in (MachineState.READY, MachineState.PAUSED):
             for r in (self.ctx.robot1, self.ctx.robot2):
                 if r.use_mock or not r.connected:
                     continue
@@ -457,7 +457,7 @@ class Coordinator:
             m.set_state(MachineState.RUNNING)
             init_sequence.apply_run_controller_speed(self.ctx)
             return None
-        if m.state in (MachineState.READY, MachineState.STOPPED):
+        if m.state == MachineState.READY:
             m.set_state(MachineState.RUNNING)
             gvl.Main.Stop = False
             init_sequence.apply_run_controller_speed(self.ctx)
@@ -476,6 +476,7 @@ class Coordinator:
         self.ctx.robot2.halt_motion(hard=False)
         try:
             self.ctx.press.estop_outputs_off()
+            self.ctx.press.clear_host_run_signals()
         except Exception as e:
             log.error("停止时压机输出关闭失败: %s", e)
         gvl = self.ctx.gvl
@@ -483,10 +484,12 @@ class Coordinator:
         gvl.Main.Running = False
         gvl.Main.Paused = False
         gvl.Main.Initializing = False
+        gvl.Main.InitDone = False
         gvl.Main.Init_Auto = 0
         for st in gvl.Station.values():
             st.reset_all_auto()
         gvl.clear_cmd_state()
+        self.ctx.machine.init_ok = False
         self.ctx.machine.set_state(MachineState.STOPPED)
         init_sequence.apply_run_controller_speed(self.ctx)
         # 停止后立刻消掉「故障信号」，下次启动可直接 Move（仅此路径允许 Reset，连拍中不预消警）
@@ -533,6 +536,7 @@ class Coordinator:
         self.ctx.robot2.soft_estop()
         try:
             self.ctx.press.estop_outputs_off()
+            self.ctx.press.clear_host_run_signals()
         except Exception as e:
             log.error("压机急停输出关闭失败: %s", e)
         self.ctx.gvl.Main.EStopped = True

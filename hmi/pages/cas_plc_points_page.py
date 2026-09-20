@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -93,9 +95,11 @@ class CasPlcPointsWidget(QWidget):
         self._rows: list[_RowUi] = []
         self._pick_done_row: _RowUi | None = None
         self._pick_done_slot_lbl: QLabel | None = None
+        self._syncing_slots = False
 
         root = QVBoxLayout(self)
         root.addWidget(self._build_header())
+        root.addWidget(self._build_slot_bar())
 
         points = self.ctx.press.cas_point_list()
         by_group: OrderedDict[str, list[CasPoint]] = OrderedDict()
@@ -227,6 +231,151 @@ class CasPlcPointsWidget(QWidget):
         lay.addLayout(chips)
         return bar
 
+    def _build_slot_bar(self) -> QGroupBox:
+        """槽号顺序在本页改；取放槽号仅压机 Mock 时可改。"""
+        box = QGroupBox("槽号顺序 / 取放槽号")
+        lay = QVBoxLayout(box)
+        lay.setSpacing(_px(8))
+        row = QHBoxLayout()
+        row.setSpacing(_px(8))
+        row.addWidget(QLabel("槽号顺序"))
+        self.cmb_slot_seq = QComboBox()
+        self.cmb_slot_seq.addItem("12341 正序", "12341")
+        self.cmb_slot_seq.addItem("43214 反序", "43214")
+        fs0 = (self.ctx.cfg.get("press") or {}).get("four_slot") or {}
+        seq0 = str(fs0.get("slot_sequence", "12341") or "12341")
+        want = "43214" if seq0 in ("43214", "reverse", "反序") else "12341"
+        self.cmb_slot_seq.setCurrentIndex(max(0, self.cmb_slot_seq.findData(want)))
+        self.cmb_slot_seq.setMinimumWidth(_px(160))
+        self.cmb_slot_seq.currentIndexChanged.connect(self._on_seq_changed)
+        row.addWidget(self.cmb_slot_seq)
+        row.addWidget(QLabel("放料槽"))
+        self.sp_place_slot = QSpinBox()
+        self.sp_place_slot.setRange(1, 4)
+        self.sp_place_slot.setValue(int(self.ctx.press.place_slot))
+        self.sp_place_slot.setMinimumWidth(_px(72))
+        self.sp_place_slot.valueChanged.connect(lambda _v: self._on_slot_spin("place"))
+        row.addWidget(self.sp_place_slot)
+        row.addWidget(QLabel("取料槽"))
+        self.sp_pick_slot = QSpinBox()
+        self.sp_pick_slot.setRange(1, 4)
+        self.sp_pick_slot.setValue(int(self.ctx.press.pick_slot))
+        self.sp_pick_slot.setMinimumWidth(_px(72))
+        self.sp_pick_slot.valueChanged.connect(lambda _v: self._on_slot_spin("pick"))
+        row.addWidget(self.sp_pick_slot)
+        self.chk_slot_lock = QCheckBox("锁定手动槽号")
+        self.chk_slot_lock.setChecked(bool(self.ctx.press.manual_slot_lock))
+        self.chk_slot_lock.toggled.connect(self._on_slot_lock)
+        row.addWidget(self.chk_slot_lock)
+        self.btn_slot_apply = style_button(QPushButton("应用槽号"), "warn", tall=False)
+        self.btn_slot_apply.clicked.connect(self._apply_slots)
+        row.addWidget(self.btn_slot_apply)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.lbl_slot_tip = QLabel()
+        self.lbl_slot_tip.setWordWrap(True)
+        self.lbl_slot_tip.setStyleSheet("color:#555;")
+        lay.addWidget(self.lbl_slot_tip)
+        self._update_slot_bar_enabled()
+        return box
+
+    def _press_is_mock(self) -> bool:
+        return bool(self.ctx.press.use_mock)
+
+    def _update_slot_bar_enabled(self) -> None:
+        mock = self._press_is_mock()
+        for w in (
+            self.sp_place_slot,
+            self.sp_pick_slot,
+            self.chk_slot_lock,
+            self.btn_slot_apply,
+        ):
+            w.setEnabled(mock)
+        if mock:
+            self.lbl_slot_tip.setText(
+                "压机 Mock：可改取放槽号（改一侧按顺序联动另一侧），改完点「应用槽号」。"
+            )
+        else:
+            self.lbl_slot_tip.setText(
+                "真机取放槽号跟压机 PLC，不可手改。槽号顺序仍可改。"
+            )
+
+    def _on_slot_lock(self, on: bool) -> None:
+        if self._syncing_slots or not self._press_is_mock():
+            return
+        self.ctx.press.manual_slot_lock = bool(on)
+
+    def _on_slot_spin(self, which: str) -> None:
+        if self._syncing_slots or not self._press_is_mock():
+            return
+        p = self.ctx.press
+        if which == "place":
+            p.place_slot = int(self.sp_place_slot.value())
+            p.pair_from_place()
+        else:
+            p.pick_slot = int(self.sp_pick_slot.value())
+            p.pair_from_pick()
+        p.manual_slot_lock = bool(self.chk_slot_lock.isChecked())
+        self._syncing_slots = True
+        self.sp_place_slot.setValue(int(p.place_slot))
+        self.sp_pick_slot.setValue(int(p.pick_slot))
+        self._syncing_slots = False
+
+    def _apply_slots(self) -> None:
+        if not self._press_is_mock():
+            QMessageBox.information(self, "槽号", "真机不可改取放槽号，仅 Mock 可改。")
+            return
+        self.ctx.press.set_current_slots(
+            pick=int(self.sp_pick_slot.value()),
+            place=int(self.sp_place_slot.value()),
+            lock=bool(self.chk_slot_lock.isChecked()),
+            derive_place=False,
+        )
+        press = self.ctx.cfg.setdefault("press", {})
+        fs = press.setdefault("four_slot", {})
+        fs["mock_pick_slot"] = int(self.sp_pick_slot.value())
+        fs["mock_place_slot"] = int(self.sp_place_slot.value())
+        fs["slot_sequence"] = str(self.cmb_slot_seq.currentData() or "12341")
+        self.ctx.press.cfg = press
+        save_config(self.ctx.cfg)
+        self.refresh()
+
+    def _on_seq_changed(self, *_args) -> None:
+        if self._syncing_slots:
+            return
+        press = self.ctx.cfg.setdefault("press", {})
+        fs = press.setdefault("four_slot", {})
+        fs["slot_sequence"] = str(self.cmb_slot_seq.currentData() or "12341")
+        self.ctx.press.cfg = press
+        if self._press_is_mock():
+            self.ctx.press.pair_from_pick()
+            self._syncing_slots = True
+            self.sp_place_slot.setValue(int(self.ctx.press.place_slot))
+            self.sp_pick_slot.setValue(int(self.ctx.press.pick_slot))
+            self._syncing_slots = False
+        save_config(self.ctx.cfg)
+
+    def _sync_slot_bar(self) -> None:
+        p = self.ctx.press
+        snap = p.snapshot()
+        self._update_slot_bar_enabled()
+        if self._syncing_slots:
+            return
+        self._syncing_slots = True
+        seq = str(snap.get("slot_sequence") or "12341")
+        want = "43214" if seq in ("43214", "reverse", "反序") else "12341"
+        idx = self.cmb_slot_seq.findData(want)
+        if idx >= 0 and not self.cmb_slot_seq.hasFocus() and self.cmb_slot_seq.currentIndex() != idx:
+            self.cmb_slot_seq.setCurrentIndex(idx)
+        if not self.sp_place_slot.hasFocus():
+            self.sp_place_slot.setValue(int(snap.get("place_slot") or 1))
+        if not self.sp_pick_slot.hasFocus():
+            self.sp_pick_slot.setValue(int(snap.get("pick_slot") or 1))
+        self.chk_slot_lock.blockSignals(True)
+        self.chk_slot_lock.setChecked(bool(snap.get("manual_slot_lock")))
+        self.chk_slot_lock.blockSignals(False)
+        self._syncing_slots = False
+
     def _grid_cards(self, boxes: list[QWidget], *, columns: int) -> QWidget:
         wrap = QWidget()
         grid = QGridLayout(wrap)
@@ -278,7 +427,7 @@ class CasPlcPointsWidget(QWidget):
         return card
 
     def _build_pick_done_card(self) -> QFrame:
-        """取料槽工作完成：压机PLC给出，由放料槽号推算取料槽后只读。"""
+        """取料槽工作完成：压机PLC给出，跟当前工位显示走。"""
         card = QFrame()
         card.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -294,10 +443,10 @@ class CasPlcPointsWidget(QWidget):
         title.setStyleSheet(
             f"font-weight:bold;color:#1c2833;font-size:{_fpx(14)}px;"
         )
-        hint = QLabel("压机PLC给出；由当前放料槽号推算取料槽号后读取该槽线圈")
+        hint = QLabel("压机PLC给出；跟「当前工位显示」推算取料槽后读该槽线圈")
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color:#7f8c8d;font-size:{_fpx(12)}px;")
-        slot_lbl = QLabel("放料槽 #- → 取料槽 #-")
+        slot_lbl = QLabel("当前工位 #- → 取料槽 #-")
         slot_lbl.setStyleSheet(f"color:#1a5276;font-size:{_fpx(12)}px;")
         self._pick_done_slot_lbl = slot_lbl
         inner.addWidget(title)
@@ -638,12 +787,12 @@ class CasPlcPointsWidget(QWidget):
         self._write_d(point, spin)
 
     def _sync_pick_done_binding(self, press: PressMachine) -> None:
-        """取料槽工作完成卡片绑定到由放料槽推算出的取料槽线圈。"""
-        place = int(press.place_slot)
+        """取料槽工作完成卡片绑定到 PLC 当前工位推出的取料槽线圈。"""
+        station = press.current_station_no()
         slot = press.derived_pick_slot()
         if self._pick_done_slot_lbl is not None:
             self._pick_done_slot_lbl.setText(
-                f"放料槽 #{place} → 取料槽 #{slot}"
+                f"当前工位 #{station} → 取料槽 #{slot}"
             )
         ui = self._pick_done_row
         pt = self._slot_done_point(slot)
@@ -682,6 +831,7 @@ class CasPlcPointsWidget(QWidget):
         if err and not mock:
             status = f"{status}  {err}"
         self._set_link_chip(status, ok=ok, mock=mock)
+        self._sync_slot_bar()
         ids: list[str] = ["station_no"]
         for ui in self._rows:
             if all_tabs or ui.value_lbl.isVisible():

@@ -249,18 +249,18 @@ STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
     },
     6: {
         10: [
-            {"step": 10, "title": "等放鞋完成", "detail": "进入已要求 Mem7=1、Mem6=0；此处等放鞋完成=1，Mem10 未放料则不要求", "kind": "wait", "points": []},
+            {"step": 10, "title": "先发放鞋完成=1", "detail": "写出放鞋完成；保持 500ms 后才允许启动/空转，其它工位不暂停", "kind": "io", "points": []},
             {
                 "step": 20,
                 "title": "写启动字",
-                "detail": "正常启动=2，左右不对空转=1；1/2 都会转盘，此前必须两臂离开槽口",
+                "detail": "放鞋完成已保持 500ms：正常启动=2，Mem10 空转=1",
                 "kind": "io",
                 "points": [],
             },
             {
                 "step": 30,
                 "title": "等压机忙",
-                "detail": "空闲变 0，或超时仍空闲则继续",
+                "detail": "等空闲变成 0；超时见设置「等空闲变0超时」，0=一直等",
                 "kind": "wait",
                 "points": [],
             },

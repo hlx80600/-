@@ -147,7 +147,7 @@ class MonitorPage(QWidget):
         self.btn_step_next.clicked.connect(self._on_step_next)
         self.btn_dry_prog = QPushButton("启动空跑程序")
         self.btn_dry_prog.setToolTip(
-            "一键启用空跑屏蔽（光电/压机Mock、先压后转时序；不改相机模拟）并切自动模式；"
+            "一键：双臂/夹爪/相机/压机全部 Mock，维持光电与取料槽工作完成；切自动模式。"
             "仍需「初始化」→「启动」后连续空跑。"
         )
         style_button(self.btn_dry_prog, "success")
@@ -238,7 +238,7 @@ class MonitorPage(QWidget):
         )
 
         # —— 当前槽号：总览首屏（记忆单独成块，避免被竖向拉伸压叠）——
-        hero = QGroupBox("当前槽号（自动运行中锁定）")
+        hero = QGroupBox("当前槽号")
         self.slot_box = hero
         hero.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -272,68 +272,6 @@ class MonitorPage(QWidget):
             "background:#273746;color:#f7dc6f;padding:6px;border-radius:4px;font-size:14px;font-weight:bold;"
         )
         hero_lay.addWidget(self.lbl_hero_slot_meta)
-
-        edit_row = QHBoxLayout()
-        edit_row.setSpacing(8)
-        self.lbl_slot_seq = QLabel()
-        edit_row.addWidget(self.lbl_slot_seq)
-        self.cmb_mon_seq = QComboBox()
-        self.cmb_mon_seq.addItem("", "12341")
-        self.cmb_mon_seq.addItem("", "43214")
-        fs0 = (self.ctx.cfg.get("press") or {}).get("four_slot") or {}
-        seq0 = str(fs0.get("slot_sequence", "12341") or "12341")
-        self.cmb_mon_seq.setCurrentIndex(
-            max(0, self.cmb_mon_seq.findData("43214" if seq0 in ("43214", "reverse", "反序") else "12341"))
-        )
-        self.cmb_mon_seq.setMinimumWidth(160)
-        self.cmb_mon_seq.currentIndexChanged.connect(self._on_monitor_seq_changed)
-        edit_row.addWidget(self.cmb_mon_seq)
-        self.lbl_slot_place = QLabel()
-        edit_row.addWidget(self.lbl_slot_place)
-        self.sp_mon_place = QSpinBox()
-        self.sp_mon_place.setRange(1, 4)
-        self.sp_mon_place.setValue(int(self.ctx.press.place_slot))
-        self.sp_mon_place.setMinimumWidth(88)
-        self.sp_mon_place.valueChanged.connect(lambda _v: self._on_monitor_slot_spin("place"))
-        edit_row.addWidget(self.sp_mon_place)
-        self.lbl_slot_pick = QLabel()
-        edit_row.addWidget(self.lbl_slot_pick)
-        self.sp_mon_pick = QSpinBox()
-        self.sp_mon_pick.setRange(1, 4)
-        self.sp_mon_pick.setValue(int(self.ctx.press.pick_slot))
-        self.sp_mon_pick.setMinimumWidth(88)
-        self.sp_mon_pick.valueChanged.connect(lambda _v: self._on_monitor_slot_spin("pick"))
-        edit_row.addWidget(self.sp_mon_pick)
-        edit_row.addStretch(1)
-        hero_lay.addLayout(edit_row)
-        edit_row2 = QHBoxLayout()
-        edit_row2.setSpacing(8)
-        self.chk_mon_slot_lock = QCheckBox("锁定手动槽号")
-        self.chk_mon_slot_lock.setChecked(bool(self.ctx.press.manual_slot_lock))
-        self.chk_mon_slot_lock.toggled.connect(self._on_monitor_slot_lock)
-        self.chk_mon_slot_lock.setSizePolicy(
-            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
-        )
-        edit_row2.addWidget(self.chk_mon_slot_lock, 0)
-        self.btn_mon_slot_apply = QPushButton("应用槽号")
-        style_button(self.btn_mon_slot_apply, "warn")
-        self.btn_mon_slot_apply.clicked.connect(self._apply_monitor_slots)
-        self.btn_mon_slot_apply.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
-        edit_row2.addWidget(self.btn_mon_slot_apply, 0)
-        edit_row2.addStretch(1)
-        hero_lay.addLayout(edit_row2)
-        self.lbl_slot_edit_tip = QLabel(
-            "停止/暂停后可改：改放料槽则取料槽按顺序联动，改取料槽则放料槽联动。"
-        )
-        self.lbl_slot_edit_tip.setWordWrap(True)
-        self.lbl_slot_edit_tip.setMinimumHeight(ui_scale.px(28, min_v=24))
-        self.lbl_slot_edit_tip.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
-        )
-        self.lbl_slot_edit_tip.setStyleSheet("color:#555;")
-        hero_lay.addWidget(self.lbl_slot_edit_tip)
 
         mem_row_h = 36
         mem_box = QGroupBox("记忆 Mem1～10（自动运行中锁定）")
@@ -850,8 +788,8 @@ class MonitorPage(QWidget):
         self.chk_pick_mat = QCheckBox("Mock取料槽有料（仅cam4模拟）")
         self.chk_pick_mat.setChecked(False)
         self.chk_pick_mat.setToolTip(
-            "空跑时：待转(Mem3)强制无料；转完后自动有料。\n"
-            "不要一直勾着有料，否则 Mem6 会挡住 Station6。"
+            "空跑时：未拍取料槽则模拟有料；取完后无料。不提前清 Mem6。\n"
+            "仅当相机4为 Mock 时生效。"
         )
         self.chk_pick_mat.toggled.connect(
             lambda on: setattr(self.ctx.vision, "mock_pick_has_material", bool(on))
@@ -1012,18 +950,6 @@ class MonitorPage(QWidget):
         self.btn_step_next.setToolTip(t("monitor.step.next_tip"))
         self.btn_dry_prog.setText(t("monitor.dry.start"))
         self.btn_dry_prog.setToolTip(t("monitor.dry.start_tip"))
-        self.lbl_slot_seq.setText(t("monitor.slot.seq_order"))
-        self.lbl_slot_place.setText(t("monitor.slot.place"))
-        self.lbl_slot_pick.setText(t("monitor.slot.pick"))
-        self.chk_mon_slot_lock.setText(t("monitor.slot.lock_manual"))
-        self.btn_mon_slot_apply.setText(t("monitor.slot.apply"))
-        seq_idx = self.cmb_mon_seq.currentIndex()
-        self.cmb_mon_seq.blockSignals(True)
-        self.cmb_mon_seq.setItemText(0, t("monitor.slot.seq_fwd"))
-        self.cmb_mon_seq.setItemText(1, t("monitor.slot.seq_rev"))
-        if seq_idx >= 0:
-            self.cmb_mon_seq.setCurrentIndex(seq_idx)
-        self.cmb_mon_seq.blockSignals(False)
         self.cmd_box.setTitle(t("monitor.run.title"))
         self.near_box.setTitle(t("monitor.init.near_title"))
         self.lbl_init_near_mm.setText(t("monitor.init.near_mm"))
@@ -1203,18 +1129,20 @@ class MonitorPage(QWidget):
             step_pct = {10: 25, 20: 50, 30: 75, 40: 90}.get(step, 10)
             self._init_progress.setValue(step_pct)
             self._init_progress.show()
+        elif state == MachineState.STOPPED:
+            text = i18n.tr("monitor.init.stopped")
+            css = base % "#7f8c8d" + "background:#e5e8e8;color:#1c2833;"
+            start_ok = False
+            start_tip = i18n.tr("monitor.start_tip.need_init")
         elif init_done and state in (
             MachineState.READY,
             MachineState.RUNNING,
             MachineState.PAUSED,
-            MachineState.STOPPED,
         ):
             if state == MachineState.RUNNING:
                 text = i18n.tr("monitor.init.running")
             elif state == MachineState.PAUSED:
                 text = i18n.tr("monitor.init.paused")
-            elif state == MachineState.STOPPED:
-                text = i18n.tr("monitor.init.stopped")
             else:
                 text = i18n.tr("monitor.init.ready")
             if link_err:
@@ -1499,74 +1427,6 @@ class MonitorPage(QWidget):
             self.btn_g2_all_open.setEnabled(not locked and not g2.busy)
             self.btn_g2_all_close.setEnabled(not locked and not g2.busy)
 
-    def _slot_ui_editable(self) -> bool:
-        """非自动运行：槽号、顺序可改。"""
-        return bool(self.ctx.machine.memory_editable)
-
-    def _on_monitor_slot_lock(self, on: bool) -> None:
-        if self._syncing_slot_ui:
-            return
-        if not self._slot_ui_editable():
-            return
-        self.ctx.press.manual_slot_lock = bool(on)
-        self._refresh_hero_slots()
-
-    def _on_monitor_slot_spin(self, which: str = "") -> None:
-        """改一侧槽号，按顺序自动改另一侧。"""
-        if self._syncing_slot_ui:
-            return
-        if not self._slot_ui_editable():
-            return
-        p = self.ctx.press
-        if which == "place":
-            p.place_slot = int(self.sp_mon_place.value())
-            p.pair_from_place()
-        else:
-            p.pick_slot = int(self.sp_mon_pick.value())
-            p.pair_from_pick()
-        p.manual_slot_lock = bool(self.chk_mon_slot_lock.isChecked())
-        self._syncing_slot_ui = True
-        self.sp_mon_place.setValue(int(p.place_slot))
-        self.sp_mon_pick.setValue(int(p.pick_slot))
-        self._syncing_slot_ui = False
-        self._refresh_hero_slots()
-
-    def _apply_monitor_slots(self) -> None:
-        if not self._slot_ui_editable():
-            QMessageBox.information(self, i18n.tr("monitor.msg.slot_title"), i18n.tr("monitor.msg.slot_locked"))
-            return
-        self.ctx.press.set_current_slots(
-            pick=int(self.sp_mon_pick.value()),
-            place=int(self.sp_mon_place.value()),
-            lock=bool(self.chk_mon_slot_lock.isChecked()),
-            derive_place=False,
-        )
-        press = self.ctx.cfg.setdefault("press", {})
-        fs = press.setdefault("four_slot", {})
-        fs["mock_pick_slot"] = int(self.sp_mon_pick.value())
-        fs["mock_place_slot"] = int(self.sp_mon_place.value())
-        fs["slot_sequence"] = str(self.cmb_mon_seq.currentData() or "12341")
-        self.ctx.press.cfg = press
-        save_config(self.ctx.cfg)
-        self._refresh_hero_slots()
-
-    def _on_monitor_seq_changed(self, *_args) -> None:
-        if getattr(self, "_syncing_slot_ui", False):
-            return
-        if not self._slot_ui_editable():
-            return
-        press = self.ctx.cfg.setdefault("press", {})
-        fs = press.setdefault("four_slot", {})
-        fs["slot_sequence"] = str(self.cmb_mon_seq.currentData() or "12341")
-        self.ctx.press.cfg = press
-        self.ctx.press.pair_from_pick()
-        self._syncing_slot_ui = True
-        self.sp_mon_place.setValue(int(self.ctx.press.place_slot))
-        self.sp_mon_pick.setValue(int(self.ctx.press.pick_slot))
-        self._syncing_slot_ui = False
-        save_config(self.ctx.cfg)
-        self._refresh_hero_slots()
-
     def _press_cmd(self, kind: str, on: bool) -> None:
         """压鞋机手动：rotate / press。"""
         from core.machine_state import MachineState
@@ -1634,16 +1494,6 @@ class MonitorPage(QWidget):
             f"旋令={p['cmd_rotate']}  压令={p['cmd_start_press']}"
             f"{'  (Mock)' if self.ctx.press.use_mock else ''}"
         )
-        if hasattr(self, "sp_mon_place"):
-            self._syncing_slot_ui = True
-            if not self.sp_mon_place.hasFocus():
-                self.sp_mon_place.setValue(int(p.get("place_slot") or 1))
-            if not self.sp_mon_pick.hasFocus():
-                self.sp_mon_pick.setValue(int(p.get("pick_slot") or 1))
-            self.chk_mon_slot_lock.blockSignals(True)
-            self.chk_mon_slot_lock.setChecked(bool(p.get("manual_slot_lock")))
-            self.chk_mon_slot_lock.blockSignals(False)
-            self._syncing_slot_ui = False
 
     def _refresh_hero_slots(self, snap: dict | None = None) -> None:
         if not hasattr(self, "lbl_hero_place"):
@@ -1667,13 +1517,6 @@ class MonitorPage(QWidget):
                 ready=ready,
             )
         )
-        if hasattr(self, "cmb_mon_seq") and not self.cmb_mon_seq.hasFocus():
-            self._syncing_slot_ui = True
-            want = "43214" if seq in ("43214", "reverse", "反序") else "12341"
-            idx = self.cmb_mon_seq.findData(want)
-            if idx >= 0 and self.cmb_mon_seq.currentIndex() != idx:
-                self.cmb_mon_seq.setCurrentIndex(idx)
-            self._syncing_slot_ui = False
 
     def _on_vel_changed(self, which: str, value: int) -> None:
         if self._syncing_vel:
@@ -2125,21 +1968,10 @@ class MonitorPage(QWidget):
 
         editable = self.ctx.machine.memory_editable
         if editable:
-            self.slot_box.setTitle(i18n.tr("monitor.slot.title_edit"))
             self.mem_box.setTitle(i18n.tr("monitor.mem.title_edit"))
-            self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_edit"))
         else:
-            self.slot_box.setTitle(i18n.tr("monitor.slot.title_locked"))
             self.mem_box.setTitle(i18n.tr("monitor.mem.title_locked"))
-            self.lbl_slot_edit_tip.setText(i18n.tr("monitor.slot.tip_locked"))
-        for w in (
-            self.cmb_mon_seq,
-            self.sp_mon_place,
-            self.sp_mon_pick,
-            self.chk_mon_slot_lock,
-            self.btn_mon_slot_apply,
-        ):
-            w.setEnabled(editable)
+        self.slot_box.setTitle("当前槽号")
 
         mem = self.ctx.memory.snapshot()
         for i, cb in self.mem_checks.items():

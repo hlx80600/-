@@ -4,7 +4,7 @@ system:
   allow_debug_bypass: true
   reconnect_interval_s: 3.0
   dry_run:
-    enabled: false
+    enabled: true
     auto_press_s: 2.0
     auto_rotate_s: 1.5
     keep_belt_on: true
@@ -184,6 +184,8 @@ press:
   timeout_s: 0.4
   mock_auto_press_done_s: 2.0
   mock_auto_rotate_done_s: 1.5
+  idle_go_busy_timeout_s: 0.0
+  shoe_done_hold_s: 1.0
   opening:
     place: left
     pick: right
@@ -199,12 +201,12 @@ press:
   four_slot:
     enabled: true
     slot_count: 4
-    slot_sequence: '12341'
+    slot_sequence: '43214'
     auto_compute_slots: true
     derive_place_from_pick: true
     addr_pick_slot: 8448
     addr_place_slot: 8449
-    mock_pick_slot: 2
+    mock_pick_slot: 4
     mock_place_slot: 3
   slots:
     1:
@@ -299,7 +301,7 @@ cameras:
     index: 4
     role: place_slot
     use_mock: true
-    enable_depth: true
+    enable_depth: false
   cam4:
     name: 取料开口（下料槽顶视，槽转相机不转）
     serial: ''

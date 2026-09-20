@@ -94,11 +94,13 @@ class PressIoPage(QWidget):
         btn_apply_slot = QPushButton("应用槽号")
         style_button(btn_apply_slot, "warn")
         btn_apply_slot.clicked.connect(self._apply_current_slots)
+        self.btn_apply_slot = btn_apply_slot
         slot_row.addWidget(btn_apply_slot)
         btn_derive = QPushButton("取料→推算放料")
         style_button(btn_derive, "primary")
         btn_derive.setToolTip("用取料槽号顺时针推算放料槽号后应用")
         btn_derive.clicked.connect(self._apply_pick_derive_place)
+        self.btn_derive_slot = btn_derive
         slot_row.addWidget(btn_derive)
         slot_row.addStretch(1)
         vl.addLayout(slot_row)
@@ -281,17 +283,21 @@ class PressIoPage(QWidget):
         fs["slot_sequence"] = str(self.cmb_seq.currentData() or "12341")
         fs["auto_compute_slots"] = bool(self.chk_auto_slot.isChecked())
         self.ctx.press.cfg = press
-        if bool(self.chk_derive.isChecked()) and not self.chk_slot_lock.isChecked():
+        if (
+            bool(self.chk_derive.isChecked())
+            and not self.chk_slot_lock.isChecked()
+            and bool(self.ctx.press.use_mock)
+        ):
             self.ctx.press._sync_derived_slots()
         self.refresh()
 
     def _on_io_slot_lock(self, on: bool) -> None:
-        if self._syncing:
+        if self._syncing or not self.ctx.press.use_mock:
             return
         self.ctx.press.manual_slot_lock = bool(on)
 
     def _on_io_slot_spin(self, which: str = "") -> None:
-        if self._syncing:
+        if self._syncing or not self.ctx.press.use_mock:
             return
         p = self.ctx.press
         if which == "place":
@@ -307,7 +313,10 @@ class PressIoPage(QWidget):
         self._syncing = False
 
     def _apply_current_slots(self) -> None:
-        """手填当前放料/取料槽号；勾选锁定则不被 PLC 覆盖。"""
+        """手填当前放料/取料槽号；勾选锁定则不被 PLC 覆盖。仅 Mock。"""
+        if not self.ctx.press.use_mock:
+            QMessageBox.information(self, "槽号", "真机不可改取放槽号，仅 Mock 可改。")
+            return
         self.ctx.press.set_current_slots(
             pick=int(self.sp_cur_pick.value()),
             place=int(self.sp_cur_place.value()),
@@ -317,7 +326,10 @@ class PressIoPage(QWidget):
         self.refresh()
 
     def _apply_pick_derive_place(self) -> None:
-        """只改取料槽，放料按顺时针推算。"""
+        """只改取料槽，放料按顺时针推算。仅 Mock。"""
+        if not self.ctx.press.use_mock:
+            QMessageBox.information(self, "槽号", "真机不可改取放槽号，仅 Mock 可改。")
+            return
         self.ctx.press.set_current_slots(
             pick=int(self.sp_cur_pick.value()),
             place=None,
@@ -461,6 +473,15 @@ class PressIoPage(QWidget):
             self.lbl_tx.setText("(尚无发送)")
         if not self._syncing:
             self._syncing = True
+            mock = bool(p.use_mock)
+            for w in (
+                self.sp_cur_place,
+                self.sp_cur_pick,
+                self.chk_slot_lock,
+                self.btn_apply_slot,
+                self.btn_derive_slot,
+            ):
+                w.setEnabled(mock)
             if not self.sp_cur_place.hasFocus():
                 self.sp_cur_place.setValue(int(snap["place_slot"]))
             if not self.sp_cur_pick.hasFocus():

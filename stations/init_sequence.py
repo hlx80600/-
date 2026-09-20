@@ -160,6 +160,10 @@ def start_init(ctx) -> None:
     gvl.Main.InitStepPulse = False
     ctx.machine.set_state(MachineState.INITIALIZING)
     ctx.init_message = "初始化中..."
+    try:
+        ctx.press.clear_host_run_signals()
+    except Exception as exc:
+        log.warning("初始化清压机放鞋/启动失败: %s", exc)
     apply_init_controller_speed(ctx)
 
 
