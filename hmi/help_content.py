@@ -109,7 +109,7 @@ def _sections_zh_cn() -> List[Section]:
                 [
                     "Station1 皮带拍照 → 得到取料坐标",
                     "Station2 上料臂取料 →（需要时 Station3 拍放料槽）→ 放料对位压跟张爪",
-                    "Station6 压合 → 转台推进槽号",
+                    "Station6 放鞋完成→保持→启动/空转→转台推进槽号",
                     "Station4 拍取料槽 ± 压杆 → Station5 下料放到皮带",
                     "详细步序与文件：见本说明「工位程序」章，或 docs/程序总览.md",
                 ]
@@ -122,7 +122,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>{_L(T.PAYLOAD)}</b>：手爪 TCP 与抓鞋负载 → 保存并下发",
                     f"<b>{_L(T.POINTS)}</b>：示教进入点、槽点、偏移 → 保存",
                     f"<b>{_L(T.MOTION)}</b>：各步速度；退回进入点建议关闭平滑",
-                    f"<b>{_L(T.PRESS_IO)}</b>：槽号顺序与地址",
+                    f"<b>{_L(T.PRESS_IO)}</b>：槽号顺序、Mock 取放槽号、中科院点表与地址",
                     f"<b>{_L(T.VISION)}</b>：挂/训模型；页内 ROI → 棋盘格内参 → 手眼 → 检测测试 → 采图训练",
                     f"<b>{_L(T.SHIELD_PICK)}</b>：仅 cam1 Mock 时示教取料点",
                     f"<b>{_L(T.GRIPPER)}</b>：单机开合确认",
@@ -140,7 +140,7 @@ def _sections_zh_cn() -> List[Section]:
             + _h("分页一览")
             + _ul(
                 [
-                    f"<b>{_L(T.MONITOR)}</b>：启停、灯、记忆、槽号、速度、夹爪/压机手动",
+                    f"<b>{_L(T.MONITOR)}</b>：启停、灯、记忆、显示槽号、速度子页、夹爪/压机手动",
                     f"<b>{_L(T.CAM_MONITOR)}</b>：独立窗，四路原图+推演（含中心→鞋头/抓鞋前后TCP）",
                     f"<b>{_L(T.JOG)}</b>：独立示教器窗口（顶栏打开），点动机械臂，可与示教点位同时开",
                     f"<b>{_L(T.PRODUCTION)}</b>：记件 / CT / UPH",
@@ -151,7 +151,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>{_L(T.SHIELD_PICK)}</b>：cam1 Mock 取料示教",
                     f"<b>{_L(T.DRY_RUN)}</b>：空跑屏蔽信号",
                     f"<b>{_L(T.PAYLOAD)}</b>：负载与 TCP",
-                    f"<b>{_L(T.PRESS_IO)}</b>：压机槽号与地址",
+                    f"<b>{_L(T.PRESS_IO)}</b>：槽号顺序与点表；取放槽号仅 Mock 可改",
                     f"<b>{_L(T.GRIPPER)}</b>：夹爪单独调试与 GRIP_* 报警复位",
                     f"<b>{_L(T.CONFIG)}</b>：通信与 Mock",
                     f"<b>{_L(T.HOST_DEVICES)}</b>：本机 USB 列表、网卡 IP、串口/相机 by-id",
@@ -191,7 +191,8 @@ def _sections_zh_cn() -> List[Section]:
                 purpose=(
                     "产线主操作台：初始化、自动/单步、启动暂停停止急停；看工位忙闲；"
                     "三色灯在窗口顶栏正中（各页共用）；"
-                    "改记忆与槽号；调全局速度与路径平滑总开关；手动夹爪/压机；空跑与单步快捷入口。"
+                    "改记忆（总览显示槽号，改顺序/槽号到压机信号）；"
+                    "速度在子页签；手动夹爪/压机；空跑与单步快捷入口。"
                 ),
                 impl=[
                     f"{_code('hmi/pages/monitor_page.py')} — UI",
@@ -218,9 +219,10 @@ def _sections_zh_cn() -> List[Section]:
                 [
                     "模式选「自动」→ 初始化 → READY（黄+绿）→ 启动。",
                     "真机初始化前须两臂都在 home 附近（本页「初始位允许」可改 mm/°）；超差立刻报警，复位后再初始化。模拟臂跳过。",
-                    "暂停可改记忆和槽号；停止后需重新初始化再启动。",
-                    "急停后报警复位 → 再初始化。",
-                    "实际臂速 ≈ 本页全局 SetSpeed% ×「运动参数」里该步 vel%。",
+                    "暂停可改记忆后直接启动。点停止后必须再初始化才能启动。",
+                    "停止/初始化开始时，压机「放鞋完成」「启动」各清零一次（不清周期、之后点表可手改）。",
+                    "急停后：急停复位 → 报警复位 → 再初始化。",
+                    "实际臂速 ≈ 「速度」页签运行速度% ×「运动参数」里该步 vel%。",
                 ]
             ),
         ),
@@ -683,10 +685,12 @@ def _sections_zh_cn() -> List[Section]:
             _L(T.PRESS_IO),
             _io_block(
                 purpose=(
-                    "四槽压机：放料口/取料口约定、正序/反序、槽号自算、各槽 Modbus 地址、"
-                    "手动压杆/压合/模拟完成。"
-                    "「中科院点表」页签来自中科院四工位协议，按 M 线圈 / D 寄存器 / X 输入 / T 计时读写；"
+                    "四槽压机：中科院点表页顶改槽号顺序；"
+                    "取放槽号仅压机 Mock 可改，真机跟 PLC 当前工位。"
+                    "另有实时信号、开口约定、各槽 Modbus 地址、手动压杆/压合。"
+                    "「中科院点表」来自中科院四工位协议，按 M / D / X / T 读写；"
                     "画面只显示中文含义与当前值，不展示 PLC 符号。"
+                    "放鞋完成置 1 后须保持（默认 500ms，通信配置可改）才允许启动=2 或空转=1。"
                 ),
                 impl=[
                     f"{_code('hmi/pages/press_io_page.py')}",
@@ -699,8 +703,8 @@ def _sections_zh_cn() -> List[Section]:
                     f"{_code('config/default.yaml')} → press / four_slot / slots / cas_points",
                 ],
                 used_by=[
-                    "Station6 压合+旋转；Station2/5 看槽号与完成条件",
-                    f"运行监控槽号控件与本页同源 ctx.press",
+                    "Station6 放鞋完成→启动/空转；Station4/5 等取料槽工作完成（PLC 给出）",
+                    "运行监控只显示槽号；改顺序/Mock 槽号在本页",
                 ],
             ),
         ),
@@ -710,6 +714,7 @@ def _sections_zh_cn() -> List[Section]:
             _io_block(
                 purpose=(
                     "改机器人 IP、压机、夹爪 CAN、光电 DI、各设备 use_mock，保存回 default.yaml 并尽量重连。"
+                    "压鞋机：等空闲变0超时（0=一直等）、放鞋完成后等启动/空转（毫秒）。"
                     "开机自启动在「设置 → 界面与刷新」勾选，写入当前用户 ~/.config/autostart。"
                 ),
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
@@ -771,7 +776,9 @@ def _sections_zh_cn() -> List[Section]:
             + _h("四个页签")
             + _ul(
                 [
-                    "<b>本次运行</b>：当前启动后的报警，分页，可复制、报警复位。退出后请看落盘错误 / 黑匣子。",
+                    "<b>本次运行</b>：当前启动后的报警，分页，可复制、报警复位。退出后请看落盘错误 / 黑匣子。"
+                    " 每条含设备、故障、代码、详情、处理。运动/扫描异常报到上料臂、下料臂、压鞋机、夹爪或对应相机，不写成笼统「本机程序」。"
+                    " 常见代码：LINK 通讯、ROBOT1/2 臂、PRESS 压机、GRIP_* 夹爪、INIT/INIT_HOME 初始化、VISION1～4 相机、PAYLOAD 负载、OB1 未分类。",
                     "<b>落盘错误</b>：WARNING/ERROR/报警写入 logs/errors_日期.jsonl，关机后再开也能查。",
                     "<b>黑匣子</b>：故障前后程序轨迹（blackbox_日期.jsonl）；崩溃另有 logs/dumps/。这是轨迹，不是相机照片。",
                     "<b>运行快照</b>：生产拍照原图/叠图（文件名=相机_时间_类型_raw/vis.jpg）及运送回写。"
@@ -795,7 +802,7 @@ def _sections_zh_cn() -> List[Section]:
                     f"<b>Station3</b> {_code('stations/station3_place_slot_photo.py')} — 放料槽拍照（photo_place_slot）；判定结果回写 slot_check",
                     f"<b>Station4</b> {_code('stations/station4_pick_slot_photo.py')} — 取料槽拍照+压杆（photo_pick_slot）；记下下料快照 id",
                     f"<b>Station5</b> {_code('stations/station5_robot2.py')} — 下料臂取槽→皮带放料；记产量；完成回写 unload",
-                    f"<b>Station6</b> {_code('stations/station6_press_rotate.py')} — 压合→旋转→推进槽号",
+                    f"<b>Station6</b> {_code('stations/station6_press_rotate.py')} — 放鞋完成保持后写启动/空转→等压机忙闲→推进槽号",
                     f"初始化：{_code('stations/init_sequence.py')}",
                     f"步目录：{_code('stations/step_catalog.py')}（给 HMI 步表用）",
                 ]

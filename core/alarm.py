@@ -13,8 +13,9 @@ log = logging.getLogger(__name__)
 
 ALARM_KIND_ZH: dict[str, str] = {
     "LINK": "设备通讯断开",
-    "ROBOT1": "上料机器人本体报警",
-    "ROBOT2": "下料机器人本体报警",
+    "ROBOT1": "上料机器人本体/运动报警",
+    "ROBOT2": "下料机器人本体/运动报警",
+    "PRESS": "压鞋机故障",
     "GRIP_LINK": "夹爪通讯失败",
     "GRIP_OPEN": "夹爪张开失败",
     "GRIP_CLOSE": "夹爪夹紧失败",
@@ -23,6 +24,7 @@ ALARM_KIND_ZH: dict[str, str] = {
     "INIT_HOME": "不在初始位",
     "PAYLOAD": "负载切换失败",
     "VISION1": "皮带相机拍照失败",
+    "VISION2": "鞋头对位相机失败",
     "VISION3": "放料槽相机拍照失败",
     "VISION4": "取料槽相机拍照失败",
     "OB1": "本机程序扫描异常",
@@ -41,7 +43,44 @@ def alarm_kind_zh(code: str) -> str:
         return "视觉/相机故障"
     if key.startswith("ROBOT"):
         return "机器人本体报警"
+    if key.startswith("PRESS"):
+        return "压鞋机故障"
     return raw or "未知故障"
+
+
+def alarm_operator_hint(code: str, message: str = "") -> str:
+    """弹窗底部给操作员的下一步（不含详情正文）。"""
+    key = str(code or "").strip().upper()
+    text = str(message or "")
+    if key == "LINK":
+        return (
+            "同一组掉线只弹一次，后台仍会重连。"
+            "全部连上后点「报警复位」；若曾自动运行，再「初始化」→「启动」。"
+            "地址在「设置 → 通信与设备」。"
+        )
+    if key == "INIT_HOME":
+        return (
+            "用示教器把两臂点到 home 附近，或放宽「设置 → 运动融合」里的 mm/°。"
+            "点「报警复位」后再「初始化」。"
+        )
+    if key == "INIT":
+        return "看上面「设备」一行；压机未上电/未连也会走这条。处理后报警复位再初始化。"
+    if key.startswith("GRIP"):
+        return "查该电机 CAN 口、48V、使能。点「报警复位」会尝试重连夹爪。"
+    if key in ("ROBOT1", "ROBOT2") or "路径：" in text:
+        return (
+            "先看示教器是否红灯；消红后点「报警复位」。"
+            "若含「路径：从…→…」，到「示教点位」检查这两点或加过渡点再单步试跑。"
+        )
+    if key.startswith("PRESS"):
+        return "查压机网线、IP、联机模式、空闲信号。报警复位后如曾运行需再初始化。"
+    if key.startswith("VISION"):
+        return "查该路相机 serial、预览是否有图；Mock 可继续空跑。复位后从失败步重试。"
+    if key == "PAYLOAD":
+        return "负载/工具切换失败，看该臂示教器。复位后再初始化。"
+    if key == "OB1":
+        return "本机程序扫到未捕获异常已停机。把本窗全文复制给调试；复位后再初始化。"
+    return ""
 
 
 def format_alarm_body(
@@ -67,6 +106,10 @@ def format_alarm_body(
     if detail:
         lines.append("详情:")
         lines.append(detail)
+    hint = alarm_operator_hint(code, message)
+    if hint:
+        lines.append("处理:")
+        lines.append(hint)
     return "\n".join(lines)
 
 

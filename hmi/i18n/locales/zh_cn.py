@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "alarm.tab.disk": "落盘错误",
     "alarm.tab.blackbox": "黑匣子",
     "alarm.tab.snaps": "运行快照",
-    "alarm.tip.session": "本次启动后的报警，分页浏览（每页 20 条，新的在前）。可选中后 Ctrl+C；刷新不会在选中时清掉选区。退出后请看「落盘错误 / 黑匣子」。",
+    "alarm.tip.session": "本次启动后的报警，分页浏览（每页 20 条，新的在前）。每条含设备、故障、代码、详情、处理。可选中后 Ctrl+C；刷新不会在选中时清掉选区。退出后请看「落盘错误 / 黑匣子」。",
     "alarm.page.first": "首页",
     "alarm.page.prev": "上一页",
     "alarm.page.next": "下一页",

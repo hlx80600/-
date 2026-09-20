@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "alarm.tab.disk": "Saved errors",
     "alarm.tab.blackbox": "Black box",
     "alarm.tab.snaps": "Run snaps",
-    "alarm.tip.session": "Alarms since this start, paginated (20 per page, newest first). After exit, use Saved errors / Black box.",
+    "alarm.tip.session": "Alarms since this start, paginated (20 per page, newest first). Each item names the device, kind, code, detail, and what to do. After exit, use Saved errors / Black box.",
     "alarm.page.first": "First",
     "alarm.page.prev": "Prev",
     "alarm.page.next": "Next",

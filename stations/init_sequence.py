@@ -238,8 +238,36 @@ def cycle(ctx) -> None:
                 recover_stuck_move_cmd(gvl, "init_20", ctx.robot1)
 
         case 30:
+            if not ctx.robot2.use_mock and not ctx.robot2.connected:
+                gvl.Main.Initializing = False
+                gvl.Main.Init_Auto = 0
+                ctx.raise_alarm(
+                    "INIT",
+                    f"【{ctx.robot2.name}】未连接\n"
+                    f"地址: {ctx.robot2.ip}\n"
+                    f"原因: 看启动日志「连接失败」。请确认 fairino SDK、控制器远程、能 ping 通后再初始化。",
+                    ctx.robot2.name,
+                    30,
+                )
+                ctx.machine.set_state(MachineState.IDLE)
+                apply_run_controller_speed(ctx)
+                return
             if pulse_cmd(gvl, "init_30"):
-                ctx.move_to_point("robot2", "home", step_key="init_r2_home")
+                try:
+                    ctx.move_to_point("robot2", "home", step_key="init_r2_home")
+                except Exception as e:
+                    cmd_reset(gvl, "init_30")
+                    gvl.Main.Initializing = False
+                    gvl.Main.Init_Auto = 0
+                    ctx.raise_alarm(
+                        "INIT",
+                        f"【{ctx.robot2.name}】回初始位失败\n原因: {e}",
+                        ctx.robot2.name,
+                        30,
+                    )
+                    ctx.machine.set_state(MachineState.IDLE)
+                    apply_run_controller_speed(ctx)
+                    return
             if ctx.robot2.poll_move_done() and can_advance():
                 cmd_reset(gvl, "init_30")
                 gvl.Main.Init_Auto = 40
@@ -264,7 +292,7 @@ def cycle(ctx) -> None:
                 gvl.Main.Initializing = False
                 gvl.Main.Init_Auto = 0
                 ctx.raise_alarm(
-                    "INIT",
+                    "PRESS",
                     f"【压鞋机】初始化失败\n原因: {e}",
                     "压鞋机",
                     40,

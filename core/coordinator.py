@@ -241,7 +241,6 @@ class Coordinator:
                 self.cycle()
             except Exception as e:
                 log.exception("OB1 异常: %s", e)
-                # 运行/初始化中未捕获异常 → 当报警停机（否则机器人拒动时程序还在跑）
                 try:
                     st = self.ctx.machine.state
                     if st in (
@@ -250,9 +249,8 @@ class Coordinator:
                         MachineState.PAUSED,
                         MachineState.READY,
                     ):
-                        self._handle_robot_fault(
-                            "OB1", f"本机程序扫描异常停机\n原因: {e}", "本机程序"
-                        )
+                        code, msg, device = self._classify_scan_exception(e)
+                        self._handle_robot_fault(code, msg, device)
                 except Exception:
                     pass
             time.sleep(max(0.0, scan - (time.perf_counter() - t0)))
@@ -338,6 +336,39 @@ class Coordinator:
             self._handle_robot_fault(code, msg, robot.name)
             return
 
+    def _classify_scan_exception(self, exc: BaseException) -> tuple[str, str, str]:
+        """扫描线程未捕获异常：尽量报到具体设备，避免一律「本机程序」。"""
+        text = str(exc).strip() or repr(exc)
+        r1 = str(getattr(self.ctx.robot1, "name", "") or "上料臂")
+        r2 = str(getattr(self.ctx.robot2, "name", "") or "下料臂")
+
+        def _prefixed(device: str, body: str) -> str:
+            if f"【{device}】" in body:
+                return body
+            return f"【{device}】\n{body}"
+
+        if r1 and r1 in text:
+            return "ROBOT1", _prefixed(r1, text), r1
+        if r2 and r2 in text:
+            return "ROBOT2", _prefixed(r2, text), r2
+        if "压鞋" in text or "压机" in text:
+            return "PRESS", _prefixed("压鞋机", text), "压鞋机"
+        if "夹爪" in text:
+            return "GRIP_DRV", _prefixed("夹爪", text), "夹爪"
+        cam1 = self.ctx.camera_alarm_device("cam1")
+        cam2 = self.ctx.camera_alarm_device("cam2")
+        cam3 = self.ctx.camera_alarm_device("cam3")
+        cam4 = self.ctx.camera_alarm_device("cam4")
+        if "cam1" in text or ("皮带" in text and "拍" in text):
+            return "VISION1", _prefixed(cam1, text), cam1
+        if "cam2" in text or "鞋头" in text or "对位" in text:
+            return "VISION2", _prefixed(cam2, text), cam2
+        if "cam3" in text or "放料槽" in text:
+            return "VISION3", _prefixed(cam3, text), cam3
+        if "cam4" in text or "取料槽" in text or "压杆" in text:
+            return "VISION4", _prefixed(cam4, text), cam4
+        return "OB1", f"本机程序扫描异常停机\n原因: {text}", "本机程序"
+
     def _handle_robot_fault(self, code: str, msg: str, device: str) -> None:
         log.error("机器人故障停机: %s %s", code, msg)
         # 停两臂运动
@@ -351,7 +382,11 @@ class Coordinator:
         gvl.Main.Init_Auto = 0
         gvl.Main.Initializing = False
         gvl.Main.Running = False
-        self.ctx.raise_alarm(code, msg, device, 0)
+        text = str(msg or "").strip()
+        name = str(device or "").strip()
+        if name and f"【{name}】" not in text:
+            text = f"【{name}】\n{text}"
+        self.ctx.raise_alarm(code, text, name or "未标明设备", 0)
 
     def _poll_device_link_loss(self) -> None:
         """

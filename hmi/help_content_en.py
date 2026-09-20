@@ -64,7 +64,7 @@ def build_sections_en() -> List[Section]:
             + _h("Page index")
             + _ul(
                 [
-                    f"<b>{_L(T.MONITOR)}</b>: start/stop, lights, memory, slots, speed, manual gripper/press",
+                    f"<b>{_L(T.MONITOR)}</b>: start/stop, lights, memory, slot display, speed tab, manual gripper/press",
                     f"<b>{_L(T.CAM_MONITOR)}</b>: separate window, 4 cameras + inference overlay",
                     f"<b>{_L(T.JOG)}</b>: separate teach-pendant window (top bar), jog while teach-points stay open",
                     f"<b>{_L(T.PRODUCTION)}</b>: count / CT / UPH",
@@ -75,7 +75,7 @@ def build_sections_en() -> List[Section]:
                     f"<b>{_L(T.SHIELD_PICK)}</b>: cam1 Mock pick teach",
                     f"<b>{_L(T.DRY_RUN)}</b>: dry-run shields",
                     f"<b>{_L(T.PAYLOAD)}</b>: payload & TCP",
-                    f"<b>{_L(T.PRESS_IO)}</b>: press slots & Modbus",
+                    f"<b>{_L(T.PRESS_IO)}</b>: slot sequence, CAS points; pick/place slots only in Mock",
                     f"<b>{_L(T.GRIPPER)}</b>: gripper debug & GRIP_* reset",
                     f"<b>{_L(T.SETTINGS)}</b>: language, UI, comm",
                     f"<b>{_L(T.HOST_DEVICES)}</b>: this PC’s USB list, NIC IPs, serial/V4L by-id",
@@ -114,7 +114,8 @@ def build_sections_en() -> List[Section]:
                 purpose=(
                     "Main operator desk: init, auto/step mode, start/pause/stop/E-stop; station busy; "
                     "stack lights are in the top bar (all pages); "
-                    "edit memory & slots; global speed & path blend; manual gripper/press; dry-run shortcuts."
+                    "edit memory (slot sequence/numbers are on Press I/O); "
+                    "speed is on a sub-tab; manual gripper/press; dry-run shortcuts."
                 ),
                 impl=[
                     f"{_code('hmi/pages/monitor_page.py')} — UI",
@@ -140,9 +141,10 @@ def build_sections_en() -> List[Section]:
                 [
                     "Mode Auto → Initialize → READY (yellow+green) → Start.",
                     "Real robots must be near home first (Monitor XYZ mm / joint °); else alarm, reset, then Initialize again. Mock arms skip.",
-                    "When paused you can edit memory/slots; after Stop re-init before Start.",
-                    "After E-stop: reset E-stop → Initialize again.",
-                    "Arm speed ≈ Monitor SetSpeed% × Motion page step vel%.",
+                    "Pause: edit memory then Start. After Stop you must Initialize again before Start.",
+                    "Stop and Init each write press shoe-done=0 and start=0 once (not every scan).",
+                    "After E-stop: reset E-stop → alarm reset → Initialize again.",
+                    "Arm speed ≈ Speed tab run% × Motion page step vel%.",
                 ]
             ),
         ),
@@ -495,9 +497,10 @@ def build_sections_en() -> List[Section]:
             _L(T.PRESS_IO),
             _io_block(
                 purpose=(
-                    "Four-slot press: place/pick ports, sequence, auto slot compute, Modbus addresses. "
-                    "The CAS point-table tab follows the four-station protocol "
-                    "(M coils / D holdings / X inputs / T timers); the screen shows Chinese labels and values only, not PLC symbols."
+                    "Four-slot press: slot sequence at the top of the CAS tab; "
+                    "pick/place slot numbers only while press Mock is on (real machine follows PLC station word). "
+                    "CAS table, live RX/TX, port convention, Modbus addresses, manual rod/press. "
+                    "After shoe-done=1 wait (default 500 ms, Settings) before start=2 or idle-run=1."
                 ),
                 impl=[
                     f"{_code('hmi/pages/press_io_page.py')}",
@@ -507,7 +510,7 @@ def build_sections_en() -> List[Section]:
                     f"{_code('devices/press_modbus.py')}",
                     f"{_code('devices/plc_cas_points.py')}",
                 ],
-                used_by=["Station6; slot widgets shared with Monitor"],
+                used_by=["Station6 handshake; S4/S5 wait pick-work-done from PLC; Monitor displays slots only"],
             ),
         ),
         (
@@ -516,6 +519,7 @@ def build_sections_en() -> List[Section]:
             _io_block(
                 purpose=(
                     "Robot IP, press, gripper CAN, photo DI, use_mock; save default.yaml & reconnect. "
+                    "Press: idle-go-busy timeout (0=wait forever), shoe-done hold before start (ms). "
                     "Login autostart is on Settings → UI Refresh."
                 ),
                 impl=[f"{_code('hmi/pages/config_page.py')}"],
@@ -572,7 +576,8 @@ def build_sections_en() -> List[Section]:
             + _h("Four tabs")
             + _ul(
                 [
-                    "<b>This run</b>: alarms since start (paged). After exit, use saved errors / black box.",
+                    "<b>This run</b>: alarms since start (paged). Each row has device, kind, code, detail, and operator hint. "
+                    "Motion/scan faults report the arm/press/camera, not a generic host scan. After exit, use saved errors / black box.",
                     "<b>Saved errors</b>: WARNING/ERROR/alarms in logs/errors_YYYY-MM-DD.jsonl, survive restart.",
                     "<b>Black box</b>: trajectory around faults (blackbox_YYYY-MM-DD.jsonl); crash dumps in logs/dumps/. Not camera photos.",
                     "<b>Run snaps</b>: production raw/overlay JPEGs (camera_time_kind_raw/vis.jpg) plus transport write-back. "
