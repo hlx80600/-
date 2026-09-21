@@ -124,23 +124,40 @@ def stack_status() -> Dict[str, Any]:
     now = time.monotonic()
     if _STACK_STATUS_CACHE is not None and (now - _STACK_STATUS_TS) < 300.0:
         return dict(_STACK_STATUS_CACHE)
+    from vision.algo_deps import algo_dep_status, ensure_algo_paths
+
+    ensure_algo_paths()
+    algo = algo_dep_status()
     out: Dict[str, Any] = {
         "shoe_vision": (ROOT / "shoe_vision_seg.py").is_file(),
         "ultralytics": _ultralytics_present(),
         "slot_check": (ROOT / "slot_check_dect.py").is_file() or (ROOT / "slot_check.py").is_file(),
         "position": (ROOT / "position.py").is_file() or (ROOT / "position_obb.py").is_file(),
+        "point4d": bool(algo.get("point4d")),
+        "obb360": bool(algo.get("obb360")),
+        "imgact": bool(algo.get("imgact")),
         "message": "",
     }
     errs: list[str] = []
     if not out["shoe_vision"]:
         errs.append("shoe_vision_seg: 未找到")
     if not out["ultralytics"]:
-        errs.append("ultralytics: 未安装")
+        errs.append("ultralytics: 未安装（槽/压杆/分类兜底）")
+    if not out["point4d"] or not out["obb360"]:
+        errs.append("casbot_yolo_point4d/obb360: 未 clone（bash init.sh）")
+    if not out["imgact"]:
+        errs.append("ImgAct: 缺少 shoe_align/ImgAct")
     if not out["slot_check"]:
         errs.append("slot_check_dect: 未找到")
     if not out["position"]:
         errs.append("position: 未找到")
-    out["message"] = " | ".join(errs) if errs else "依赖已找到（检测时再加载）"
+    extra = str(algo.get("message") or "")
+    if errs:
+        out["message"] = " | ".join(errs)
+    elif extra and extra != "point4d / obb360 / ImgAct 源码已找到":
+        out["message"] = extra
+    else:
+        out["message"] = "依赖已找到（检测时再加载）"
     _STACK_STATUS_CACHE = dict(out)
     _STACK_STATUS_TS = now
     return out
@@ -259,9 +276,41 @@ def last_shoe_vision_error() -> str:
     return _sv_err
 
 
+def _operator_left_candidate(
+    left_poses: Any,
+    right_poses: Any,
+    left_toes: Any = None,
+    right_toes: Any = None,
+) -> tuple[Any, Any, bool] | None:
+    """两只都在时取操作工视角左侧（基座 X 最小，其次 Y），保留该鞋的左右脚类别。
+
+    left_poses: list: 左脚楦心 (x,y,z,yaw)
+    right_poses: list: 右脚楦心
+    left_toes: list | None: 与左脚 poses 对齐的鞋头点
+    right_toes: list | None: 与右脚 poses 对齐的鞋头点
+    return: (pose, toe, is_left_shoe) | None
+    """
+    items: list[tuple[float, float, bool, Any, Any]] = []
+    for is_left, poses, toes in (
+        (True, left_poses or [], left_toes or []),
+        (False, right_poses or [], right_toes or []),
+    ):
+        for idx, pose in enumerate(poses):
+            if not pose or len(pose) < 2:
+                continue
+            toe = toes[idx] if idx < len(toes) else None
+            items.append((float(pose[0]), float(pose[1]), is_left, pose, toe))
+    if not items:
+        return None
+    items.sort(key=lambda row: (row[0], row[1]))
+    best = items[0]
+    return best[3], best[4], best[2]
+
+
 def detect_belt_legacy(cameras, vis_cfg, default_z, default_rx, default_ry):
     """
     皮带抓鞋：旧 ShoeVision → 基座 XYZ + yaw + 左右脚 + 鞋头偏移（机器人毫米）。
+    同时检出两只时取操作工视角左侧那一只（可能两只都是左脚）。
     返回 (result_dict, vis_bgr)
     """
     fail = {"ok": False, "message": "", "source": "legacy_yolo_handeye"}
@@ -274,12 +323,12 @@ def detect_belt_legacy(cameras, vis_cfg, default_z, default_rx, default_ry):
         from shoe_seg.shoes_seg import get_shoe_base_pose_toe_and_arc_points
     except Exception:
         left, right = sv.get_all_shoe_points()
-        chosen_side = "left" if left else "right"
-        poses = left if left else right
-        if not poses:
+        picked = _operator_left_candidate(left, right)
+        if picked is None:
             fail["message"] = "YOLO未检出鞋子"
             return fail, None
-        x, y, z, yaw = poses[0]
+        pose, _toe, is_left = picked
+        x, y, z, yaw = pose
         L = 120.0
         return {
             "ok": True,
@@ -289,35 +338,38 @@ def detect_belt_legacy(cameras, vis_cfg, default_z, default_rx, default_ry):
             "rx": float(default_rx),
             "ry": float(default_ry),
             "rz": float(yaw),
-            "is_left_shoe": chosen_side == "left",
-            "message": f"旧视觉抓鞋 {chosen_side} 楦心=({x:.1f},{y:.1f},{z:.1f}) yaw={yaw:.1f}（无鞋头分割）",
+            "is_left_shoe": bool(is_left),
+            "message": (
+                f"旧视觉抓鞋 操作工左侧={'左脚' if is_left else '右脚'} "
+                f"楦心=({x:.1f},{y:.1f},{z:.1f}) yaw={yaw:.1f}（无鞋头分割）"
+            ),
             "source": "legacy_yolo_handeye",
             "toe_offset_in_grasp_tcp": [0.0, L, 0.0],
             "shoe_length_mm": L,
         }, None
 
-    chosen = get_shoe_base_pose_toe_and_arc_points(vision=sv, side="left", max_retries=3)
+    chosen = get_shoe_base_pose_toe_and_arc_points(vision=sv, side="all", max_retries=3)
     vis = chosen.get("vis_frame")
-    side = str(chosen.get("selected_side") or "")
-    if side not in ("left", "right"):
-        fail["message"] = "旧视觉未选到左右脚"
+    picked = _operator_left_candidate(
+        chosen.get("left_base_poses"),
+        chosen.get("right_base_poses"),
+        chosen.get("left_toe_base_points"),
+        chosen.get("right_toe_base_points"),
+    )
+    if picked is None:
+        fail["message"] = "旧视觉未选到皮带鞋"
         return fail, vis
-    prefix = "left" if side == "left" else "right"
-    poses = chosen.get(f"{prefix}_base_poses") or []
-    toes = chosen.get(f"{prefix}_toe_base_points") or []
-    if not poses:
-        fail["message"] = "旧视觉无楦心位姿"
-        return fail, vis
-    x, y, z, yaw = poses[0]
-    toe = toes[0] if toes else None
+    pose, toe, is_left = picked
+    x, y, z, yaw = pose
     if toe is not None and len(toe) >= 2:
         length = float(np.hypot(float(toe[0]) - float(x), float(toe[1]) - float(y)))
         dz = float(toe[2]) - float(z) if len(toe) >= 3 else 0.0
     else:
         length = 120.0
         dz = 0.0
+    side_txt = "左脚" if is_left else "右脚"
     msg = (
-        f"旧视觉抓鞋 {('左' if side=='left' else '右')} "
+        f"旧视觉抓鞋 操作工左侧={side_txt} "
         f"楦心XY=({x:.1f},{y:.1f}) Z={z:.1f} yaw={yaw:.1f} "
         f"鞋头距={length:.1f}mm（示教器）"
     )
@@ -329,7 +381,7 @@ def detect_belt_legacy(cameras, vis_cfg, default_z, default_rx, default_ry):
         "rx": float(default_rx),
         "ry": float(default_ry),
         "rz": float(yaw),
-        "is_left_shoe": side == "left",
+        "is_left_shoe": bool(is_left),
         "message": msg,
         "source": "legacy_yolo_handeye",
         "toe_offset_in_grasp_tcp": [0.0, float(length), float(dz)],

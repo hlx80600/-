@@ -5,12 +5,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, Optional, Sequence
 
 OpeningKind = Literal["place", "pick"]
 
 CAM_PLACE = "cam3"
 CAM_PICK = "cam4"
+
+# 四槽绕圈 1→2→3→4 左右交替：奇数左槽、偶数右槽。装机若编号相反，改 yaml opening.left_slots。
+DEFAULT_LEFT_SLOTS: tuple[int, ...] = (1, 3)
 
 
 def camera_for_opening(kind: OpeningKind) -> str:
@@ -99,3 +102,34 @@ def resolve_slot_id(
             if slot_id:
                 return slot_id
     return 0
+
+
+def left_slot_ids(vis_cfg: Optional[Mapping[str, Any]] = None) -> tuple[int, ...]:
+    """当前工程里哪些物理槽号算左鞋槽。
+
+    vis_cfg: Mapping | None: ``ctx.cfg["vision"]``；读 ``opening.left_slots``
+    return: tuple[int, ...]: 默认 ``(1, 3)``
+    """
+    opening = vis_cfg.get("opening") if isinstance(vis_cfg, Mapping) else None
+    raw = opening.get("left_slots") if isinstance(opening, Mapping) else None
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        parsed = tuple(slot for slot in (parse_slot_id(item) for item in raw) if slot)
+        if parsed:
+            return parsed
+    return DEFAULT_LEFT_SLOTS
+
+
+def is_left_slot_for_id(
+    slot_id: Any,
+    vis_cfg: Optional[Mapping[str, Any]] = None,
+) -> bool | None:
+    """由 PLC 槽号推导 Station3 要用的 ``is_left_slot``。
+
+    slot_id: Any: 1–4；0/非法则无法判断
+    vis_cfg: Mapping | None: 含 ``opening.left_slots``
+    return: bool | None: True 左槽 / False 右槽 / None 槽号未知
+    """
+    parsed = parse_slot_id(slot_id)
+    if not parsed:
+        return None
+    return parsed in set(left_slot_ids(vis_cfg))

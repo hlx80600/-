@@ -39,7 +39,7 @@ class SlotDetectResult:
 
 
 def get_slot_detect_model(model_path: str | Path | None = None) -> YOLO:
-    """按路径缓存并返回 YOLO 检测模型。
+    """按路径缓存并返回 YOLO 检测模型（与双槽 ``slot_check_dect`` 相同：``from ultralytics import YOLO``）。
 
     model_path: str | Path | None: 权重；空则用默认 ``7.13_dect_1.pt``
     return: YOLO: 已加载模型

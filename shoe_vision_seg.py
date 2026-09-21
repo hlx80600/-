@@ -31,6 +31,10 @@ import torch
 import cv2
 import numpy as np
 
+from vision.algo_deps import ensure_algo_paths
+
+ensure_algo_paths()
+
 # CasbotYoloP3D / yoloOBB360 会把 ultralytics.* 别名到 ultralytics_obb360；
 # 必须先加载该栈，再用其 YOLO，否则 site-packages AutoBackend 与 obb360 export_formats 不匹配
 # 会触发 ValueError: too many values to unpack (expected 19)。

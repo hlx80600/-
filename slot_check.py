@@ -51,7 +51,11 @@ class SlotCheckResult:
 
 
 def get_slot_check_model(model_path: str | Path | None = None) -> YOLO:
-    """按路径缓存并返回 YOLO 分类模型。"""
+    """按路径缓存并返回 YOLO 分类模型（与双槽 ``slot_check.py`` 相同）。
+
+    model_path: str | Path | None: 权重；空则用默认 ``7.10slot_check.pt``
+    return: YOLO: 已加载模型
+    """
     path = SLOT_CHECK_MODEL_PATH if model_path is None else Path(model_path)
     key = str(path.expanduser().resolve())
     if key not in _MODEL_CACHE:

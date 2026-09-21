@@ -17,7 +17,10 @@ def detect_belt_pick(
     default_rx: float,
     default_ry: float,
 ) -> BeltPickResult:
-    """cam1 皮带：YOLO OBB + 左右脚 + 楦 + 深度 + 手眼 → 基座毫米取料位姿。"""
+    """cam1 皮带：YOLO OBB + 左右脚 + 楦 + 深度 + 手眼 → 基座毫米取料位姿。
+
+    同时两只时取操作工视角左侧那一只，``is_left_shoe`` 仍是该鞋的左右脚类别。
+    """
     from vision.legacy_pipeline import detect_belt_legacy
 
     d, vis = detect_belt_legacy(cameras, vis_cfg or {}, default_z, default_rx, default_ry)

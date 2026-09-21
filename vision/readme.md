@@ -18,6 +18,8 @@
 | `roi.py` | ROI 读写 `config/roi/` |
 | `pixel_to_robot.py` | 像素 → 机器人坐标 |
 | `legacy_pipeline.py` | YOLO / 旧管线实现 |
+| `algo_deps.py` | point4d/obb360/ImgAct 的 `sys.path`；压杆躲开 obb360 对 `ultralytics` 的别名 |
+| `toe_imgact.py` | 鞋头 DiscreteMultiActionHead 推理（只出类别） |
 | `monitor_frames.py` | 监控帧发布 |
 | `template_match.py` / `shape_match.py` | 模板 / 形状匹配 |
 | `belt_toe.py` / `cls_crop.py` | 皮带鞋头、分类裁切 |

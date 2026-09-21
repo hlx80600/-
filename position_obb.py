@@ -5,14 +5,21 @@ import math
 from typing import Any
 
 import cv2
-from ultralytics import YOLO
 
-from casbot_yolo_point4d.casbot_yolo_point4d_utils import (
-    angle_to_vector,
-    get_center_pose,
-    shift_center_by_obb_scale,
-)
+from vision.algo_deps import ensure_algo_paths, load_official_yolo
 from vision.draw_overlay import draw_hud_lines, draw_obb_poly
+
+
+def _p4d_utils() -> tuple[Any, Any, Any]:
+    """延迟导入 point4d 几何工具，避免未 clone 时拖垮整个 HMI。"""
+    ensure_algo_paths()
+    from casbot_yolo_point4d.casbot_yolo_point4d_utils import (
+        angle_to_vector,
+        get_center_pose,
+        shift_center_by_obb_scale,
+    )
+
+    return angle_to_vector, get_center_pose, shift_center_by_obb_scale
 
 
 def _class_name(names: Any, class_id: int) -> str:
@@ -29,7 +36,8 @@ class OBBOnlyDetector:
 
     def __init__(self, obb_model_path):
         logging.getLogger("ultralytics").setLevel(logging.WARNING)  # 减少不必要的日志输出
-        self.model = YOLO(obb_model_path)
+        # 皮带 ShoeVision 会把 ultralytics 别名到 obb360；压杆必须用官方 YOLO。
+        self.model = load_official_yolo(obb_model_path)
         self.imgsz = 640
         self.conf = 0.5
         self.iou = 0.7
@@ -47,6 +55,7 @@ class OBBOnlyDetector:
         叠图不用 ``results[0].plot()``：YOLO 默认实心底标签会挡住鞋面。
         框只描边，坐标写在左下角半透明条。
         """
+        angle_to_vector, get_center_pose, shift_center_by_obb_scale = _p4d_utils()
         results = self.model.predict(
             image, conf=self.conf, imgsz=self.imgsz, iou=self.iou, verbose=False
         )

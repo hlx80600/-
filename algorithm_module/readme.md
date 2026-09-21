@@ -143,7 +143,7 @@ cmd = algo.train_cmd("shoe_lr", epochs=40, device="cpu")  # 或 device="0" 用 G
 |------|------|------|
 | `ok` | `bool` | 分类是否跑通 |
 | `has_material` | `bool` | 有鞋？ |
-| `is_left_slot` | `bool \| None` | 左右槽（多数路径不填，流程用记忆） |
+| `is_left_slot` | `bool \| None` | 左右槽（由当前 `slot_id` + `opening.left_slots` 推导） |
 | `confidence` | `float` | 置信度 |
 | `message` / `vis_bgr` | | 同上 |
 
@@ -154,6 +154,7 @@ cmd = algo.train_cmd("shoe_lr", epochs=40, device="cpu")  # 或 device="0" 用 G
 | `ok` | `bool` | |
 | `aligned` | `bool` | True=到位可停；False=需相对 MoveL 推进 |
 | `label` | `str` | 原始类名（如 `0`/`1`） |
+| `x_label` / `y_label` | `str` | ImgAct：X 0停/1前/2后，Y 0停/1左/2右 |
 | `message` / `vis_bgr` | | |
 
 ### `RodOffsetResult` — 压杆偏移
@@ -174,7 +175,7 @@ cmd = algo.train_cmd("shoe_lr", epochs=40, device="cpu")  # 或 device="0" 用 G
   - `cameras`：`dict`，至少含 `cam1`（`OrbbecCamera`），内部会 `grab`/读深度。  
   - `vis_cfg`：`dict | None`，一般是 `ctx.cfg["vision"]` + `shoe_vision_config.json` 相关路径。  
   - `default_z/rx/ry`：`float`，深度/姿态缺省（常与 `belt_pick_mock` 一致）。  
-- **输出**：基座取料位姿 + 左右脚 + 鞋头偏移。  
+- **输出**：基座取料位姿 + 左右脚 + 鞋头偏移。同时两只时取操作工视角左侧（基座 X 最小）。  
 - **实现**：`production.detect_belt_pick` → `vision.legacy_pipeline.detect_belt_legacy`。  
 - **谁调用**：`VisionService.photo_belt_pick` / `_compute_monitor_cached(cam1)` → **Station1**。  
 - **注意**：会碰相机；监控实时推演应走 VisionService 的 `from_cache` 路径（`prefer_last`），避免抢帧。
@@ -334,7 +335,12 @@ hmi/pages/vision_monitor_page.py
 ## 13. 依赖（跑真算法）
 
 - 基础：见根目录 `requirements.txt`（PySide6、opencv-headless、numpy…）  
-- 真检测/训练：`ultralytics`、`torch`（GPU 用 CUDA wheel）、旧栈若皮带完整链路还需 `casbot_yolo_point4d` / `ultralytics_obb360` 等（与旧工程环境一致）  
+- 真检测：
+  - 皮带：`bash init.sh` clone 的 `casbot_yolo_point4d` + `ultralytics_obb360`（与双槽相同，不进 git）
+  - 鞋头：`shoe_align/ImgAct` 的 `DiscreteMultiActionHead`
+  - 槽占用：与双槽相同 `from ultralytics import YOLO` 跑 detect 权重
+  - 压杆：与双槽 `position_obb` 相同，躲开 obb360 别名后再用 pip YOLO 加载普通 OBB
+  - 训练：`torch`（GPU 用 CUDA wheel）  
 - 相机：`pyorbbecsdk`；机器人：`fairino`  
 
 未装齐时：`stack_status` / `photo_*` 会失败或走 Mock，接口仍可 import。

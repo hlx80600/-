@@ -23,6 +23,7 @@
 | [docs/界面操作手册.md](docs/界面操作手册.md) | `docs/` | **HMI 每页怎么点**、投产顺序、手眼逐步点击 |
 | [docs/操作说明.md](docs/操作说明.md) | `docs/` | **yaml 改址表**、设备 IP/CAN/Modbus、联调检查清单 |
 | [docs/相机算法说明.md](docs/相机算法说明.md) | `docs/` | **生产/调试相机算法**：cam1–4、工位入口、模型与输出 |
+| [docs/视觉对账_双槽.md](docs/视觉对账_双槽.md) | `docs/` | 与双槽产线对账、`init.sh`、现场缺权重/手眼 |
 | [docs/夹爪使用说明.md](docs/夹爪使用说明.md) | `docs/` | 达妙 DM-J4310-2EC：48V、CAN、接线、试夹、GRIP 报警 |
 | [docs/Codesys对照说明.md](docs/Codesys对照说明.md) | `docs/` | 旧 PLC/Codesys 变量与现程序对照（迁移用） |
 | HMI「使用说明」 | `hmi/help_content.py` | 与界面同步的**在线手册**（页职责 / 实现文件 / 引用） |
@@ -95,7 +96,23 @@ sudo apt install -y libxcb-cursor0
 sudo apt install -y fonts-noto-cjk
 ```
 
-### 5. 视觉 / 真机可选依赖
+### 5. 视觉算法源码（与双槽产线同一套，必做）
+
+皮带 OBB/楦中心、鞋头 ImgAct **不是** pip 里的普通 ultralytics。新机在仓库根执行：
+
+```bash
+bash init.sh
+python3 tools/check_vision_algo_deps.py
+```
+
+`init.sh` 会 clone：
+
+- `casbot_yolo_point4d`（内含 `casbot_yolo_obb360`）
+- 鞋头 `DiscreteMultiActionHead` 源码已在本仓库 `shoe_align/ImgAct/`
+
+需要组织仓库读权限和 GitHub SSH。说明见 [docs/视觉对账_双槽.md](docs/视觉对账_双槽.md)、[docs/相机算法说明.md](docs/相机算法说明.md)。现场还缺的权重/手眼也写在对账文档末尾。
+
+### 6. 视觉 / 真机可选依赖
 
 | 能力 | 安装方式 | 配置位置 |
 |------|----------|----------|
@@ -108,7 +125,7 @@ sudo apt install -y fonts-noto-cjk
 模型文件：将旧工程或训练产出的 `.pt` 放到 `models/` 对应子目录（见 `algorithm_module/readme.md` 模型表）。  
 皮带生产视觉 json：**[shoe_vision_config.json](shoe_vision_config.json)**（内参 / ROI / handeye 4×4，HMI 视觉页可写入）。
 
-### 6. 首次必查配置文件
+### 7. 首次必查配置文件
 
 | 文件 | 作用 |
 |------|------|
@@ -120,7 +137,7 @@ sudo apt install -y fonts-noto-cjk
 
 默认 **多数 `use_mock: true`**，无真机也可：`python3 main.py` → 运行监控 → 初始化 → 启动 → 模拟光电。
 
-### 7. 第一次启动与阅读顺序
+### 8. 第一次启动与阅读顺序
 
 ```bash
 python3 main.py

@@ -10,18 +10,16 @@ Station 运动仍走控制同事的 ``toe_place_assist``；这里只提供数字
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import Any, Optional
 
+from vision.algo_deps import ensure_algo_paths
 from vision.numpy_compat import np
 
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).resolve().parents[1]
-_ALIGN = ROOT / "shoe_align"
-if _ALIGN.is_dir() and str(_ALIGN) not in sys.path:
-    sys.path.insert(0, str(_ALIGN))
+ensure_algo_paths()
+
 _INFER: Optional["ToeImgActInfer"] = None
 _INFER_KEY = ""
 

@@ -70,9 +70,10 @@ class VisionService:
         self.last_belt_debug: Optional[Dict[str, Any]] = None
         # 取料槽压杆视觉 XY 微调（毫米），Station5 叠加到示教取料点
         self.last_pick_xy_offset_mm: Optional[list] = None
-        # 当前开口下的 PLC 槽号（1–4）；Station 不传时由 set_opening_slots / yaml 补
+        # 当前开口下的 PLC 槽号（1–4）；Station 不传时从 press / yaml 补
         self._place_slot_id: int = 0
         self._pick_slot_id: int = 0
+        self._press: Any = None
         # 相机监控页：每路最近原图 / 计算结果
         self.last_raw: Dict[str, Any] = {}
         self.last_vis: Dict[str, Any] = {}
@@ -124,10 +125,54 @@ class VisionService:
         self._place_slot_id = parse_slot_id(place_slot)
         self._pick_slot_id = parse_slot_id(pick_slot)
 
+    def _bind_press_from_caller(self) -> Any:
+        """工位不传槽号时，从调用栈里的 ``ctx.press`` 记住压机（不改 Station）。
+
+        return: Any: PressMachine 或 None
+        """
+        press = getattr(self, "_press", None)
+        if press is not None and hasattr(press, "place_slot"):
+            return press
+        import inspect
+
+        frames = inspect.stack()[1:16]
+        try:
+            for info in frames:
+                loc = info.frame.f_locals
+                ctx = loc.get("ctx")
+                if ctx is None:
+                    obj = loc.get("self")
+                    ctx = getattr(obj, "ctx", None) if obj is not None else None
+                found = getattr(ctx, "press", None) if ctx is not None else None
+                if found is not None and hasattr(found, "place_slot"):
+                    self._press = found
+                    return found
+        finally:
+            del frames
+        return None
+
+    def _sync_opening_from_press(self) -> None:
+        """用压机当前放料/取料槽号刷新缓存，供 ``photo_*`` 推导左右槽。
+
+        只写入 1–4；压机尚未给出槽号时不要用 0 冲掉 ``set_opening_slots`` 已缓存的值。
+        """
+        from vision.opening import parse_slot_id
+
+        press = self._bind_press_from_caller()
+        if press is None:
+            return
+        place = parse_slot_id(getattr(press, "place_slot", 0))
+        pick = parse_slot_id(getattr(press, "pick_slot", 0))
+        if place:
+            self._place_slot_id = place
+        if pick:
+            self._pick_slot_id = pick
+
     def _opening_slot_id(self, kind: str, explicit: Any = None) -> int:
-        """解析放料/取料开口当前槽号（入参 / set_opening_slots / vision.opening）。"""
+        """解析放料/取料开口当前槽号（入参 / press / set_opening_slots / yaml）。"""
         from vision.opening import resolve_slot_id
 
+        self._sync_opening_from_press()
         cached = self._place_slot_id if kind == "place" else self._pick_slot_id
         return resolve_slot_id(
             kind="place" if kind == "place" else "pick",
@@ -135,6 +180,24 @@ class VisionService:
             cached=cached,
             vis_cfg=self.cfg if isinstance(self.cfg, dict) else None,
         )
+
+    def _place_is_left_slot(self, slot_id: int) -> bool:
+        """Station3 要的左右槽：有槽号则按 1/3 左、2/4 右；否则 Mock 勾选 / 真机暂 True。
+
+        slot_id: int: 当前放料口物理槽 1–4，0 未知
+        return: bool: True 左鞋槽
+        """
+        from vision.opening import is_left_slot_for_id
+
+        mapped = is_left_slot_for_id(slot_id, self.cfg if isinstance(self.cfg, dict) else None)
+        if mapped is not None:
+            return bool(mapped)
+        if self.cam_is_mock("cam3"):
+            return bool(self.mock_place_is_left)
+        log.warning(
+            "[视觉] 放料口槽号未知，无法按 left_slots 填 is_left_slot；暂 True（右鞋会走 Mem10）"
+        )
+        return True
 
     def method(self) -> str:
         from vision.legacy_pipeline import vision_method
@@ -486,8 +549,12 @@ class VisionService:
         if cam_id == "cam3":
             if self.cam_is_mock("cam3"):
                 has = bool(self.mock_place_has_material)
-                left = bool(self.mock_place_is_left)
-                msg = f"监控[缓存]cam3模拟 {'有料' if has else '空'} {'左' if left else '右'}"
+                slot_now = self._opening_slot_id("place")
+                left = self._place_is_left_slot(slot_now)
+                msg = (
+                    f"监控[缓存]cam3模拟 槽#{slot_now or '-'} "
+                    f"{'有料' if has else '空'} {'左' if left else '右'}"
+                )
                 vis = annotate_bgr(
                     img,
                     ["MOCK", "HAS" if has else "EMPTY", "LEFT" if left else "RIGHT"],
@@ -833,14 +900,14 @@ class VisionService:
     def photo_place_slot(self, *, persist: bool = True, slot_id: int | None = None) -> SlotPhotoResult:
         """
         放料开口拍照（固定 cam3）：
-        - cam3 Mock：结果由 HMI Mock 勾选决定
-        - cam3 真机：检测有框=有鞋；``is_left_slot`` 仍给现有 Station 用
-        slot_id: 当前开口下 PLC 槽号；不传则从 set_opening_slots / yaml 解析
+        - cam3 Mock：有无料由 HMI Mock 勾选；左右槽由当前 ``slot_id`` + ``opening.left_slots`` 推导
+        - cam3 真机：检测有框=有鞋；``is_left_slot`` 按当前放料槽号（1/3 左、2/4 右）
+        slot_id: 当前开口下 PLC 槽号；不传则从 press / set_opening_slots / yaml 解析
         """
         resolved = self._opening_slot_id("place", slot_id)
+        left = self._place_is_left_slot(resolved)
         cam = self.cameras.get("cam3")
         if self.cam_is_mock("cam3"):
-            left = bool(self.mock_place_is_left)
             has = bool(self.mock_place_has_material)
             slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
             msg = (
@@ -851,7 +918,8 @@ class VisionService:
             raw = self.grab_raw("cam3")
             vis = annotate_bgr(
                 raw,
-                ["MOCK", "HAS" if has else "EMPTY", f"SLOT={resolved or '-'}"],
+                ["MOCK", "HAS" if has else "EMPTY", f"SLOT={resolved or '-'}",
+                 "LEFT" if left else "RIGHT"],
                 ok=True,
                 cam_id="cam3",
                 kind="VIS",
@@ -891,10 +959,12 @@ class VisionService:
         occ = occ_r.has_material
         msg = occ_r.message
         slot_txt = f"槽#{resolved}" if resolved else "槽号未知"
-        out_msg = f"cam3【真机/检测】{slot_txt} {msg}；is_left_slot 仍按流程记忆"
+        side_txt = "左鞋槽" if left else "右鞋槽"
+        out_msg = f"cam3【真机/检测】{slot_txt} {side_txt} {msg}"
         vis = annotate_bgr(
             img,
-            ["SLOT DET", "HAS" if occ else "EMPTY", f"SLOT={resolved or '-'}"],
+            ["SLOT DET", "HAS" if occ else "EMPTY", f"SLOT={resolved or '-'}",
+             "LEFT" if left else "RIGHT"],
             ok=True,
             cam_id="cam3",
             kind="VIS",
@@ -906,7 +976,7 @@ class VisionService:
             SlotPhotoResult(
                 ok=True,
                 has_material=bool(occ),
-                is_left_slot=True,
+                is_left_slot=left,
                 slot_id=resolved,
                 message=out_msg,
             ),

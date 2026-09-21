@@ -172,11 +172,45 @@ def _bayer8_to_bgr(gray: object) -> Optional[object]:
         return None
 
 
+# 336L 彩色常见分辨率。SDK 偶发把 Bayer 报成 921600×1（=1280×720 拉成一行）。
+_COMMON_COLOR_WH: tuple[tuple[int, int], ...] = (
+    (1280, 720),
+    (640, 480),
+    (848, 480),
+    (1920, 1080),
+    (1280, 800),
+    (960, 540),
+    (640, 400),
+)
+
+
+def _infer_color_hw(n: int, w: int, h: int) -> tuple[int, int]:
+    """用缓冲区字节数还原宽高。w/h 已合理则原样返回。
+
+    n: int: 像素字节数
+    w: int: SDK/V4L 报的宽
+    h: int: SDK/V4L 报的高
+    return: tuple[int, int]: (宽, 高)
+    """
+    if int(w) >= 8 and int(h) >= 8:
+        return int(w), int(h)
+    nbytes = int(n)
+    for ww, hh in _COMMON_COLOR_WH:
+        plane = ww * hh
+        if nbytes in (plane, plane * 2, plane * 3, plane * 4):
+            return ww, hh
+    return int(w), int(h)
+
+
 def _opencv_frame_to_bgr(frame: object, fourcc: str = "") -> Optional[object]:
     """OpenCV 读到的 V4L 帧转 BGR；Bayer / 灰度单独处理。"""
     if frame is None or cv2 is None:
         return None
     arr = np.asarray(frame)
+    if arr.ndim == 2 and min(int(arr.shape[0]), int(arr.shape[1])) < 8:
+        ww, hh = _infer_color_hw(int(arr.size), int(arr.shape[1]), int(arr.shape[0]))
+        if ww >= 8 and hh >= 8 and ww * hh == int(arr.size):
+            arr = arr.reshape((hh, ww))
     code = (fourcc or "").upper().replace(" ", "")
     if arr.ndim == 2:
         if code in ("GREY", "GRAY", "Y8"):
@@ -203,6 +237,9 @@ def _color_frame_to_bgr(color) -> Optional[object]:
     data = np.frombuffer(color.get_data(), dtype=np.uint8)
     n = int(data.size)
     if w < 1 or h < 1 or n < 1:
+        return None
+    w, h = _infer_color_hw(n, w, h)
+    if w < 8 or h < 8:
         return None
 
     fmt = None

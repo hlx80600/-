@@ -608,8 +608,11 @@ def _pick_available_side(
 ) -> Optional[str]:
     has_left = bool(left_base_poses)
     has_right = bool(right_base_poses)
+    want = str(requested_side or "").strip().lower()
 
-    if requested_side == "left":
+    if want in {"all", "any", "operator_left"}:
+        return "all" if (has_left or has_right) else None
+    if want == "left":
         return "left" if has_left else None
     return "right" if has_right else None
 
@@ -642,6 +645,8 @@ def get_shoe_base_pose_toe_and_arc_points(
 
     输入:
         vision: ShoeVision 实例。
+        side: ``left`` / ``right`` 只处理该侧；``all``（及 ``any`` / ``operator_left``）两侧都算，
+            由调用方再选操作工视角左侧。
 
     输出字典字段:
         left_base_poses/right_base_poses:
@@ -699,8 +704,12 @@ def get_shoe_base_pose_toe_and_arc_points(
 
     vis_frame = rgb_frame.copy() if rgb_frame is not None else None
 
-    process_left = selected_side == "left"
-    process_right = selected_side == "right"
+    process_left = selected_side == "left" or (
+        selected_side == "all" and bool(left_base_poses)
+    )
+    process_right = selected_side == "right" or (
+        selected_side == "all" and bool(right_base_poses)
+    )
 
     result = {
         "left_base_poses": left_base_poses,
