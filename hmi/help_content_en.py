@@ -30,9 +30,12 @@ def build_sections_en() -> List[Section]:
                 [
                     f"Entry: {_code('main.py')} → Coordinator + MainWindow.",
                     f"Main loop: {_code('core/coordinator.py')} ~50 ms station cycles.",
-                    f"Global state: {_code('core/gvl.py')} (Main / Station / Memory_BOOL).",
+                    f"Global state: {_code('core/gvl.py')} (Main / Station / Memory_BOOL); "
+                    f"HMI copy {_code('core/memory.py')}; write via sync_mem in {_code('core/plc_util.py')}.",
                     f"Devices & vision: {_code('core/app_context.py')}.",
                     f"Parameters: {_code('config/default.yaml')}.",
+                    "Comms (Fairino XML-RPC, press Modbus FCs, gripper CAN, cameras) and variable files: "
+                    "docs/程序总览.md §3.1 / §3.2.",
                     "Repo docs: docs/程序总览.md; vision API: algorithm_module/readme.md.",
                 ]
             )

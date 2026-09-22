@@ -31,14 +31,19 @@
 
 ## 初始化与安装
 
-在本目录执行：
+`RSDT_Simple_Automation` 是独立仓库，放在工程根目录同名文件夹里（已从 GitHub 克隆）。四槽工程不跟踪其中文件；更新与改代码都在该文件夹自己的 git 里做。
 
 ```bash
+# 第一次（若文件夹还不是 git 仓库）
+git clone git@github.com:RobotSkillsDevelopmentTeam/RSDT_Simple_Automation.git RSDT_Simple_Automation
 
-# 1) 拉取依赖仓库（私有仓库需权限）
-bash init.sh
+# 之后每次拉最新，再在本目录改
+cd RSDT_Simple_Automation
+git pull origin main
+# 改完后在本仓库提交/推送：
+# git add -A && git commit && git push
 
-# 2) 安装 Python 依赖（按需补齐）
+# 安装该仓库的 Python 依赖（按需）
 pip install -r RSDT_Simple_Automation/requirements.txt
 pip install ultralytics
 ```

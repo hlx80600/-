@@ -98,10 +98,13 @@ def _sections_zh_cn() -> List[Section]:
                 [
                     f"入口：{_code('main.py')} → 建 Coordinator + MainWindow。",
                     f"主循环：{_code('core/coordinator.py')} 约 50ms 调各 Station 的 cycle。",
-                    f"全局状态：{_code('core/gvl.py')}（Main / Station / Memory_BOOL）。",
+                    f"全局状态：{_code('core/gvl.py')}（Main / Station / Memory_BOOL）。"
+                    f" HMI 勾选副本 {_code('core/memory.py')}；写记忆 {_code('core/plc_util.py')} 的 sync_mem。",
                     f"设备与视觉：{_code('core/app_context.py')}（robot1/2、夹爪、压机、cameras、vision）。",
                     f"参数总表：{_code('config/default.yaml')}（IP、点位、Mock、运动步参数）。",
-                    "纸质/仓库详解：docs/程序总览.md（主流程）；视觉接口见 algorithm_module/readme.md。",
+                    f"通讯读写（法奥 XML-RPC、压机 Modbus 功能码、夹爪 CAN、相机）：见 docs/程序总览.md §3.2；"
+                    f"压机驱动 {_code('devices/press_modbus.py')}，点表 {_code('devices/plc_cas_points.py')}。",
+                    "纸质/仓库详解：docs/程序总览.md（主流程、变量落点、通讯）；视觉接口见 algorithm_module/readme.md。",
                 ]
             )
             + _h("一条鞋怎么走（自动）")
@@ -173,9 +176,14 @@ def _sections_zh_cn() -> List[Section]:
             )
             + _h("记忆 Mem1～10")
             + _p(
-                "程序内部 BOOL（"
+                "本机 BOOL 握手，不是压机寄存器。定义在 "
                 + _code("core/gvl.py")
-                + " 的 Memory_BOOL）。自动运行中锁定；暂停/停止/报警/单步/空闲时可在运行监控勾选修改。"
+                + " 的 Memory_BOOL；界面勾选副本 "
+                + _code("core/memory.py")
+                + "；工位写 "
+                + _code("core/plc_util.py")
+                + " 的 sync_mem。自动运行中锁定；暂停/停止/报警/单步/空闲时可在运行监控勾选修改。"
+                " 各设备读写见 docs/程序总览.md §3.2。"
             )
             + _ul(
                 [

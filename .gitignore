@@ -21,3 +21,7 @@ shoe_align/ImgAct/**/*.engine
 shoe_align/ImgAct/**/*.ckpt
 shoe_align/ImgAct/**/*.safetensors
 shoe_align/ImgAct/**/*.weights
+
+# 独立依赖仓库（本目录 git clone / git pull，不要当四槽工程提交）
+/RSDT_Simple_Automation/
+/RSDT_Simple_Automation.stub.bak/
