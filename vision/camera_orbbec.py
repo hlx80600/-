@@ -1,9 +1,8 @@
 """
 Orbbec RGB-D 相机封装。
 
-无 SDK / use_mock 时用彩色测试图 + 模拟深度。真机优先 pyorbbecsdk（按 serial，
-同时开彩色与深度）；失败再试 OpenCV 彩色（限时，禁止堵死 HMI 线程），
-336L 另开 video-index0 的 Z16 深度。
+无 SDK / use_mock 时用彩色测试图 + 模拟深度。真机默认 RSDT orbbec_camera
+（vision.orbbec_backend=rsdt）；失败再本仓 pyorbbecsdk / OpenCV。
 """
 
 from __future__ import annotations
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from vision.numpy_compat import np
+from vision.orbbec_backend import normalize_orbbec_backend
 from vision.depth_vis import colorize_depth_mm, depth_stats_text, mock_depth_mm, mock_depth_vis_bgr
 
 try:
@@ -407,12 +407,15 @@ class OrbbecCamera:
         color_width: int = 0,
         color_height: int = 0,
         enable_depth: bool = True,
+        orbbec_backend: str = "rsdt",
     ):
         self.name = name
         self.index = index
         self.serial = serial
         self.use_mock = use_mock
         self.enable_depth = bool(enable_depth)
+        self.orbbec_backend = normalize_orbbec_backend(orbbec_backend)
+        self._rsdt = None
         self._target_fps = max(1, int(fps or 30))
         self._color_width = max(0, int(color_width or 0))
         self._color_height = max(0, int(color_height or 0))
@@ -451,7 +454,11 @@ class OrbbecCamera:
     @property
     def has_hardware(self) -> bool:
         """是否已打开 Orbbec/OpenCV 设备（Mock 也会把 opened 设为 True）。"""
-        return self._pipeline is not None or self._cap is not None
+        return (
+            self._pipeline is not None
+            or self._cap is not None
+            or self._rsdt is not None
+        )
 
     def apply_use_mock(self, mock: bool) -> None:
         """只切换模拟标志。切模拟时不准 pipeline.stop，否则 GIL 卡死界面。"""
@@ -766,6 +773,26 @@ class OrbbecCamera:
         if not got:
             return False
         try:
+            if self._rsdt is not None:
+                want_vis = bool(self.enable_depth)
+                rgb, depth, depth_color = self._rsdt.get_one_frame(
+                    draw_depth_colormap=want_vis
+                )
+                if rgb is None:
+                    return False
+                self.last_color = rgb
+                if want_vis and depth is not None:
+                    self.last_depth = depth
+                    if depth_color is not None:
+                        self.last_depth_vis = depth_color
+                        self._depth_vis_ts = time.monotonic()
+                    else:
+                        self._refresh_depth_vis(force=True)
+                elif not want_vis:
+                    self.last_depth = None
+                    self.last_depth_vis = None
+                    self.last_depth_stats = ""
+                return True
             if self._pipeline is not None:
                 if self._has_depth_stream:
                     timeout_ms = _PIPELINE_WAIT_MS
@@ -892,6 +919,8 @@ class OrbbecCamera:
     def _open_impl(self) -> bool:
         self.close()
         self.last_error = ""
+        if self.orbbec_backend == "rsdt" and self._open_rsdt():
+            return True
         if self._open_orbbec():
             return True
         if self._open_opencv():
@@ -902,6 +931,66 @@ class OrbbecCamera:
         self.opened = False
         log.warning("[%s] %s", self.name, self.last_error)
         return False
+
+    def _open_rsdt(self) -> bool:
+        """用 RSDT orbbec_camera.connect_camera / get_one_frame。"""
+        sn = (self.serial or "").strip()
+        taken = self._serial_taken_by_other(sn)
+        if taken:
+            self.last_error = f"serial={sn} 已被「{taken}」占用，不能两路同时打开同一台"
+            log.warning("[%s] %s", self.name, self.last_error)
+            return False
+        try:
+            from vision.orbbec_backend import (
+                create_rsdt_orbbec,
+                pick_depth_res,
+                pick_fps,
+                pick_rgb_res,
+            )
+
+            cam = create_rsdt_orbbec(sn or str(self.index))
+            rgb = pick_rgb_res(self._color_width, self._color_height)
+            depth = pick_depth_res(self._color_width, self._color_height)
+            fps = pick_fps(self._target_fps)
+            ok = bool(
+                cam.connect_camera(
+                    rgb,
+                    depth,
+                    fps,
+                    color_auto_exposure=True,
+                )
+            )
+            if not ok:
+                self.last_error = (
+                    f"RSDT 奥比 connect_camera 失败 serial={sn or '-'} "
+                    f"rgb={rgb} depth={depth} fps={fps}"
+                )
+                log.warning("[%s] %s", self.name, self.last_error)
+                try:
+                    cam.stop()
+                except Exception:
+                    pass
+                return False
+            self._rsdt = cam
+            self._has_depth_stream = True
+            self._device_fps = int(fps)
+            self.opened = True
+            self.last_error = ""
+            if sn:
+                self._claim(sn)
+            log.info(
+                "[%s] RSDT 奥比已打开 serial=%s rgb=%s fps=%s",
+                self.name,
+                sn or "-",
+                rgb,
+                fps,
+            )
+            return True
+        except Exception as e:
+            self.last_error = f"RSDT 奥比打开失败，将试本仓 SDK: {e}"
+            log.warning("[%s] %s", self.name, self.last_error)
+            self._rsdt = None
+            return False
 
     def _open_orbbec(self) -> bool:
         sn = (self.serial or "").strip()
@@ -1285,6 +1374,13 @@ class OrbbecCamera:
 
     def close(self) -> None:
         self._stream_running = False
+        rsdt = self._rsdt
+        self._rsdt = None
+        if rsdt is not None:
+            try:
+                rsdt.stop()
+            except Exception:
+                pass
         pipe = self._pipeline
         self._pipeline = None
         if pipe is not None:
@@ -1328,6 +1424,9 @@ class OrbbecCamera:
             return True
         if self._opening:
             return False
+        if self._rsdt is not None:
+            self.opened = bool(getattr(self._rsdt, "connected", False))
+            return self.opened
         if self._cap is not None and cv2 is not None:
             self.opened = bool(self._cap.isOpened())
             return self.opened

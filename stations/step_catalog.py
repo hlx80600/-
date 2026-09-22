@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional
 STEP_CATALOG: Dict[int, Dict[int, List[Dict[str, Any]]]] = {
     1: {
         10: [
+            {"step": 5, "title": "光电滤波后等待", "detail": "中转有料后再延时（默认500ms，HMI可调）才拍照", "kind": "delay", "points": []},
             {"step": 10, "title": "皮带拍照", "detail": "相机1/屏蔽示教 → 候选鞋", "kind": "vision", "points": []},
             {"step": 20, "title": "解析/重试", "detail": "失败则延时重拍", "kind": "wait", "points": []},
             {"step": 30, "title": "写PickPose+Mem1", "detail": "XYRz写入取料位，Mem[1]=True", "kind": "mem", "points": []},

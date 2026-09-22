@@ -102,9 +102,11 @@ def _sections_zh_cn() -> List[Section]:
                     f" HMI 勾选副本 {_code('core/memory.py')}；写记忆 {_code('core/plc_util.py')} 的 sync_mem。",
                     f"设备与视觉：{_code('core/app_context.py')}（robot1/2、夹爪、压机、cameras、vision）。",
                     f"参数总表：{_code('config/default.yaml')}（IP、点位、Mock、运动步参数）。",
-                    f"通讯读写（法奥 XML-RPC、压机 Modbus 功能码、夹爪 CAN、相机）：见 docs/程序总览.md §3.2；"
-                    f"压机驱动 {_code('devices/press_modbus.py')}，点表 {_code('devices/plc_cas_points.py')}。",
-                    "纸质/仓库详解：docs/程序总览.md（主流程、变量落点、通讯）；视觉接口见 algorithm_module/readme.md。",
+                    f"通讯读写（法奥 XML-RPC、压机 Modbus、夹爪 CAN、相机）：docs/程序总览.md §3.2；"
+                    " HMI 与主循环同进程共享 ctx、按钮走 coord.cmd_*、定时器读内存：§3.3。"
+                    f" 压机驱动 {_code('devices/press_modbus.py')}，点表 {_code('devices/plc_cas_points.py')}。",
+                    "纸质/仓库详解：docs/程序总览.md（主流程、变量落点、设备通讯、HMI↔后端 §3.3）；"
+                    "视觉接口见 algorithm_module/readme.md。",
                 ]
             )
             + _h("一条鞋怎么走（自动）")
@@ -419,7 +421,7 @@ def _sections_zh_cn() -> List[Section]:
                     "棋盘格：检测 → 多角度「采集有效帧」→「计算并保存内参」；cam1「内参写入皮带 json」。",
                     "手眼（cam1 必做）：预览上点针尖像素 →「记录手眼采样点」"
                     "→ 换位采满 ≥8～12 点 →「保存手眼采样」→「计算手眼4×4写入 json」。",
-                    "「视觉参数」：按上方相机改置信度 / 鞋头前推 / 压杆检测区，点保存。",
+                    "「视觉参数」：按上方相机改置信度 / 鞋头前推 / 压杆检测区；cam1 还可改光电滤波与拍照前延迟。点保存。",
                     "「检测测试」测皮带 →「写入 PickPose」→「MoveL 到取料上方」核对。",
                     "其它路：用对应「测试…」按钮验证模型；再切「采图训练」写生产 json / 单步。",
                 ]
@@ -721,7 +723,7 @@ def _sections_zh_cn() -> List[Section]:
             _L(T.CONFIG),
             _io_block(
                 purpose=(
-                    "改机器人 IP、压机、夹爪 CAN、光电 DI、各设备 use_mock，保存回 default.yaml 并尽量重连。"
+                    "改机器人 IP、压机、夹爪 CAN、光电 DI、光电滤波/拍照前延迟、各设备 use_mock，保存回 default.yaml 并尽量重连。"
                     "压鞋机：等空闲变0超时（0=一直等）、放鞋完成后等启动/空转（毫秒）。"
                     "开机自启动在「设置 → 界面与刷新」勾选，写入当前用户 ~/.config/autostart。"
                 ),
@@ -805,7 +807,7 @@ def _sections_zh_cn() -> List[Section]:
             + _h("实现文件与职责")
             + _ul(
                 [
-                    f"<b>Station1</b> {_code('stations/station1_belt_photo.py')} — 皮带拍照 → PickPose（调 vision.photo_belt_pick / algo）；记下运行快照 id",
+                    f"<b>Station1</b> {_code('stations/station1_belt_photo.py')} — 光电中转滤波后延迟再皮带拍照 → PickPose（调 vision.photo_belt_pick / algo）；记下运行快照 id",
                     f"<b>Station2</b> {_code('stations/station2_robot1.py')} — 上料臂取料+放料（MoveJ/MoveL、夹爪、鞋头对位 {_code('stations/toe_place_assist.py')}）；放料完成回写快照 place",
                     f"<b>Station3</b> {_code('stations/station3_place_slot_photo.py')} — 放料槽拍照（photo_place_slot）；判定结果回写 slot_check",
                     f"<b>Station4</b> {_code('stations/station4_pick_slot_photo.py')} — 取料槽拍照+压杆（photo_pick_slot）；记下下料快照 id",

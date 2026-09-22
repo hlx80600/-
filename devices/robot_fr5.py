@@ -8,6 +8,8 @@
   1. robots.robotX.use_mock: false
   2. 能 import fairino（本程序会自动把同级目录 ../fairino 加入路径）
   3. 能 ping 通 IP，控制器开远程（端口约 20003 XML-RPC）
+  4. robots.rpc_backend：rsdt=RSDT FairinoRobotArm（五次样条）；fr5=本仓 Robot.RPC
+     工位仍只调 move_j / move_l / poll_move_done；样条走 follow_quintic_spline
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 from devices.pose_utils import extract_joints, pose_to_list
+from devices.robot_rpc_backend import create_fairino_rpc, normalize_rpc_backend
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +100,7 @@ class RobotFR5:
         user: int = 0,
         vel: float = 30.0,
         use_mock: bool = True,
+        rpc_backend: str = "rsdt",
     ):
         self.name = name
         self.ip = ip
@@ -104,6 +108,7 @@ class RobotFR5:
         self.user = user
         self.vel = float(vel)
         self.use_mock = use_mock
+        self.rpc_backend = normalize_rpc_backend(rpc_backend)
         self._robot = None
         self.connected = False
         self.last_error = ""
@@ -509,8 +514,9 @@ class RobotFR5:
             log.info("[%s] Mock 已连接 %s", self.name, self.ip)
             return True
         try:
-            RPC = _import_fairino_rpc()
-            self._robot = RPC(self.ip)
+            self._robot = create_fairino_rpc(
+                self.ip, backend=self.rpc_backend, name=self.name
+            )
             # 新版 SDK：CNDE+XML-RPC 都成功才 is_connect=True
             ok = bool(getattr(self._robot, "is_connect", True))
             if not ok:
@@ -1419,6 +1425,41 @@ class RobotFR5:
             async_rpc=async_rpc,
             joints=joints,
         )
+
+    def follow_quintic_spline(
+        self,
+        points: list,
+        *,
+        speed_mm_s: float = 100.0,
+        fillet_radius_mm: float = 0.0,
+        use_joint_servo: bool = False,
+    ) -> int:
+        """RSDT 五次样条 + ServoCart（多点）。工位点到点请继续用 move_j/move_l。
+
+        points: 每个元素 [x,y,z,rx,ry,rz]（mm / °）。
+        后端须为 rsdt 且已 connect；Mock 直接返回 0。
+        """
+        if self.use_mock:
+            log.info("[%s] Mock 五次样条 %s 点", self.name, len(points or []))
+            return 0
+        if self._robot is None:
+            raise RuntimeError(f"{self.name} 未连接，无法样条")
+        fn = getattr(self._robot, "RobotServoSpline", None)
+        if not callable(fn):
+            raise RuntimeError(
+                f"{self.name} 当前 RPC 无 RobotServoSpline。"
+                "请 robots.rpc_backend=rsdt 并保证 RSDT_Simple_Automation 可导入。"
+            )
+        pts = [list(map(float, p[:6])) for p in (points or [])]
+        err = fn(
+            pts,
+            speed_mm_s=float(speed_mm_s),
+            tool=int(self.tool),
+            user=int(self.user),
+            fillet_radius_mm=float(fillet_radius_mm),
+            use_joint_servo=bool(use_joint_servo),
+        )
+        return int(err or 0)
 
     def poll_move_done(self) -> bool:
         """

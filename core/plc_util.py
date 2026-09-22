@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from core.gvl import GVL
@@ -35,6 +35,45 @@ def delay_done(gvl: GVL, name: str) -> bool:
 def delay_reset(gvl: GVL, name: str) -> None:
     """清掉延时。"""
     gvl._delay_until.pop(name, None)
+
+
+def belt_filter_ms(cfg: dict[str, Any] | None) -> int:
+    """光电滤波时间（毫秒）：原始 DI 须保持稳定这么久，才改中转 ``gvl.BeltPresent``。"""
+    r1 = ((cfg or {}).get("robots") or {}).get("robot1") or {}
+    return max(0, int(r1.get("belt_filter_ms", 50) or 0))
+
+
+def belt_photo_delay_ms(cfg: dict[str, Any] | None) -> int:
+    """中转到拍照的等待（毫秒）。默认 500。HMI 可改 ``robots.robot1.belt_photo_delay_ms``。"""
+    r1 = ((cfg or {}).get("robots") or {}).get("robot1") or {}
+    return max(0, int(r1.get("belt_photo_delay_ms", 500) or 0))
+
+
+def update_belt_present(ctx: Any) -> None:
+    """用原始皮带光电做通断滤波，写出中转 ``gvl.BeltPresent``。
+
+    工位触发只看中转，不直接看 GetDI，避免抖动连拍。
+    副作用：写 ``gvl.BeltDiRaw`` / ``BeltPresent`` 及内部稳定计时。
+    """
+    gvl = ctx.gvl
+    r1 = (ctx.cfg.get("robots") or {}).get("robot1") or {}
+    di = int(r1.get("di_belt_sensor", 0))
+    raw = bool(ctx.robot1.get_di(di))
+    gvl.BeltDiRaw = raw
+    filter_s = belt_filter_ms(ctx.cfg) / 1000.0
+    now = time.monotonic()
+    if filter_s <= 1e-6:
+        gvl.BeltPresent = raw
+        gvl._belt_cand = raw
+        gvl._belt_stable_since = now
+        return
+    cand = getattr(gvl, "_belt_cand", None)
+    if cand is None or bool(cand) != raw:
+        gvl._belt_cand = raw
+        gvl._belt_stable_since = now
+        return
+    if now - float(gvl._belt_stable_since) >= filter_s:
+        gvl.BeltPresent = raw
 
 
 def pulse_cmd(gvl: GVL, name: str) -> bool:

@@ -176,6 +176,14 @@ class VisionParamsPage(QWidget):
         self.reload_from_disk()
         self.show_cam(self._cam_id_fn())
 
+    def _apply_belt_timing_live(self, *_args: object) -> None:
+        """把滤波/拍照前延迟写进内存配置，下一拍 Station1 即用；保存按钮才落盘。"""
+        if self._syncing:
+            return
+        r1 = self.ctx.cfg.setdefault("robots", {}).setdefault("robot1", {})
+        r1["belt_filter_ms"] = int(self.sp_belt_filter.value())
+        r1["belt_photo_delay_ms"] = int(self.sp_belt_photo_delay.value())
+
     def _build_cam1(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
@@ -185,7 +193,21 @@ class VisionParamsPage(QWidget):
         self.sp_belt_iou = _spin_float(0.05, 0.95, 0.30, step=0.05)
         form.addRow("置信度", self.sp_belt_conf)
         form.addRow("框重叠 iou", self.sp_belt_iou)
-        note = QLabel("数字越大越严、越不容易误检；过严会漏检。换模型请到「采图训练」。")
+        r1 = (self.ctx.cfg.get("robots") or {}).get("robot1") or {}
+        self.sp_belt_filter = _spin_int(0, 2000, int(r1.get("belt_filter_ms", 50) or 50))
+        self.sp_belt_photo_delay = _spin_int(0, 5000, int(r1.get("belt_photo_delay_ms", 500) or 500))
+        self.sp_belt_filter.setSuffix(" ms")
+        self.sp_belt_photo_delay.setSuffix(" ms")
+        self.sp_belt_filter.setToolTip("原始光电稳定后才置中转信号；Station1 只看中转")
+        self.sp_belt_photo_delay.setToolTip("中转有料后再延迟才拍 cam1，默认 500ms")
+        form.addRow("光电滤波", self.sp_belt_filter)
+        form.addRow("拍照前延迟", self.sp_belt_photo_delay)
+        self.sp_belt_filter.valueChanged.connect(self._apply_belt_timing_live)
+        self.sp_belt_photo_delay.valueChanged.connect(self._apply_belt_timing_live)
+        note = QLabel(
+            "数字越大越严、越不容易误检；过严会漏检。换模型请到「采图训练」。"
+            "滤波/拍照前延迟改完立刻用于 Station1，点「保存」才写 yaml。"
+        )
         note.setWordWrap(True)
         note.setStyleSheet("color:#7f8c8d;")
         form.addRow(note)
@@ -348,6 +370,10 @@ class VisionParamsPage(QWidget):
             self.chk_snaps.setChecked(bool(vis.get("save_runtime_snaps", True)))
             self.sp_keep.setValue(int(vis.get("snap_keep_days", 7) or 7))
 
+            r1 = (self.ctx.cfg.get("robots") or {}).get("robot1") or {}
+            self.sp_belt_filter.setValue(int(r1.get("belt_filter_ms", 50) or 50))
+            self.sp_belt_photo_delay.setValue(int(r1.get("belt_photo_delay_ms", 500) or 500))
+
             pos = load_position(vis)
             self._pos_cache = pos
             cid = rod_camera_id(vis)
@@ -447,6 +473,7 @@ class VisionParamsPage(QWidget):
         vis["photo_retry_interval_s"] = float(self.sp_retry_s.value())
         vis["save_runtime_snaps"] = bool(self.chk_snaps.isChecked())
         vis["snap_keep_days"] = int(self.sp_keep.value())
+        self._apply_belt_timing_live()
 
         vis.setdefault("position", {})
         if not isinstance(vis["position"], dict):

@@ -35,7 +35,8 @@ def build_sections_en() -> List[Section]:
                     f"Devices & vision: {_code('core/app_context.py')}.",
                     f"Parameters: {_code('config/default.yaml')}.",
                     "Comms (Fairino XML-RPC, press Modbus FCs, gripper CAN, cameras) and variable files: "
-                    "docs/程序总览.md §3.1 / §3.2.",
+                    "docs/程序总览.md §3.1 / §3.2. HMI shares ctx in-process; buttons call coord.cmd_*; "
+                    "Qt timers poll memory — §3.3.",
                     "Repo docs: docs/程序总览.md; vision API: algorithm_module/readme.md.",
                 ]
             )
@@ -596,7 +597,7 @@ def build_sections_en() -> List[Section]:
             + _h("Files")
             + _ul(
                 [
-                    f"Station1 {_code('station1_belt_photo.py')} — belt photo; stores run-snap id",
+                    f"Station1 {_code('station1_belt_photo.py')} — filtered belt DI then delay then belt photo; stores run-snap id",
                     f"Station2 {_code('station2_robot1.py')} — load arm; place write-back",
                     f"Station3 {_code('station3_place_slot_photo.py')} — slot_check write-back",
                     f"Station4 {_code('station4_pick_slot_photo.py')} — unload snap id",

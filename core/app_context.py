@@ -75,6 +75,11 @@ class AppContext:
             r1.get("user", 0),
             r1.get("vel", 30),
             r1_mock,
+            rpc_backend=str(
+                r1.get("rpc_backend")
+                or self.cfg.get("robots", {}).get("rpc_backend")
+                or "rsdt"
+            ),
         )
         self.robot2 = RobotFR5(
             r2["name"],
@@ -83,6 +88,11 @@ class AppContext:
             r2.get("user", 0),
             r2.get("vel", 30),
             r2_mock,
+            rpc_backend=str(
+                r2.get("rpc_backend")
+                or self.cfg.get("robots", {}).get("rpc_backend")
+                or "rsdt"
+            ),
         )
         motion_cfg = self.cfg.get("motion") if isinstance(self.cfg.get("motion"), dict) else {}
         self.robot1.apply_motion_cfg(motion_cfg)
@@ -157,8 +167,12 @@ class AppContext:
         press_cfg = self.cfg.get("press", {})
         self.press = PressMachine(press_cfg, use_mock=device_use_mock(press_cfg, self.use_mock))
 
+        vis_cfg = self.cfg.get("vision", {}) if isinstance(self.cfg.get("vision"), dict) else {}
+        vis_backend = str(vis_cfg.get("orbbec_backend") or "rsdt")
         self.cameras: Dict[str, OrbbecCamera] = {}
         for key, ccfg in self.cfg.get("cameras", {}).items():
+            if not isinstance(ccfg, dict):
+                continue
             cw, ch = resolve_camera_color_res(ccfg, self.cfg)
             self.cameras[key] = OrbbecCamera(
                 ccfg.get("name", key),
@@ -169,8 +183,8 @@ class AppContext:
                 color_width=cw,
                 color_height=ch,
                 enable_depth=resolve_enable_depth(ccfg),
+                orbbec_backend=str(ccfg.get("orbbec_backend") or vis_backend or "rsdt"),
             )
-        vis_cfg = self.cfg.get("vision", {})
         self.vision = VisionService(
             self.cameras, vis_cfg, use_mock=device_use_mock(vis_cfg, self.use_mock)
         )

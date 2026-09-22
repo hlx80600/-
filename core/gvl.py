@@ -100,6 +100,11 @@ class GVL:
         # Station1 确认后的本拍取料快照；Station2 取料/抬起/Mem8·9 只认它
         # 含 toe_offset_in_grasp_tcp：抓取中心→鞋头（抓取TCP系 mm）
         self.BeltPickSnapshot = None
+        # 皮带光电：原始 DI 与滤波中转（Station1 只看 BeltPresent）
+        self.BeltDiRaw: bool = False
+        self.BeltPresent: bool = False
+        self._belt_cand: bool | None = None
+        self._belt_stable_since: float = 0.0
 
         # 鞋头 TCP：抓取后激活，放料对位/绕点用鞋头；张爪后关闭
         self.ToeTcpActive: bool = False

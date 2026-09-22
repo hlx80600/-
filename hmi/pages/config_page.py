@@ -115,20 +115,39 @@ class ConfigPage(QWidget):
         self.sp_belt_di = _spin_int(0, 64, int(r1.get("di_belt_sensor", 0)))
         self.chk_belt_mock = QCheckBox("皮带光电走模拟（真机臂时勾选才能用 HMI 点光电）")
         self.chk_belt_mock.setChecked(bool(r1.get("di_belt_use_mock", True)))
+        self.sp_belt_filter = _spin_int(0, 2000, int(r1.get("belt_filter_ms", 50) or 50))
+        self.sp_belt_filter.setSuffix(" ms")
+        self.sp_belt_filter.setToolTip("原始光电须保持稳定这么久，才置中转 BeltPresent（滤波）")
+        self.sp_belt_photo_delay = _spin_int(0, 5000, int(r1.get("belt_photo_delay_ms", 500) or 500))
+        self.sp_belt_photo_delay.setSuffix(" ms")
+        self.sp_belt_photo_delay.setToolTip("中转有料后再等这么久才拍 cam1；默认 500ms，改完保存即生效")
         self.chk_r1 = QCheckBox("上料机器人 robot1 模拟")
         self.chk_r1.setChecked(device_use_mock(r1, sys_def))
         self.chk_r2 = QCheckBox("下料机器人 robot2 模拟")
         self.chk_r2.setChecked(device_use_mock(r2, sys_def))
+        self.cb_rpc = QComboBox()
+        self.cb_rpc.addItem("RSDT 封装（五次样条）", "rsdt")
+        self.cb_rpc.addItem("本仓 fairino Robot.RPC", "fr5")
+        want_rpc = str(
+            r1.get("rpc_backend")
+            or cfg.get("robots", {}).get("rpc_backend")
+            or "rsdt"
+        ).strip().lower()
+        idx = self.cb_rpc.findData("fr5" if want_rpc in ("fr5", "native", "local") else "rsdt")
+        self.cb_rpc.setCurrentIndex(max(0, idx))
         fr.addRow("上料 IP robot1", self.ed_r1)
         fr.addRow("上料 tool / user", self._pair(self.sp_r1_tool, self.sp_r1_user))
         fr.addRow("上料速度 %", self.sp_r1_vel)
         fr.addRow("皮带光电 DI 号", self.sp_belt_di)
         fr.addRow(self.chk_belt_mock)
+        fr.addRow("光电滤波（中转）", self.sp_belt_filter)
+        fr.addRow("拍照前延迟", self.sp_belt_photo_delay)
         fr.addRow(self.chk_r1)
         fr.addRow("下料 IP robot2", self.ed_r2)
         fr.addRow("下料 tool / user", self._pair(self.sp_r2_tool, self.sp_r2_user))
         fr.addRow("下料速度 %", self.sp_r2_vel)
         fr.addRow(self.chk_r2)
+        fr.addRow("机械臂 RPC 后端", self.cb_rpc)
 
         # —— 夹爪：最多 99 路，先选数量再填地址 ——
         gcfg = normalize_grippers_cfg(cfg)
@@ -285,6 +304,13 @@ class ConfigPage(QWidget):
             self.cam_ed[key] = (ed_ser, sp_idx, cb, cb_depth)
         self.chk_vision = QCheckBox("视觉算法兜底 vision.use_mock（相机未单独配置时）")
         self.chk_vision.setChecked(device_use_mock(cfg.get("vision", {}), sys_def))
+        self.cb_orbbec = QComboBox()
+        self.cb_orbbec.addItem("RSDT 奥比驱动（热插拔/对齐）", "rsdt")
+        self.cb_orbbec.addItem("本仓 pyorbbecsdk / OpenCV", "local")
+        want_ob = str((cfg.get("vision") or {}).get("orbbec_backend") or "rsdt").strip().lower()
+        idx_ob = self.cb_orbbec.findData("local" if want_ob in ("local", "legacy", "sdk") else "rsdt")
+        self.cb_orbbec.setCurrentIndex(max(0, idx_ob))
+        fc.addRow("奥比驱动", self.cb_orbbec)
         fc.addRow(self.chk_vision)
 
         tab_press = QWidget()
@@ -627,8 +653,14 @@ class ConfigPage(QWidget):
         r2["vel"] = float(self.sp_r2_vel.value())
         r1["di_belt_sensor"] = int(self.sp_belt_di.value())
         r1["di_belt_use_mock"] = bool(self.chk_belt_mock.isChecked())
+        r1["belt_filter_ms"] = int(self.sp_belt_filter.value())
+        r1["belt_photo_delay_ms"] = int(self.sp_belt_photo_delay.value())
         r1["use_mock"] = bool(self.chk_r1.isChecked())
         r2["use_mock"] = bool(self.chk_r2.isChecked())
+        rpc_b = str(self.cb_rpc.currentData() or "rsdt")
+        cfg.setdefault("robots", {})["rpc_backend"] = rpc_b
+        r1["rpc_backend"] = rpc_b
+        r2["rpc_backend"] = rpc_b
 
         # 夹爪电机槽
         gcfg = normalize_grippers_cfg(cfg)
@@ -665,7 +697,9 @@ class ConfigPage(QWidget):
         tw["green_do"] = int(self.sp_lt_g.value())
 
         # 相机 / 视觉
-        cfg.setdefault("vision", {})["use_mock"] = bool(self.chk_vision.isChecked())
+        vis_save = cfg.setdefault("vision", {})
+        vis_save["use_mock"] = bool(self.chk_vision.isChecked())
+        vis_save["orbbec_backend"] = str(self.cb_orbbec.currentData() or "rsdt")
         for key, (ed_ser, sp_idx, cb, cb_depth) in self.cam_ed.items():
             c = cfg.setdefault("cameras", {}).setdefault(key, {})
             c["serial"] = ed_ser.text().strip()
@@ -677,6 +711,7 @@ class ConfigPage(QWidget):
                 cam.serial = str(c["serial"])
                 cam.index = int(c["index"])
                 cam.enable_depth = bool(c["enable_depth"])
+                cam.orbbec_backend = str(vis_save.get("orbbec_backend") or "rsdt")
                 if not cam.enable_depth:
                     cam.last_depth = None
                     cam.last_depth_vis = None
@@ -694,6 +729,8 @@ class ConfigPage(QWidget):
         self.ctx.robot2.set_vel(float(r2["vel"]), push=push_run)
         self.ctx.robot1.set_use_mock(bool(r1["use_mock"]))
         self.ctx.robot2.set_use_mock(bool(r2["use_mock"]))
+        self.ctx.robot1.rpc_backend = rpc_b
+        self.ctx.robot2.rpc_backend = rpc_b
         self.ctx.robot1.set_di_force_mock(
             int(r1["di_belt_sensor"]), bool(r1.get("di_belt_use_mock", True))
         )

@@ -729,7 +729,7 @@ class MonitorPage(QWidget):
         self.chk_belt = QCheckBox("上料皮带光电 DI（电平保持）")
         self.chk_belt.toggled.connect(self._belt_toggled)
         self.btn_belt_on = QPushButton("模拟光电感应到位")
-        self.btn_belt_on.setToolTip("置光电 DI=True，触发 Station1 皮带拍照（需 Mem[1]=False）")
+        self.btn_belt_on.setToolTip("置光电 DI=True；滤波后中转有料才触发 Station1（需 Mem[1]=False）")
         self.btn_belt_on.clicked.connect(lambda: self._set_belt_sensor(True))
         self.btn_belt_off = QPushButton("模拟光电离开(无鞋)")
         self.btn_belt_off.setToolTip("置光电 DI=False，模拟两只鞋都取走后电平变低")
@@ -737,6 +737,38 @@ class MonitorPage(QWidget):
         style_many([(self.btn_belt_on, "success"), (self.btn_belt_off, "neutral")])
         self.lbl_belt = QLabel("光电: -")
         self.lbl_belt.setWordWrap(True)
+        r1 = self.ctx.cfg["robots"]["robot1"]
+        self._syncing_belt_timing = False
+        self.sp_belt_filter = QSpinBox()
+        self.sp_belt_filter.setRange(0, 2000)
+        self.sp_belt_filter.setSingleStep(10)
+        self.sp_belt_filter.setSuffix(" ms")
+        self.sp_belt_filter.setValue(int(r1.get("belt_filter_ms", 50) or 50))
+        self.sp_belt_filter.setToolTip("原始光电保持稳定后才置中转；Station1 只看中转")
+        self.sp_belt_filter.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
+        self.sp_belt_photo_delay = QSpinBox()
+        self.sp_belt_photo_delay.setRange(0, 5000)
+        self.sp_belt_photo_delay.setSingleStep(50)
+        self.sp_belt_photo_delay.setSuffix(" ms")
+        self.sp_belt_photo_delay.setValue(int(r1.get("belt_photo_delay_ms", 500) or 500))
+        self.sp_belt_photo_delay.setToolTip("中转有料后再等这么久才拍皮带；默认 500ms，改完立即生效")
+        self.sp_belt_photo_delay.wheelEvent = lambda e: e.ignore()  # type: ignore[method-assign]
+        self.sp_belt_filter.valueChanged.connect(self._on_belt_timing_changed)
+        self.sp_belt_photo_delay.valueChanged.connect(self._on_belt_timing_changed)
+        self.sp_belt_filter.editingFinished.connect(self._save_belt_timing)
+        self.sp_belt_photo_delay.editingFinished.connect(self._save_belt_timing)
+        belt_wrap = QWidget()
+        belt_lay = QVBoxLayout(belt_wrap)
+        belt_lay.setContentsMargins(0, 0, 0, 0)
+        belt_lay.setSpacing(4)
+        belt_lay.addWidget(self.lbl_belt)
+        delay_row = QHBoxLayout()
+        delay_row.addWidget(QLabel("滤波"))
+        delay_row.addWidget(self.sp_belt_filter)
+        delay_row.addWidget(QLabel("拍照前延迟"))
+        delay_row.addWidget(self.sp_belt_photo_delay)
+        delay_row.addStretch(1)
+        belt_lay.addLayout(delay_row)
 
         self.chk_estop = QCheckBox("物理急停 DI")
         self.chk_estop.setToolTip(
@@ -762,7 +794,7 @@ class MonitorPage(QWidget):
         mg.addWidget(self.chk_estop, 3, 1)
         mg.addWidget(self.btn_belt_on, 4, 0)
         mg.addWidget(self.btn_belt_off, 4, 1)
-        mg.addWidget(self.lbl_belt, 5, 0, 1, 2)
+        mg.addWidget(belt_wrap, 5, 0, 1, 2)
         mg.addWidget(self.chk_rotate_done, 6, 0)
         mg.addWidget(self.chk_press_done, 6, 1)
         mg.addWidget(self.btn_rot_done, 7, 0)
@@ -1625,6 +1657,54 @@ class MonitorPage(QWidget):
     def _belt_di_id(self) -> int:
         return int(self.ctx.cfg["robots"]["robot1"].get("di_belt_sensor", 0))
 
+    def _on_belt_timing_changed(self, *_args: object) -> None:
+        """改滤波/拍照前延迟立刻进 cfg，下一拍 OB1 使用。"""
+        if self._syncing_belt_timing:
+            return
+        r1 = self.ctx.cfg.setdefault("robots", {}).setdefault("robot1", {})
+        r1["belt_filter_ms"] = int(self.sp_belt_filter.value())
+        r1["belt_photo_delay_ms"] = int(self.sp_belt_photo_delay.value())
+
+    def _save_belt_timing(self) -> None:
+        self._on_belt_timing_changed()
+        try:
+            save_config(self.ctx.cfg)
+        except Exception:
+            pass
+
+    def _sync_belt_timing_spins(self) -> None:
+        r1 = self.ctx.cfg["robots"]["robot1"]
+        filt = int(r1.get("belt_filter_ms", 50) or 50)
+        delay = int(r1.get("belt_photo_delay_ms", 500) or 500)
+        if self.sp_belt_filter.hasFocus() or self.sp_belt_photo_delay.hasFocus():
+            return
+        self._syncing_belt_timing = True
+        if self.sp_belt_filter.value() != filt:
+            self.sp_belt_filter.setValue(filt)
+        if self.sp_belt_photo_delay.value() != delay:
+            self.sp_belt_photo_delay.setValue(delay)
+        self._syncing_belt_timing = False
+
+    def _belt_status_text(self) -> str:
+        raw = bool(getattr(self.ctx.gvl, "BeltDiRaw", False))
+        present = bool(getattr(self.ctx.gvl, "BeltPresent", False))
+        raw_s = (
+            i18n.tr("monitor.mock.belt_true")
+            if raw
+            else i18n.tr("monitor.mock.belt_false")
+        )
+        filt_s = (
+            i18n.tr("monitor.mock.belt_filt_on")
+            if present
+            else i18n.tr("monitor.mock.belt_filt_off")
+        )
+        return i18n.tr(
+            "monitor.mock.belt_status",
+            id=self._belt_di_id(),
+            state=raw_s,
+            filt=filt_s,
+        )
+
     def _belt_force_toggled(self, on: bool) -> None:
         """真机臂：勾选后光电走 HMI 模拟；取消则读真机 GetDI。"""
         self.ctx.robot1.set_di_force_mock(self._belt_di_id(), bool(on))
@@ -1761,14 +1841,8 @@ class MonitorPage(QWidget):
                 f"{s.name}: {s.status_text()} | {s.current_step_name()}"
             )
         belt_on = bool(self.ctx.robot1.get_di(self._belt_di_id()))
-        belt_state = (
-            i18n.tr("monitor.mock.belt_true")
-            if belt_on
-            else i18n.tr("monitor.mock.belt_false")
-        )
-        self.lbl_belt.setText(
-            i18n.tr("monitor.mock.belt_status", id=self._belt_di_id(), state=belt_state)
-        )
+        self.lbl_belt.setText(self._belt_status_text())
+        self._sync_belt_timing_spins()
         if not self._syncing_belt_chk and self.chk_belt.isChecked() != belt_on:
             self._syncing_belt_chk = True
             self.chk_belt.blockSignals(True)
@@ -2001,14 +2075,8 @@ class MonitorPage(QWidget):
             )
 
         belt_on = bool(self.ctx.robot1.get_di(self._belt_di_id()))
-        belt_state = (
-            i18n.tr("monitor.mock.belt_true")
-            if belt_on
-            else i18n.tr("monitor.mock.belt_false")
-        )
-        self.lbl_belt.setText(
-            i18n.tr("monitor.mock.belt_status", id=self._belt_di_id(), state=belt_state)
-        )
+        self.lbl_belt.setText(self._belt_status_text())
+        self._sync_belt_timing_spins()
         if not self._syncing_belt_chk and self.chk_belt.isChecked() != belt_on:
             self._syncing_belt_chk = True
             self.chk_belt.blockSignals(True)

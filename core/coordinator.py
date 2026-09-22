@@ -283,6 +283,12 @@ class Coordinator:
                     self.ctx.press.estop_outputs_off()
                 except Exception:
                     pass
+            try:
+                from core.plc_util import update_belt_present
+
+                update_belt_present(self.ctx)
+            except Exception:
+                pass
             self._sync_press_host_estop()
             self._sync_main_flags()
             self.ctx.update_lights()
@@ -312,6 +318,12 @@ class Coordinator:
             self.ctx.dry_run.tick()
         except Exception as e:
             log.debug("dry_run.tick: %s", e)
+        try:
+            from core.plc_util import update_belt_present
+
+            update_belt_present(self.ctx)
+        except Exception as e:
+            log.debug("update_belt_present: %s", e)
         for st in self.stations:
             st.cycle()
 

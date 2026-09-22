@@ -33,6 +33,7 @@ motion:
   init_near_home_deg: 15
   init_vel: 20
 robots:
+  rpc_backend: rsdt
   robot1:
     name: 上料机器人
     ip: 192.168.58.2
@@ -42,6 +43,8 @@ robots:
     vel: 24.0
     di_belt_sensor: 0
     di_belt_use_mock: true
+    belt_filter_ms: 50
+    belt_photo_delay_ms: 500
     payloads:
       empty:
         name: 手爪
@@ -75,6 +78,7 @@ robots:
         - 0.0
         - 0.0
         - 0.0
+    rpc_backend: rsdt
   robot2:
     name: 下料机器人
     ip: 192.168.1.115
@@ -115,6 +119,7 @@ robots:
         - 0.0
         - 0.0
         - 0.0
+    rpc_backend: rsdt
 grippers:
   max_motors: 99
   motor_count: 2
@@ -180,7 +185,7 @@ press:
   ip: 192.168.57.5
   port: 502
   unit_id: 1
-  use_mock: false
+  use_mock: true
   timeout_s: 0.4
   mock_auto_press_done_s: 2.0
   mock_auto_rotate_done_s: 1.5
@@ -311,6 +316,7 @@ cameras:
     enable_depth: true
 vision:
   use_mock: true
+  orbbec_backend: rsdt
   method: yolo
   shoe_vision:
     config: shoe_vision_config.json
@@ -331,7 +337,9 @@ vision:
   opening:
     place_slot: 0
     pick_slot: 0
-    left_slots: [1, 3]
+    left_slots:
+    - 1
+    - 3
   slots:
     1: {}
     2: {}

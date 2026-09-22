@@ -9,7 +9,16 @@ from __future__ import annotations
 
 import logging
 
-from core.plc_util import advance_step, cmd_reset, delay_done, delay_start, pulse_cmd, sync_mem
+from core.plc_util import (
+    advance_step,
+    belt_photo_delay_ms,
+    cmd_reset,
+    delay_done,
+    delay_reset,
+    delay_start,
+    pulse_cmd,
+    sync_mem,
+)
 from devices.pose_utils import is_left_shoe_flag
 
 log = logging.getLogger(__name__)
@@ -29,8 +38,8 @@ def cycle(ctx) -> None:
         return
 
     if not gvl.Main.DebugBypass:
-        di = int(ctx.cfg["robots"]["robot1"].get("di_belt_sensor", 0))
-        belt = ctx.robot1.get_di(di)
+        # 触发看滤波中转，不看原始 GetDI（抖动在 OB1 里滤进 BeltPresent）
+        belt = bool(gvl.BeltPresent)
         if (
             belt
             and (not M[1])
@@ -39,13 +48,32 @@ def cycle(ctx) -> None:
             and (not gvl.Main.Paused)
             and A[10] == 0
         ):
-            A[10] = 10
+            A[10] = 5
 
     if gvl.Main.Paused:
         return
 
     # CASE Auto_A[10] OF
     match A[10]:
+        case 5:
+            # 中转有料后等待拍照前延迟；鞋离开则取消
+            if not gvl.BeltPresent:
+                delay_reset(gvl, "s1_photo_delay")
+                cmd_reset(gvl, "s1_wait")
+                A[10] = 0
+            else:
+                wait_s = belt_photo_delay_ms(ctx.cfg) / 1000.0
+                if wait_s <= 1e-6:
+                    delay_reset(gvl, "s1_photo_delay")
+                    cmd_reset(gvl, "s1_wait")
+                    A[10] = 10
+                elif pulse_cmd(gvl, "s1_wait"):
+                    delay_start(gvl, "s1_photo_delay", wait_s)
+                elif delay_done(gvl, "s1_photo_delay"):
+                    delay_reset(gvl, "s1_photo_delay")
+                    cmd_reset(gvl, "s1_wait")
+                    A[10] = 10
+
         case 10:
             if pulse_cmd(gvl, "s1_10"):
                 r = ctx.vision.photo_belt_pick(
